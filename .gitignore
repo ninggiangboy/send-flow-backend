@@ -1,0 +1,45 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build output
+bin/
+dist/
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Binary artifacts
+/api
+/worker
+
+# Go test output
+*.test
+*.out
+coverage.out
+
+# Dependency/vendor cache
+vendor/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime logs
+*.log
+logs/
+
+# Local caches/temp
+.cache/
+tmp/
