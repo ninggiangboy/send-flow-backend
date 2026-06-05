@@ -1,0 +1,5199 @@
+openapi: 3.0.3
+info:
+  title: send-flow API Blueprint
+  version: 0.1.0
+  description: >
+    Contract-first OpenAPI specification derived from docs/api/* only.
+    This file documents the product blueprint for send-flow and may include
+    endpoints that are not yet implemented in code.
+servers:
+  - url: /
+tags:
+  - name: Auth
+  - name: Workspaces
+  - name: Access
+  - name: Sender
+  - name: Webhooks
+  - name: Settings
+  - name: Audience
+  - name: Content
+  - name: Campaigns
+  - name: Delivery
+  - name: Operations
+  - name: Analytics
+  - name: Tracking
+  - name: Suppression
+
+security: []
+
+x-implementation-status-values:
+  implemented: HTTP route is registered in the backend API server.
+  not_implemented: Endpoint is part of the product/API blueprint but is not registered in the backend API server yet.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: >
+        Bearer token used by dashboard sessions and workspace API keys depending
+        on the endpoint. Endpoints that already contain `workspace_id` in the
+        path remain stateless by path, and dashboard-session clients should
+        provide workspace context explicitly per request when needed.
+    apiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: WorkspaceApiKey
+      description: Workspace API key sent as a bearer credential, for example `Bearer sk_live_xxx`.
+    providerSignature:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: Provider-specific webhook signature header.
+
+  parameters:
+    ProviderName:
+      name: provider
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Provider identifier such as `google`, `github`, or an email provider name.
+    WorkspaceId:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Workspace identifier.
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+    MembershipId:
+      name: membership_id
+      in: path
+      required: true
+      schema:
+        type: string
+    RoleId:
+      name: role_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ApiKeyId:
+      name: api_key_id
+      in: path
+      required: true
+      schema:
+        type: string
+    DomainId:
+      name: domain_id
+      in: path
+      required: true
+      schema:
+        type: string
+    WebhookId:
+      name: webhook_id
+      in: path
+      required: true
+      schema:
+        type: string
+    TemplateId:
+      name: template_id
+      in: path
+      required: true
+      schema:
+        type: string
+    CampaignId:
+      name: campaign_id
+      in: path
+      required: true
+      schema:
+        type: string
+    MessageId:
+      name: message_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ContactId:
+      name: contact_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ListId:
+      name: list_id
+      in: path
+      required: true
+      schema:
+        type: string
+    SegmentId:
+      name: segment_id
+      in: path
+      required: true
+      schema:
+        type: string
+    AudienceListId:
+      name: list_id
+      in: query
+      required: false
+      schema:
+        type: string
+    AudienceSegmentId:
+      name: segment_id
+      in: query
+      required: false
+      schema:
+        type: string
+    ImportId:
+      name: import_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ExportId:
+      name: export_id
+      in: path
+      required: true
+      schema:
+        type: string
+    SuppressionId:
+      name: suppression_id
+      in: path
+      required: true
+      schema:
+        type: string
+    DeliveryId:
+      name: delivery_id
+      in: path
+      required: true
+      schema:
+        type: string
+    TrackingId:
+      name: tracking_id
+      in: path
+      required: true
+      schema:
+        type: string
+    InvitationToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+    From:
+      name: from
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    To:
+      name: to
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    Status:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
+    Query:
+      name: q
+      in: query
+      required: false
+      schema:
+        type: string
+    Sort:
+      name: sort
+      in: query
+      required: false
+      schema:
+        type: string
+    Window:
+      name: window
+      in: query
+      required: false
+      schema:
+        type: string
+    CompareTo:
+      name: compare_to
+      in: query
+      required: false
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >
+        Uniquely identifies a retriable side-effect request. Reusing the same
+        key with a different payload should return a conflict.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    WorkspaceContextHeader:
+      name: X-Workspace-Id
+      in: header
+      required: false
+      description: >
+        Optional workspace context for dashboard-session requests when the
+        target workspace is not already part of the path.
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: Permission denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UnprocessableEntity:
+      description: Business validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    RateLimited:
+      description: Rate limited
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UnexpectedError:
+      description: Unexpected error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    Meta:
+      type: object
+      additionalProperties: false
+      properties:
+        request_id:
+          type: string
+        next_cursor:
+          type: string
+        total_estimate:
+          type: integer
+      required: [request_id]
+
+    ErrorCode:
+      type: string
+      description: >
+        Canonical machine-readable error code returned in `error.code`.
+        Each operation returns a subset of these values depending on its auth,
+        validation, and business rules.
+      enum:
+        - analytics.read_denied
+        - api_key.config_invalid
+        - api_key.invalid
+        - api_key.manage_denied
+        - api_key.not_found
+        - api_key.rotate_conflict
+        - api_key.scope_denied
+        - api_key.scope_invalid
+        - audience.contact_email_conflict
+        - audience.contact_not_found
+        - audience.contact_payload_invalid
+        - audience.contact_status_invalid
+        - audience.export_denied
+        - audience.export_filter_invalid
+        - audience.export_format_invalid
+        - audience.export_job_not_found
+        - audience.import_denied
+        - audience.import_duplicate_submission
+        - audience.import_job_not_found
+        - audience.import_source_invalid
+        - audience.list_membership_payload_invalid
+        - audience.list_name_conflict
+        - audience.list_not_found
+        - audience.read_denied
+        - audience.segment_definition_invalid
+        - audience.segment_name_conflict
+        - audience.segment_not_found
+        - audience.write_denied
+        - audit.read_denied
+        - auth.identity_provider_account_linking_required
+        - auth.identity_provider_conflict
+        - auth.identity_provider_email_not_verified
+        - auth.invalid_credentials
+        - auth.mfa_invalid_code
+        - auth.mfa_required
+        - auth.invalid_request_body
+        - auth.invalid_token
+        - auth.oauth_state_invalid
+        - auth.password_policy_violation
+        - auth.provider_not_supported
+        - auth.provider_token_exchange_failed
+        - auth.rate_limited
+        - auth.reset_token_invalid
+        - auth.verification_token_invalid
+        - campaign.audience_not_ready
+        - campaign.invalid_state_transition
+        - campaign.not_found
+        - campaign.pause_conflict
+        - campaign.payload_invalid
+        - campaign.read_denied
+        - campaign.send_denied
+        - campaign.update_payload_invalid
+        - campaign.write_denied
+        - deliverability.read_denied
+        - delivery.cancel_conflict
+        - delivery.idempotency_key_conflict
+        - delivery.logs_read_denied
+        - delivery.message_not_found
+        - delivery.recipient_invalid
+        - delivery.recipient_suppressed
+        - delivery.request_body_invalid
+        - delivery.request_rate_limited
+        - delivery.retry_conflict
+        - delivery.temporarily_unavailable
+        - health.runtime_not_ready
+        - identity.email_already_registered
+        - identity.email_invalid
+        - identity.invitation_already_accepted
+        - identity.invitation_not_found
+        - identity.invitation_payload_invalid
+        - identity.invitation_token_expired
+        - identity.last_owner_cannot_be_removed
+        - identity.membership_manage_denied
+        - identity.membership_not_found
+        - identity.permission_registry_unknown
+        - identity.permission_set_invalid
+        - identity.role_assignment_conflict
+        - identity.role_manage_denied
+        - identity.role_name_conflict
+        - identity.role_not_found
+        - identity.workspace_access_denied
+        - identity.workspace_not_found
+        - operations.cancel_manage_denied
+        - operations.queue_read_denied
+        - operations.retry_manage_denied
+        - operations.retry_read_denied
+        - rate_limit.read_denied
+        - sender.domain_invalid
+        - sender.domain_not_found
+        - sender.domain_not_verified
+        - sender.invalid_state_transition
+        - sender.manage_denied
+        - sender.provider_config_invalid
+        - settings.manage_denied
+        - settings.payload_invalid
+        - settings.version_conflict
+        - suppression.entry_not_found
+        - suppression.manage_denied
+        - suppression.read_denied
+        - suppression.reason_invalid
+        - suppression.scope_invalid
+        - suppression.unsubscribe_token_expired
+        - suppression.unsubscribe_token_invalid
+        - suppression.unsubscribe_token_not_found
+        - suppression.unsuppress_conflict
+        - template.not_found
+        - template.publish_conflict
+        - template.publish_payload_invalid
+        - template.publish_required
+        - template.read_denied
+        - template.render_context_invalid
+        - template.render_denied
+        - template.render_payload_invalid
+        - template.source_invalid
+        - template.version_conflict
+        - template.version_not_found
+        - template.write_denied
+        - tracking.invalid_tracking_id
+        - tracking.tracking_id_expired
+        - webhook.config_not_found
+        - webhook.delivery_not_found
+        - webhook.delivery_read_denied
+        - webhook.delivery_retry_conflict
+        - webhook.delivery_retry_denied
+        - webhook.duplicate_event_conflict
+        - webhook.ingest_temporarily_unavailable
+        - webhook.invalid_signature
+        - webhook.manage_denied
+        - webhook.payload_invalid
+        - webhook.provider_not_supported
+        - webhook.rotate_conflict
+        - webhook.subscription_invalid
+        - webhook.target_url_invalid
+
+    Error:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+      required: [code, message]
+
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      properties:
+        error:
+          $ref: '#/components/schemas/Error'
+        meta:
+          $ref: '#/components/schemas/Meta'
+      required: [error, meta]
+
+    Envelope:
+      type: object
+      additionalProperties: false
+      properties:
+        data: {}
+        meta:
+          $ref: '#/components/schemas/Meta'
+      required: [data, meta]
+
+    Auditable:
+      type: object
+      additionalProperties: false
+      properties:
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AuthProviderResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        type:
+          type: string
+        display_name:
+          type: string
+        enabled:
+          type: boolean
+      required: [provider, type, display_name, enabled]
+
+    AuthUserResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        email_verified:
+          type: boolean
+        mfa_enabled:
+          type: boolean
+        display_name:
+          type: string
+          nullable: true
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+      required: [id, email, email_verified, mfa_enabled]
+
+    SessionResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        ip_address:
+          type: string
+          nullable: true
+        auth_method:
+          type: string
+      required: [id, expires_at]
+
+    AuthSessionResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        user:
+          $ref: '#/components/schemas/AuthUserResponse'
+        session:
+          $ref: '#/components/schemas/SessionResponse'
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_at:
+          type: string
+          format: date-time
+      required: [user, session, access_token, token_type, expires_at]
+
+    AuthMFALoginChallengeResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        mfa_required:
+          type: boolean
+        mfa_challenge_token:
+          type: string
+        user:
+          $ref: '#/components/schemas/AuthUserResponse'
+      required: [mfa_required, mfa_challenge_token, user]
+
+    AuthMeResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        email_verified:
+          type: boolean
+        mfa_enabled:
+          type: boolean
+      required: [id, email, email_verified, mfa_enabled]
+
+    GenericBooleanResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        revoked:
+          type: boolean
+        sent:
+          type: boolean
+        verified:
+          type: boolean
+        reset:
+          type: boolean
+        disabled:
+          type: boolean
+
+    MFATOTPSetupResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        secret:
+          type: string
+        otpauth_url:
+          type: string
+      required: [secret, otpauth_url]
+
+    MFARecoveryCodesResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        recovery_codes:
+          type: array
+          items:
+            type: string
+      required: [recovery_codes]
+
+    OAuthIdentityProviderResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        provider_user_id:
+          type: string
+      required: [provider, provider_user_id]
+
+    OAuthExchangeResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        user:
+          $ref: '#/components/schemas/AuthUserResponse'
+        session:
+          $ref: '#/components/schemas/SessionResponse'
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_at:
+          type: string
+          format: date-time
+        identity_provider:
+          $ref: '#/components/schemas/OAuthIdentityProviderResponse'
+      required: [user, session, access_token, token_type, expires_at]
+
+    LoginMFARequest:
+      type: object
+      additionalProperties: false
+      properties:
+        mfa_challenge_token:
+          type: string
+        code:
+          type: string
+        recovery_code:
+          type: string
+      required: [mfa_challenge_token]
+
+    TokenOnlyRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+      required: [token]
+
+    ForgotPasswordRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+      required: [email]
+
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+        new_password:
+          type: string
+      required: [token, new_password]
+
+    TOTPCodeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+      required: [code]
+
+    MFADisableRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        password:
+          type: string
+        code:
+          type: string
+
+    RefreshCookieNote:
+      type: object
+      description: >
+        Refresh token is stored only in the `sf_refresh_token` HttpOnly cookie.
+        The implementation ignores refresh tokens sent via body, query, or headers.
+
+    WorkspaceResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        membership_id:
+          type: string
+        role_names:
+          type: array
+          items:
+            type: string
+        plan:
+          type: string
+          nullable: true
+        logo_icon:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required: [id, name, membership_id, role_names, created_at, updated_at]
+
+    MembershipResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        membership_id:
+          type: string
+        workspace_id:
+          type: string
+        user_email:
+          type: string
+          format: email
+          nullable: true
+        status:
+          type: string
+        role_names:
+          type: array
+          items:
+            type: string
+      required: [membership_id, workspace_id, status, role_names]
+
+    InvitationResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+        workspace_id:
+          type: string
+        email:
+          type: string
+          format: email
+        role_ids:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required: [token, workspace_id, email, role_ids, status, created_at]
+
+    WorkspaceAccessResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        workspace_id:
+          type: string
+        membership_id:
+          type: string
+        status:
+          type: string
+        role_ids:
+          type: array
+          items:
+            type: string
+        role_names:
+          type: array
+          items:
+            type: string
+        effective_permissions:
+          type: array
+          items:
+            type: string
+      required:
+        [workspace_id, membership_id, status, role_ids, role_names, effective_permissions]
+
+    MembershipRoleAssignmentResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        workspace_id:
+          type: string
+        membership_id:
+          type: string
+        role_ids:
+          type: array
+          items:
+            type: string
+        effective_permissions:
+          type: array
+          items:
+            type: string
+      required: [workspace_id, membership_id, role_ids, effective_permissions]
+
+    RoleResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        permissions_mask:
+          type: integer
+        permission_names:
+          type: array
+          items:
+            type: string
+        builtin:
+          type: boolean
+        status:
+          type: string
+        version:
+          type: integer
+      required: [id, name, type, permissions_mask, permission_names, builtin, status, version]
+
+    PermissionResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        bit:
+          type: integer
+        name:
+          type: string
+      required: [bit, name]
+
+    ApiKeyResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        scope:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        secret:
+          type: string
+          nullable: true
+      required: [id, name, scope, status]
+
+    SenderDomainRecord:
+      type: object
+      additionalProperties: false
+      properties:
+        record_type:
+          type: string
+        host:
+          type: string
+        value:
+          type: string
+      required: [record_type, host, value]
+
+    SenderDomainResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        domain:
+          type: string
+        status:
+          type: string
+        desired_records:
+          type: array
+          items:
+            $ref: '#/components/schemas/SenderDomainRecord'
+        current_status:
+          type: object
+          additionalProperties: true
+        last_checked_at:
+          type: string
+          format: date-time
+          nullable: true
+        failure_reason:
+          type: string
+          nullable: true
+      required: [id, domain, status]
+
+    WebhookConfigResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        target_url:
+          type: string
+          format: uri
+        status:
+          type: string
+        subscribed_events:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+          nullable: true
+      required: [id, target_url, status]
+
+    SettingsResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        version:
+          type: integer
+        email_defaults:
+          type: object
+          additionalProperties: true
+
+    AuditLogEntryResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        actor_user_id:
+          type: string
+        action_type:
+          type: string
+        target_id:
+          type: string
+          nullable: true
+        occurred_at:
+          type: string
+          format: date-time
+        summary:
+          type: string
+          nullable: true
+      required: [id, actor_user_id, action_type, occurred_at]
+
+    ContactResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          type: string
+        first_name:
+          type: string
+          nullable: true
+        last_name:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+
+    ListResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        contact_count:
+          type: integer
+      required: [id, name]
+
+    ListMembershipSummaryResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        list_id:
+          type: string
+        mode:
+          type: string
+        added_count:
+          type: integer
+        removed_count:
+          type: integer
+        skipped_count:
+          type: integer
+      required: [list_id, mode, added_count, removed_count, skipped_count]
+
+    SegmentDefinition:
+      type: object
+      additionalProperties: true
+      properties:
+        rules:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    SegmentResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        definition:
+          $ref: '#/components/schemas/SegmentDefinition'
+      required: [id, name]
+
+    AudienceJobResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        import_id:
+          type: string
+        export_id:
+          type: string
+        status:
+          type: string
+        progress:
+          type: number
+        processed_count:
+          type: integer
+        failed_count:
+          type: integer
+        error_summary:
+          type: string
+          nullable: true
+        artifact_uri:
+          type: string
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    TemplateResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        subject:
+          type: string
+          nullable: true
+        html:
+          type: string
+          nullable: true
+        text:
+          type: string
+          nullable: true
+        render_snapshot_ready:
+          type: boolean
+          nullable: true
+        published_version:
+          $ref: '#/components/schemas/TemplateVersionResponse'
+      required: [id, name]
+
+    TemplateVersionResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, version]
+
+    RenderResultResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        subject:
+          type: string
+          nullable: true
+        html:
+          type: string
+          nullable: true
+        text:
+          type: string
+          nullable: true
+        warnings:
+          type: array
+          items:
+            type: string
+
+    RecipientRef:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          nullable: true
+      required: [email]
+
+    TransactionalSendRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        to:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/RecipientRef'
+        sender_domain_id:
+          type: string
+        template_id:
+          type: string
+          nullable: true
+        template_data:
+          type: object
+          additionalProperties: true
+        subject:
+          type: string
+          nullable: true
+        html:
+          type: string
+          nullable: true
+        text:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+        tags:
+          type: array
+          items:
+            type: string
+        message_type:
+          type: string
+      required: [to, sender_domain_id, message_type]
+      oneOf:
+        - required: [template_id]
+        - required: [subject, html]
+        - required: [subject, text]
+
+    TransactionalSendResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        message_id:
+          type: string
+        status:
+          type: string
+        accepted_at:
+          type: string
+          format: date-time
+      required: [message_id, status]
+
+    CampaignAudienceRef:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+        id:
+          type: string
+        estimated_recipients:
+          type: integer
+
+    CampaignTemplateRef:
+      type: object
+      additionalProperties: false
+      properties:
+        template_id:
+          type: string
+        version_id:
+          type: string
+
+    CampaignSummary:
+      type: object
+      additionalProperties: false
+      properties:
+        planned_recipients:
+          type: integer
+        queued:
+          type: integer
+        delivered:
+          type: integer
+
+    CampaignResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        audience_ref:
+          $ref: '#/components/schemas/CampaignAudienceRef'
+        template_ref:
+          $ref: '#/components/schemas/CampaignTemplateRef'
+        sender_domain_id:
+          type: string
+        scheduled_at:
+          type: string
+          format: date-time
+          nullable: true
+        summary:
+          $ref: '#/components/schemas/CampaignSummary'
+        orchestration:
+          type: object
+          additionalProperties: true
+      required: [id, name, status]
+
+    CampaignScheduleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scheduled_at:
+          type: string
+          format: date-time
+        send_options:
+          type: object
+          additionalProperties: true
+      required: [scheduled_at]
+
+    MessageResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        message_id:
+          type: string
+        recipient:
+          type: string
+        status:
+          type: string
+        provider:
+          type: string
+          nullable: true
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        provider_message_id:
+          type: string
+          nullable: true
+        timeline:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required: [message_id, status]
+
+    WebhookDeliveryResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        delivery_id:
+          type: string
+        event_type:
+          type: string
+        status:
+          type: string
+        retry_count:
+          type: integer
+        last_error:
+          type: string
+          nullable: true
+        request:
+          type: object
+          additionalProperties: true
+        response:
+          type: object
+          additionalProperties: true
+      required: [delivery_id, event_type, status]
+
+    AnalyticsOverviewResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        window:
+          type: string
+        kpis:
+          type: object
+          additionalProperties: true
+        last_updated_at:
+          type: string
+          format: date-time
+
+    AnalyticsCampaignResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        campaign_id:
+          type: string
+        funnel:
+          type: object
+          additionalProperties: true
+        last_updated_at:
+          type: string
+          format: date-time
+
+    DeliverabilityOverviewResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        providers:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    HealthStatusResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        status:
+          type: string
+        dependencies:
+          type: object
+          additionalProperties: true
+
+    SuppressionEntryResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        scope:
+          type: string
+        reason:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, email, scope, reason]
+
+    SignupRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required: [email, password]
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required: [email, password]
+
+    OAuthStartRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        redirect_uri:
+          type: string
+          format: uri
+        intent:
+          type: string
+        code_challenge:
+          type: string
+        code_verifier:
+          type: string
+      required: [redirect_uri]
+
+    OAuthExchangeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        state:
+          type: string
+        redirect_uri:
+          type: string
+          format: uri
+        code_verifier:
+          type: string
+      required: [code, state, redirect_uri]
+
+    CreateWorkspaceRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+      required: [name]
+
+    CreateInvitationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        role_ids:
+          type: array
+          items:
+            type: string
+      required: [email, role_ids]
+
+    AcceptInvitationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+
+    CreateRoleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        permission_names:
+          type: array
+          items:
+            type: string
+        permissions_mask:
+          type: integer
+
+    UpdateRoleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        permission_names:
+          type: array
+          items:
+            type: string
+        permissions_mask:
+          type: integer
+        status:
+          type: string
+
+    AssignMemberRolesRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        role_ids:
+          type: array
+          items:
+            type: string
+      required: [role_ids]
+
+    CreateApiKeyRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        scope:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        config:
+          type: object
+          additionalProperties: true
+      required: [name, scope]
+
+    UpdateApiKeyRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        scope:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+        rotate:
+          type: boolean
+
+    CreateSenderDomainRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        domain:
+          type: string
+        provider:
+          type: string
+        provider_config:
+          type: object
+          additionalProperties: true
+      required: [domain]
+
+    CreateWebhookConfigRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        target_url:
+          type: string
+          format: uri
+        subscribed_events:
+          type: array
+          items:
+            type: string
+        signing:
+          type: object
+          additionalProperties: true
+      required: [target_url, subscribed_events]
+
+    UpdateWebhookConfigRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        target_url:
+          type: string
+          format: uri
+        subscribed_events:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+
+    UpdateSettingsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+        email_defaults:
+          type: object
+          additionalProperties: false
+          properties:
+            default_sender_domain_id:
+              type: string
+
+    CreateContactRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+        last_name:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    UpdateContactRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+        last_name:
+          type: string
+        status:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    CreateListRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+      required: [name]
+
+    UpdateListContactsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        mode:
+          type: string
+        contact_ids:
+          type: array
+          items:
+            type: string
+      required: [mode, contact_ids]
+
+    CreateSegmentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        definition:
+          $ref: '#/components/schemas/SegmentDefinition'
+      required: [name, definition]
+
+    UpdateSegmentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        definition:
+          $ref: '#/components/schemas/SegmentDefinition'
+        status:
+          type: string
+        action:
+          type: string
+
+    CreateAudienceImportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        source_uri:
+          type: string
+        dedupe_mode:
+          type: string
+        source_metadata:
+          type: object
+          additionalProperties: true
+        mapping_config:
+          type: object
+          additionalProperties: true
+
+    CreateAudienceExportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        filters:
+          type: object
+          additionalProperties: true
+        format:
+          type: string
+        selected_fields:
+          type: array
+          items:
+            type: string
+        destination_uri:
+          type: string
+      required: [filters, format]
+
+    CreateSuppressionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        scope:
+          type: string
+        reason:
+          type: string
+        operator_note:
+          type: string
+      required: [email, scope, reason]
+
+    CreateTemplateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        subject:
+          type: string
+        html:
+          type: string
+        text:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        category:
+          type: string
+      required: [name]
+
+    UpdateTemplateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        subject:
+          type: string
+        html:
+          type: string
+        text:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        category:
+          type: string
+
+    PublishTemplateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        version_id:
+          type: string
+        publish_note:
+          type: string
+
+    PreviewTemplateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        template_data:
+          type: object
+          additionalProperties: true
+        version_id:
+          type: string
+
+    RenderTemplateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        template_id:
+          type: string
+        version_id:
+          type: string
+        template_data:
+          type: object
+          additionalProperties: true
+        subject:
+          type: string
+        html:
+          type: string
+        text:
+          type: string
+      oneOf:
+        - required: [template_id]
+        - required: [html]
+        - required: [text]
+
+    CreateCampaignRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        audience_ref:
+          $ref: '#/components/schemas/CampaignAudienceRef'
+        template_ref:
+          $ref: '#/components/schemas/CampaignTemplateRef'
+        sender_domain_id:
+          type: string
+        message_type:
+          type: string
+        scheduled_at:
+          type: string
+          format: date-time
+          nullable: true
+        send_options:
+          type: object
+          additionalProperties: true
+      required: [name, audience_ref, template_ref, sender_domain_id, message_type]
+
+    UpdateCampaignRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        audience_ref:
+          $ref: '#/components/schemas/CampaignAudienceRef'
+        template_ref:
+          $ref: '#/components/schemas/CampaignTemplateRef'
+        sender_domain_id:
+          type: string
+        message_type:
+          type: string
+        scheduled_at:
+          type: string
+          format: date-time
+          nullable: true
+        send_options:
+          type: object
+          additionalProperties: true
+
+    UnsubscribeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+
+paths:
+  /api/v1/auth/signup:
+    post:
+      tags: [Auth]
+      operationId: signup
+      x-implementation-status: implemented
+      summary: Create a new user account
+      description: |
+        Public signup endpoint for dashboard users.
+        Returns `access_token` in the response body and sets `sf_refresh_token`
+        as an HttpOnly cookie scoped to `/api/v1/auth/refresh`.
+
+        Possible error.code values:
+        - `auth.invalid_request_body`
+        - `identity.email_already_registered`
+        - `identity.email_invalid`
+        - `auth.password_policy_violation`
+        - `auth.rate_limited`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+            examples:
+              default:
+                value:
+                  email: owner@example.com
+                  password: StrongPassword123!
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthSessionResponse'
+                    required: [data]
+        '409':
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      x-implementation-status: implemented
+      summary: Log in with email and password
+      description: |
+        Returns either a full auth session payload or an MFA challenge response.
+        Refresh token rotation happens only through the HttpOnly cookie flow.
+
+        Possible error.code values:
+        - `auth.invalid_request_body`
+        - `auth.invalid_credentials`
+        - `auth.rate_limited`
+        - `auth.mfa_required`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        oneOf:
+                          - $ref: '#/components/schemas/AuthSessionResponse'
+                          - $ref: '#/components/schemas/AuthMFALoginChallengeResponse'
+                    required: [data]
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /api/v1/auth/providers:
+    get:
+      tags: [Auth]
+      operationId: listAuthProviders
+      x-implementation-status: implemented
+      summary: List enabled auth providers
+      responses:
+        '200':
+          description: Provider list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuthProviderResponse'
+                    required: [data]
+
+  /api/v1/auth/oauth/{provider}/start:
+    post:
+      tags: [Auth]
+      operationId: startOAuth
+      x-implementation-status: implemented
+      summary: Start an OAuth or OIDC login flow
+      description: |
+        Possible error.code values:
+        - `auth.invalid_request_body`
+        - `auth.provider_not_supported`
+        - `health.runtime_not_ready`
+      parameters:
+        - $ref: '#/components/parameters/ProviderName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthStartRequest'
+      responses:
+        '200':
+          description: Authorization URL and state
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: true
+                    required: [data]
+
+  /api/v1/auth/oauth/{provider}/exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeOAuth
+      x-implementation-status: implemented
+      summary: Exchange an OAuth code for a session
+      description: |
+        Exchange accepted. Backend also sets the refresh token as an HttpOnly cookie.
+
+        Possible error.code values:
+        - `auth.oauth_state_invalid`
+        - `auth.provider_not_supported`
+        - `auth.invalid_token`
+        - `health.runtime_not_ready`
+      parameters:
+        - $ref: '#/components/parameters/ProviderName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthExchangeRequest'
+      responses:
+        '200':
+          description: Exchange accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OAuthExchangeResponse'
+                    required: [data]
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      x-implementation-status: implemented
+      summary: Revoke the current session
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        Also clears the `sf_refresh_token` HttpOnly cookie.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      operationId: me
+      x-implementation-status: implemented
+      summary: Return the current authenticated identity
+      description: |
+        Possible error.code values:
+        - `auth.invalid_request_body`
+        - `auth.invalid_token`
+        - `identity.invalid_workspace_name`
+        - `identity.workspace_name_conflict`
+        - `health.runtime_not_ready`
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current identity snapshot with `email_verified` and `mfa_enabled`
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthMeResponse'
+                    required: [data]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/sessions:
+    get:
+      tags: [Auth]
+      operationId: listSessions
+      x-implementation-status: implemented
+      summary: List active sessions for the current user
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `auth.session_not_owned`
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Session list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SessionResponse'
+                    required: [data]
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refresh
+      x-implementation-status: implemented
+      summary: Rotate session tokens using the HttpOnly refresh cookie
+      description: |
+        Reads `sf_refresh_token` only from the HttpOnly cookie. Client-supplied
+        body, query, or header refresh tokens are ignored by the implementation.
+
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `auth.rate_limited`
+      responses:
+        '200':
+          description: New access token and rotated refresh cookie
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthSessionResponse'
+                    required: [data]
+
+  /api/v1/auth/login/mfa:
+    post:
+      tags: [Auth]
+      operationId: loginMFA
+      x-implementation-status: implemented
+      summary: Complete login with TOTP or recovery code
+      description: |
+        Possible error.code values:
+        - `auth.invalid_request_body`
+        - `auth.invalid_token`
+        - `auth.mfa_invalid_code`
+        - `auth.rate_limited`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginMFARequest'
+      responses:
+        '200':
+          description: MFA login accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthSessionResponse'
+                    required: [data]
+
+        '401':
+          description: Invalid challenge or MFA code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /api/v1/auth/email/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyEmail
+      x-implementation-status: implemented
+      summary: Verify email address using a single-use token
+      description: |
+        Possible error.code values:
+        - `auth.invalid_request_body`
+        - `auth.verification_token_invalid`
+        - `auth.rate_limited`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenOnlyRequest'
+      responses:
+        '200':
+          description: Email verified
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                          verified:
+                            type: boolean
+                        required: [verified]
+                    required: [data]
+
+  /api/v1/auth/email/verify/request:
+    post:
+      tags: [Auth]
+      operationId: requestEmailVerification
+      x-implementation-status: implemented
+      summary: Resend a verification email for the current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Verification email sent
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                          sent:
+                            type: boolean
+                        required: [sent]
+                    required: [data]
+
+  /api/v1/auth/password/forgot:
+    post:
+      tags: [Auth]
+      operationId: forgotPassword
+      x-implementation-status: implemented
+      summary: Request a password reset email
+      description: |
+        Returns `200` even when the email does not exist.
+
+        Possible error.code values:
+        - `auth.invalid_request_body`
+        - `auth.rate_limited`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Password reset email scheduled if the account exists
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                          sent:
+                            type: boolean
+                        required: [sent]
+                    required: [data]
+
+  /api/v1/auth/password/reset:
+    post:
+      tags: [Auth]
+      operationId: resetPassword
+      x-implementation-status: implemented
+      summary: Reset password using a single-use token
+      description: |
+        Possible error.code values:
+        - `auth.invalid_request_body`
+        - `auth.password_policy_violation`
+        - `auth.reset_token_invalid`
+        - `auth.rate_limited`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                          reset:
+                            type: boolean
+                        required: [reset]
+                    required: [data]
+
+  /api/v1/auth/mfa/totp/setup:
+    post:
+      tags: [Auth]
+      operationId: mfaTOTPSetup
+      x-implementation-status: implemented
+      summary: Create or replace a pending TOTP secret for the current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pending TOTP secret created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MFATOTPSetupResponse'
+                    required: [data]
+
+  /api/v1/auth/mfa/totp/enable:
+    post:
+      tags: [Auth]
+      operationId: mfaTOTPEnable
+      x-implementation-status: implemented
+      summary: Enable TOTP MFA after verifying the current code
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TOTPCodeRequest'
+      responses:
+        '200':
+          description: TOTP MFA enabled
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MFARecoveryCodesResponse'
+                    required: [data]
+
+  /api/v1/auth/mfa/totp/disable:
+    post:
+      tags: [Auth]
+      operationId: mfaTOTPDisable
+      x-implementation-status: implemented
+      summary: Disable TOTP MFA using password or TOTP confirmation
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MFADisableRequest'
+      responses:
+        '200':
+          description: TOTP MFA disabled
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                          disabled:
+                            type: boolean
+                        required: [disabled]
+                    required: [data]
+
+  /api/v1/auth/mfa/recovery/regenerate:
+    post:
+      tags: [Auth]
+      operationId: mfaRecoveryRegenerate
+      x-implementation-status: implemented
+      summary: Regenerate recovery codes after verifying the current TOTP code
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TOTPCodeRequest'
+      responses:
+        '200':
+          description: Recovery codes replaced
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MFARecoveryCodesResponse'
+                    required: [data]
+
+  /api/v1/sessions/{session_id}:
+    delete:
+      tags: [Auth]
+      operationId: revokeSession
+      x-implementation-status: implemented
+      summary: Revoke a specific session
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  /api/v1/workspaces:
+    get:
+      tags: [Workspaces]
+      operationId: listWorkspaces
+      x-implementation-status: implemented
+      summary: List workspaces for the current user
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Workspace list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/WorkspaceResponse'
+                    required: [data]
+    post:
+      tags: [Workspaces]
+      operationId: createWorkspace
+      x-implementation-status: implemented
+      summary: Create a workspace
+      description: |
+        Possible error.code values:
+        - `auth.invalid_request_body`
+        - `auth.invalid_token`
+        - `identity.invalid_workspace_name`
+        - `identity.workspace_name_conflict`
+        - `health.runtime_not_ready`
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkspaceRequest'
+      responses:
+        '201':
+          description: Workspace created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WorkspaceResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}:
+    get:
+      tags: [Workspaces]
+      operationId: getWorkspace
+      x-implementation-status: implemented
+      summary: Get workspace details
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `identity.workspace_access_denied`
+        - `identity.workspace_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Workspace detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WorkspaceResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/members:
+    get:
+      tags: [Workspaces]
+      operationId: listMembers
+      x-implementation-status: implemented
+      summary: List workspace members
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `identity.workspace_access_denied`
+        - `identity.workspace_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Member list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/MembershipResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/access:
+    get:
+      tags: [Access]
+      operationId: getWorkspaceAccess
+      x-implementation-status: implemented
+      summary: Get the current user's access summary for a workspace
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Workspace access summary
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WorkspaceAccessResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/invitations:
+    get:
+      tags: [Workspaces]
+      operationId: listInvitations
+      x-implementation-status: implemented
+      summary: List workspace invitations
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `identity.workspace_access_denied`
+        - `identity.membership_manage_denied`
+        - `identity.workspace_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Invitation list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/InvitationResponse'
+                    required: [data]
+    post:
+      tags: [Workspaces]
+      operationId: createInvitation
+      x-implementation-status: implemented
+      summary: Create a workspace invitation
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `identity.workspace_access_denied`
+        - `identity.membership_manage_denied`
+        - `identity.workspace_not_found`
+        - `identity.invitation_payload_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInvitationRequest'
+      responses:
+        '200':
+          description: Invitation created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/InvitationResponse'
+                    required: [data]
+
+  /api/v1/invitations/{token}/accept:
+    post:
+      tags: [Workspaces]
+      operationId: acceptInvitation
+      x-implementation-status: implemented
+      summary: Accept an invitation token
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `identity.invitation_not_found`
+        - `identity.invitation_already_accepted`
+        - `identity.invitation_token_expired`
+        - `identity.workspace_access_denied`
+        - `identity.invitation_payload_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+      responses:
+        '200':
+          description: Invitation accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MembershipResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/members/{membership_id}:
+    delete:
+      tags: [Workspaces]
+      operationId: removeMember
+      x-implementation-status: implemented
+      summary: Remove a member from a workspace
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `identity.workspace_access_denied`
+        - `identity.membership_manage_denied`
+        - `identity.workspace_not_found`
+        - `identity.membership_not_found`
+        - `identity.last_owner_cannot_be_removed`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '204':
+          description: Member removed
+
+  /api/v1/workspaces/{workspace_id}/members/{membership_id}/role:
+    put:
+      tags: [Access]
+      operationId: updateMemberRole
+      x-implementation-status: implemented
+      summary: Update roles for a membership
+      description: |
+        Legacy singular route kept by the current backend. It accepts the same
+        `role_ids` payload as the plural role assignment endpoint and returns
+        only an update acknowledgement.
+
+        Possible error.code values:
+        - `auth.invalid_request_body`
+        - `auth.invalid_token`
+        - `identity.workspace_access_denied`
+        - `identity.role_manage_denied`
+        - `identity.role_not_found`
+        - `identity.membership_not_found`
+        - `identity.role_assignment_conflict`
+        - `identity.last_owner_cannot_be_removed`
+        - `identity.invalid_permission_mask`
+        - `health.runtime_not_ready`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/MembershipId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignMemberRolesRequest'
+      responses:
+        '200':
+          description: Role assignment updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                          updated:
+                            type: boolean
+                        required: [updated]
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/roles:
+    get:
+      tags: [Access]
+      operationId: listRoles
+      x-implementation-status: implemented
+      summary: List workspace roles
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `identity.workspace_access_denied`
+        - `identity.role_manage_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Role list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RoleResponse'
+                    required: [data]
+    post:
+      tags: [Access]
+      operationId: createRole
+      x-implementation-status: implemented
+      summary: Create a workspace role
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `identity.workspace_access_denied`
+        - `identity.role_manage_denied`
+        - `identity.role_name_conflict`
+        - `identity.permission_set_invalid`
+        - `identity.permission_registry_unknown`
+        - `identity.role_assignment_conflict`
+        - `identity.invalid_permission_mask`
+        - `health.runtime_not_ready`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoleRequest'
+      responses:
+        '201':
+          description: Role created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RoleResponse'
+                    required: [data]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/workspaces/{workspace_id}/roles/{role_id}:
+    patch:
+      tags: [Access]
+      operationId: updateRole
+      x-implementation-status: implemented
+      summary: Update a workspace role
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `identity.workspace_access_denied`
+        - `identity.role_manage_denied`
+        - `identity.role_not_found`
+        - `identity.role_name_conflict`
+        - `identity.permission_set_invalid`
+        - `identity.permission_registry_unknown`
+        - `identity.role_assignment_conflict`
+        - `identity.invalid_permission_mask`
+        - `health.runtime_not_ready`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/RoleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RoleResponse'
+                    required: [data]
+
+  /api/v1/permissions:
+    get:
+      tags: [Access]
+      operationId: listPermissions
+      x-implementation-status: implemented
+      summary: List available permissions
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Permission registry
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PermissionResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/members/{membership_id}/roles:
+    put:
+      tags: [Access]
+      operationId: assignMemberRoles
+      x-implementation-status: implemented
+      summary: Assign roles to a membership
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `identity.workspace_access_denied`
+        - `identity.role_manage_denied`
+        - `identity.role_not_found`
+        - `identity.membership_not_found`
+        - `identity.role_assignment_conflict`
+        - `identity.last_owner_cannot_be_removed`
+        - `identity.invalid_permission_mask`
+        - `health.runtime_not_ready`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/MembershipId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignMemberRolesRequest'
+      responses:
+        '200':
+          description: Role assignment updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MembershipRoleAssignmentResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/api-keys:
+    get:
+      tags: [Access]
+      operationId: listApiKeys
+      x-implementation-status: not_implemented
+      summary: List API keys for a workspace
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `api_key.manage_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: API key list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ApiKeyResponse'
+                    required: [data]
+    post:
+      tags: [Access]
+      operationId: createApiKey
+      x-implementation-status: not_implemented
+      summary: Create an API key
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `api_key.manage_denied`
+        - `api_key.scope_invalid`
+        - `api_key.config_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyRequest'
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ApiKeyResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/api-keys/{api_key_id}:
+    patch:
+      tags: [Access]
+      operationId: updateApiKey
+      x-implementation-status: not_implemented
+      summary: Update or rotate an API key
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `api_key.manage_denied`
+        - `api_key.not_found`
+        - `api_key.rotate_conflict`
+        - `api_key.scope_invalid`
+        - `api_key.config_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/ApiKeyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateApiKeyRequest'
+      responses:
+        '200':
+          description: API key updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ApiKeyResponse'
+                    required: [data]
+    delete:
+      tags: [Access]
+      operationId: revokeApiKey
+      x-implementation-status: not_implemented
+      summary: Revoke an API key
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `api_key.manage_denied`
+        - `api_key.not_found`
+        - `api_key.rotate_conflict`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/ApiKeyId'
+      responses:
+        '204':
+          description: API key revoked
+
+  /api/v1/workspaces/{workspace_id}/sender-domains:
+    get:
+      tags: [Sender]
+      operationId: listSenderDomains
+      x-implementation-status: not_implemented
+      summary: List sender domains
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `sender.manage_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Sender domain list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SenderDomainResponse'
+                    required: [data]
+    post:
+      tags: [Sender]
+      operationId: createSenderDomain
+      x-implementation-status: not_implemented
+      summary: Create a sender domain
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `sender.manage_denied`
+        - `sender.domain_invalid`
+        - `sender.provider_config_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSenderDomainRequest'
+      responses:
+        '201':
+          description: Sender domain created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SenderDomainResponse'
+                    required: [data]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/workspaces/{workspace_id}/sender-domains/{domain_id}:
+    get:
+      tags: [Sender]
+      operationId: getSenderDomain
+      x-implementation-status: not_implemented
+      summary: Get a sender domain
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `sender.manage_denied`
+        - `sender.domain_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '200':
+          description: Sender domain detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SenderDomainResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/sender-domains/{domain_id}/verify:
+    post:
+      tags: [Sender]
+      operationId: verifySenderDomain
+      x-implementation-status: not_implemented
+      summary: Trigger a sender domain verification
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `sender.manage_denied`
+        - `sender.domain_not_found`
+        - `sender.invalid_state_transition`
+        - `sender.domain_not_verified`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '200':
+          description: Verification accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SenderDomainResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/sender-domains/{domain_id}/disable:
+    post:
+      tags: [Sender]
+      operationId: disableSenderDomain
+      x-implementation-status: not_implemented
+      summary: Disable a sender domain
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `sender.manage_denied`
+        - `sender.domain_not_found`
+        - `sender.invalid_state_transition`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '200':
+          description: Sender domain disabled
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SenderDomainResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/webhooks:
+    get:
+      tags: [Webhooks]
+      operationId: listWebhookConfigs
+      x-implementation-status: not_implemented
+      summary: List outbound webhook configurations
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `webhook.manage_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Webhook config list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/WebhookConfigResponse'
+                    required: [data]
+    post:
+      tags: [Webhooks]
+      operationId: createWebhookConfig
+      x-implementation-status: not_implemented
+      summary: Create an outbound webhook configuration
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `webhook.manage_denied`
+        - `webhook.target_url_invalid`
+        - `webhook.subscription_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookConfigRequest'
+      responses:
+        '201':
+          description: Webhook config created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WebhookConfigResponse'
+                    required: [data]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/workspaces/{workspace_id}/webhooks/{webhook_id}:
+    patch:
+      tags: [Webhooks]
+      operationId: updateWebhookConfig
+      x-implementation-status: not_implemented
+      summary: Update an outbound webhook configuration
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `webhook.manage_denied`
+        - `webhook.config_not_found`
+        - `webhook.rotate_conflict`
+        - `webhook.target_url_invalid`
+        - `webhook.subscription_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/WebhookId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWebhookConfigRequest'
+      responses:
+        '200':
+          description: Webhook config updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WebhookConfigResponse'
+                    required: [data]
+    delete:
+      tags: [Webhooks]
+      operationId: deleteWebhookConfig
+      x-implementation-status: not_implemented
+      summary: Delete an outbound webhook configuration
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `webhook.manage_denied`
+        - `webhook.config_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/WebhookId'
+      responses:
+        '204':
+          description: Webhook config deleted
+
+  /api/v1/workspaces/{workspace_id}/webhooks/{webhook_id}/rotate-secret:
+    post:
+      tags: [Webhooks]
+      operationId: rotateWebhookSecret
+      x-implementation-status: not_implemented
+      summary: Rotate an outbound webhook secret
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `webhook.manage_denied`
+        - `webhook.config_not_found`
+        - `webhook.rotate_conflict`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/WebhookId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Secret rotated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WebhookConfigResponse'
+                    required: [data]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/workspaces/{workspace_id}/settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      x-implementation-status: not_implemented
+      summary: Get workspace settings
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `settings.manage_denied`
+        - `identity.workspace_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Settings snapshot
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SettingsResponse'
+                    required: [data]
+    patch:
+      tags: [Settings]
+      operationId: updateSettings
+      x-implementation-status: not_implemented
+      summary: Update workspace settings
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `settings.manage_denied`
+        - `identity.workspace_not_found`
+        - `settings.version_conflict`
+        - `settings.payload_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSettingsRequest'
+      responses:
+        '200':
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SettingsResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/audit-logs:
+    get:
+      tags: [Operations]
+      operationId: listAuditLogs
+      x-implementation-status: not_implemented
+      summary: List audit log entries
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audit.read_denied`
+        - `identity.workspace_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Audit log list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuditLogEntryResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/contacts:
+    get:
+      tags: [Audience]
+      operationId: listContacts
+      x-implementation-status: not_implemented
+      summary: List contacts
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.read_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/AudienceListId'
+        - $ref: '#/components/parameters/AudienceSegmentId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: Contact list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ContactResponse'
+                    required: [data]
+    post:
+      tags: [Audience]
+      operationId: createContact
+      x-implementation-status: not_implemented
+      summary: Create a contact
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.write_denied`
+        - `audience.contact_email_conflict`
+        - `audience.contact_payload_invalid`
+        - `audience.contact_status_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContactRequest'
+      responses:
+        '201':
+          description: Contact created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ContactResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/contacts/{contact_id}:
+    get:
+      tags: [Audience]
+      operationId: getContact
+      x-implementation-status: not_implemented
+      summary: Get a contact
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.read_denied`
+        - `audience.contact_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/ContactId'
+      responses:
+        '200':
+          description: Contact detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+    patch:
+      tags: [Audience]
+      operationId: updateContact
+      x-implementation-status: not_implemented
+      summary: Update a contact
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.write_denied`
+        - `audience.contact_not_found`
+        - `audience.contact_email_conflict`
+        - `audience.contact_payload_invalid`
+        - `audience.contact_status_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/ContactId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContactRequest'
+      responses:
+        '200':
+          description: Contact updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ContactResponse'
+                    required: [data]
+    delete:
+      tags: [Audience]
+      operationId: deleteContact
+      x-implementation-status: not_implemented
+      summary: Delete a contact
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.write_denied`
+        - `audience.contact_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/ContactId'
+      responses:
+        '204':
+          description: Contact deleted
+
+  /api/v1/workspaces/{workspace_id}/lists:
+    get:
+      tags: [Audience]
+      operationId: listLists
+      x-implementation-status: not_implemented
+      summary: List lists
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.read_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: List collection
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ListResponse'
+                    required: [data]
+    post:
+      tags: [Audience]
+      operationId: createList
+      x-implementation-status: not_implemented
+      summary: Create a list
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.write_denied`
+        - `audience.list_name_conflict`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateListRequest'
+      responses:
+        '201':
+          description: List created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ListResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/lists/{list_id}/contacts:
+    put:
+      tags: [Audience]
+      operationId: updateListContacts
+      x-implementation-status: not_implemented
+      summary: Replace or merge contacts in a list
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.write_denied`
+        - `audience.list_not_found`
+        - `audience.list_membership_payload_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/ListId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateListContactsRequest'
+      responses:
+        '200':
+          description: Membership summary
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ListMembershipSummaryResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/segments:
+    get:
+      tags: [Audience]
+      operationId: listSegments
+      x-implementation-status: not_implemented
+      summary: List segments
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.read_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Segment list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SegmentResponse'
+                    required: [data]
+    post:
+      tags: [Audience]
+      operationId: createSegment
+      x-implementation-status: not_implemented
+      summary: Create a segment
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.write_denied`
+        - `audience.segment_name_conflict`
+        - `audience.segment_definition_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSegmentRequest'
+      responses:
+        '201':
+          description: Segment created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SegmentResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/segments/{segment_id}:
+    patch:
+      tags: [Audience]
+      operationId: updateSegment
+      x-implementation-status: not_implemented
+      summary: Update a segment
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.write_denied`
+        - `audience.segment_not_found`
+        - `audience.segment_name_conflict`
+        - `audience.segment_definition_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/SegmentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSegmentRequest'
+      responses:
+        '200':
+          description: Segment updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SegmentResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/audience/imports:
+    get:
+      tags: [Audience]
+      operationId: listAudienceImports
+      x-implementation-status: not_implemented
+      summary: List audience import jobs
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.import_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Import job list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AudienceJobResponse'
+                    required: [data]
+    post:
+      tags: [Audience]
+      operationId: createAudienceImport
+      x-implementation-status: not_implemented
+      summary: Start an audience import job
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.import_denied`
+        - `audience.import_duplicate_submission`
+        - `audience.import_source_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAudienceImportRequest'
+      responses:
+        '202':
+          description: Import queued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AudienceJobResponse'
+                    required: [data]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/workspaces/{workspace_id}/audience/imports/{import_id}:
+    get:
+      tags: [Audience]
+      operationId: getAudienceImport
+      x-implementation-status: not_implemented
+      summary: Get an audience import job
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.import_denied`
+        - `audience.import_job_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/ImportId'
+      responses:
+        '200':
+          description: Import job detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  /api/v1/workspaces/{workspace_id}/audience/exports:
+    post:
+      tags: [Audience]
+      operationId: createAudienceExport
+      x-implementation-status: not_implemented
+      summary: Start an audience export job
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.export_denied`
+        - `audience.export_filter_invalid`
+        - `audience.export_format_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAudienceExportRequest'
+      responses:
+        '202':
+          description: Export queued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AudienceJobResponse'
+                    required: [data]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/workspaces/{workspace_id}/audience/exports/{export_id}:
+    get:
+      tags: [Audience]
+      operationId: getAudienceExport
+      x-implementation-status: not_implemented
+      summary: Get an audience export job
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `audience.export_denied`
+        - `audience.export_job_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/ExportId'
+      responses:
+        '200':
+          description: Export job detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  /api/v1/workspaces/{workspace_id}/suppression:
+    get:
+      tags: [Suppression]
+      operationId: listSuppressionEntries
+      x-implementation-status: not_implemented
+      summary: List suppression entries
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `suppression.read_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Suppression list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+    post:
+      tags: [Suppression]
+      operationId: createSuppressionEntry
+      x-implementation-status: not_implemented
+      summary: Add a recipient to suppression
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `suppression.manage_denied`
+        - `suppression.scope_invalid`
+        - `suppression.reason_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSuppressionRequest'
+      responses:
+        '201':
+          description: Suppression created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SuppressionEntryResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/suppression/{suppression_id}:
+    delete:
+      tags: [Suppression]
+      operationId: deleteSuppressionEntry
+      x-implementation-status: not_implemented
+      summary: Remove a suppression entry
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `suppression.manage_denied`
+        - `suppression.entry_not_found`
+        - `suppression.unsuppress_conflict`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/SuppressionId'
+      responses:
+        '204':
+          description: Suppression removed
+
+  /api/v1/workspaces/{workspace_id}/templates:
+    get:
+      tags: [Content]
+      operationId: listTemplates
+      x-implementation-status: not_implemented
+      summary: List templates
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `template.read_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Template list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/TemplateResponse'
+                    required: [data]
+    post:
+      tags: [Content]
+      operationId: createTemplate
+      x-implementation-status: not_implemented
+      summary: Create a template
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `template.write_denied`
+        - `template.source_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTemplateRequest'
+      responses:
+        '201':
+          description: Template created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TemplateResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/templates/{template_id}:
+    get:
+      tags: [Content]
+      operationId: getTemplate
+      x-implementation-status: not_implemented
+      summary: Get a template
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `template.read_denied`
+        - `template.not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/TemplateId'
+      responses:
+        '200':
+          description: Template detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TemplateResponse'
+                    required: [data]
+    patch:
+      tags: [Content]
+      operationId: updateTemplate
+      x-implementation-status: not_implemented
+      summary: Update a template
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `template.write_denied`
+        - `template.not_found`
+        - `template.version_conflict`
+        - `template.source_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/TemplateId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTemplateRequest'
+      responses:
+        '200':
+          description: Template updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TemplateResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/templates/{template_id}/publish:
+    post:
+      tags: [Content]
+      operationId: publishTemplate
+      x-implementation-status: not_implemented
+      summary: Publish a template version
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `template.write_denied`
+        - `template.not_found`
+        - `template.publish_conflict`
+        - `template.publish_payload_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/TemplateId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishTemplateRequest'
+      responses:
+        '200':
+          description: Published version summary
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TemplateVersionResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/templates/{template_id}/versions:
+    get:
+      tags: [Content]
+      operationId: listTemplateVersions
+      x-implementation-status: not_implemented
+      summary: List template versions
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `template.read_denied`
+        - `template.not_found`
+        - `template.version_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/TemplateId'
+      responses:
+        '200':
+          description: Template versions
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/TemplateVersionResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/templates/{template_id}/preview:
+    post:
+      tags: [Content]
+      operationId: previewTemplate
+      x-implementation-status: not_implemented
+      summary: Preview a template render
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `template.render_denied`
+        - `template.not_found`
+        - `template.render_payload_invalid`
+        - `template.render_context_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/TemplateId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreviewTemplateRequest'
+      responses:
+        '200':
+          description: Preview result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RenderResultResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/render:
+    post:
+      tags: [Content]
+      operationId: renderTemplate
+      x-implementation-status: not_implemented
+      summary: Render a template or raw content
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `template.render_denied`
+        - `template.render_payload_invalid`
+        - `template.render_context_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenderTemplateRequest'
+      responses:
+        '200':
+          description: Render result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RenderResultResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/campaigns:
+    get:
+      tags: [Campaigns]
+      operationId: listCampaigns
+      x-implementation-status: not_implemented
+      summary: List campaigns
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `campaign.read_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Campaign list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CampaignResponse'
+                    required: [data]
+    post:
+      tags: [Campaigns]
+      operationId: createCampaign
+      x-implementation-status: not_implemented
+      summary: Create a campaign draft
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `campaign.write_denied`
+        - `audience.segment_not_found`
+        - `template.not_found`
+        - `sender.domain_not_found`
+        - `campaign.payload_invalid`
+        - `campaign.audience_not_ready`
+        - `template.source_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCampaignRequest'
+      responses:
+        '201':
+          description: Campaign created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CampaignResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}:
+    get:
+      tags: [Campaigns]
+      operationId: getCampaign
+      x-implementation-status: not_implemented
+      summary: Get a campaign
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `campaign.read_denied`
+        - `campaign.not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '200':
+          description: Campaign detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CampaignResponse'
+                    required: [data]
+    patch:
+      tags: [Campaigns]
+      operationId: updateCampaign
+      x-implementation-status: not_implemented
+      summary: Update a campaign draft
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `campaign.write_denied`
+        - `campaign.not_found`
+        - `campaign.invalid_state_transition`
+        - `campaign.update_payload_invalid`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/CampaignId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCampaignRequest'
+      responses:
+        '200':
+          description: Campaign updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CampaignResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}/schedule:
+    post:
+      tags: [Campaigns]
+      operationId: scheduleCampaign
+      x-implementation-status: not_implemented
+      summary: Schedule a campaign
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `campaign.send_denied`
+        - `campaign.not_found`
+        - `campaign.invalid_state_transition`
+        - `sender.domain_not_verified`
+        - `campaign.audience_not_ready`
+        - `template.publish_required`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/CampaignId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampaignScheduleRequest'
+      responses:
+        '200':
+          description: Campaign scheduled
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CampaignResponse'
+                    required: [data]
+        '202':
+          description: Campaign schedule accepted asynchronously
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CampaignResponse'
+                    required: [data]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}/pause:
+    post:
+      tags: [Campaigns]
+      operationId: pauseCampaign
+      x-implementation-status: not_implemented
+      summary: Pause or resume a campaign
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `campaign.send_denied`
+        - `campaign.not_found`
+        - `campaign.pause_conflict`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '200':
+          description: Campaign pause state updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  /api/v1/transactional/send:
+    post:
+      tags: [Delivery]
+      operationId: sendTransactionalEmail
+      x-implementation-status: not_implemented
+      summary: Send a transactional email
+      description: |
+        Possible error.code values:
+        - `delivery.request_body_invalid`
+        - `api_key.invalid`
+        - `api_key.scope_denied`
+        - `sender.domain_not_found`
+        - `template.not_found`
+        - `delivery.idempotency_key_conflict`
+        - `delivery.recipient_invalid`
+        - `template.render_payload_invalid`
+        - `sender.domain_not_verified`
+        - `delivery.recipient_suppressed`
+        - `delivery.request_rate_limited`
+        - `delivery.temporarily_unavailable`
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionalSendRequest'
+      responses:
+        '202':
+          description: Transactional send accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TransactionalSendResponse'
+                    required: [data]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/transactional/messages/{message_id}:
+    get:
+      tags: [Delivery]
+      operationId: getTransactionalMessage
+      x-implementation-status: not_implemented
+      summary: Get transactional message status
+      description: |
+        Possible error.code values:
+        - `api_key.invalid`
+        - `api_key.scope_denied`
+        - `delivery.message_not_found`
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        '200':
+          description: Message status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MessageResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/messages:
+    get:
+      tags: [Delivery]
+      operationId: listMessages
+      x-implementation-status: not_implemented
+      summary: List message logs
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `delivery.logs_read_denied`
+        - `identity.workspace_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Message list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/MessageResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/messages/{message_id}:
+    get:
+      tags: [Delivery]
+      operationId: getMessage
+      x-implementation-status: not_implemented
+      summary: Get a message log entry
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `delivery.logs_read_denied`
+        - `delivery.message_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        '200':
+          description: Message detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MessageResponse'
+                    required: [data]
+
+  /api/v1/webhooks/providers/{provider}:
+    post:
+      tags: [Webhooks]
+      operationId: ingestProviderWebhook
+      x-implementation-status: not_implemented
+      summary: Ingest a provider webhook
+      description: |
+        Possible error.code values:
+        - `webhook.payload_invalid`
+        - `webhook.invalid_signature`
+        - `webhook.provider_not_supported`
+        - `webhook.duplicate_event_conflict`
+        - `webhook.ingest_temporarily_unavailable`
+      security:
+        - providerSignature: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Webhook accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  accepted:
+                    type: boolean
+                required: [accepted]
+
+  /t/{tracking_id}:
+    get:
+      tags: [Tracking]
+      operationId: trackClick
+      x-implementation-status: not_implemented
+      summary: Resolve a click tracking redirect
+      description: |
+        Possible error.code values:
+        - `tracking.invalid_tracking_id`
+        - `tracking.tracking_id_expired`
+      parameters:
+        - $ref: '#/components/parameters/TrackingId'
+      responses:
+        '302':
+          description: Redirect to the destination URL
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+          content: {}
+        '307':
+          description: Redirect preserving method when required
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+          content: {}
+
+  /o/{tracking_id}:
+    get:
+      tags: [Tracking]
+      operationId: trackOpen
+      x-implementation-status: not_implemented
+      summary: Serve an open tracking pixel
+      description: |
+        Possible error.code values:
+        - `tracking.invalid_tracking_id`
+      parameters:
+        - $ref: '#/components/parameters/TrackingId'
+      responses:
+        '200':
+          description: Pixel response
+          content:
+            image/gif:
+              schema:
+                type: string
+                format: binary
+
+  /u/{token}:
+    post:
+      tags: [Suppression]
+      operationId: unsubscribeRecipient
+      x-implementation-status: not_implemented
+      summary: Perform a one-click unsubscribe
+      description: |
+        Possible error.code values:
+        - `suppression.unsubscribe_token_invalid`
+        - `suppression.unsubscribe_token_not_found`
+        - `suppression.unsubscribe_token_expired`
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnsubscribeRequest'
+      responses:
+        '200':
+          description: Unsubscribe accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  /api/v1/workspaces/{workspace_id}/webhook-deliveries:
+    get:
+      tags: [Webhooks]
+      operationId: listWebhookDeliveries
+      x-implementation-status: not_implemented
+      summary: List outbound webhook delivery attempts
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `webhook.delivery_read_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Delivery attempt list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/WebhookDeliveryResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/webhook-deliveries/{delivery_id}:
+    get:
+      tags: [Webhooks]
+      operationId: getWebhookDelivery
+      x-implementation-status: not_implemented
+      summary: Get a webhook delivery attempt
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `webhook.delivery_read_denied`
+        - `webhook.delivery_not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/DeliveryId'
+      responses:
+        '200':
+          description: Delivery detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WebhookDeliveryResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/webhook-deliveries/{delivery_id}/retry:
+    post:
+      tags: [Webhooks]
+      operationId: retryWebhookDelivery
+      x-implementation-status: not_implemented
+      summary: Retry a webhook delivery attempt
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `webhook.delivery_retry_denied`
+        - `webhook.delivery_not_found`
+        - `webhook.delivery_retry_conflict`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/DeliveryId'
+      responses:
+        '200':
+          description: Retry scheduled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  /api/v1/workspaces/{workspace_id}/analytics/overview:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsOverview
+      x-implementation-status: not_implemented
+      summary: Get analytics overview
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `analytics.read_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/Window'
+        - $ref: '#/components/parameters/CompareTo'
+      responses:
+        '200':
+          description: Overview metrics
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AnalyticsOverviewResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}:
+    get:
+      tags: [Analytics]
+      operationId: getCampaignAnalytics
+      x-implementation-status: not_implemented
+      summary: Get analytics for a campaign
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `analytics.read_denied`
+        - `campaign.not_found`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/CampaignId'
+        - $ref: '#/components/parameters/Window'
+      responses:
+        '200':
+          description: Campaign analytics
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AnalyticsCampaignResponse'
+                    required: [data]
+
+  /api/v1/workspaces/{workspace_id}/analytics/deliverability:
+    get:
+      tags: [Analytics]
+      operationId: getDeliverabilityAnalytics
+      x-implementation-status: not_implemented
+      summary: Get deliverability analytics
+      description: |
+        Possible error.code values:
+        - `auth.invalid_token`
+        - `analytics.read_denied`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Deliverability metrics
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DeliverabilityOverviewResponse'
+                    required: [data]
+
+  /api/healthz:
+    get:
+      tags: [Operations]
+      operationId: healthz
+      x-implementation-status: implemented
+      summary: Health check endpoint
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatusResponse'
+
+  /api/readyz:
+    get:
+      tags: [Operations]
+      operationId: readyz
+      x-implementation-status: implemented
+      summary: Readiness check endpoint
+      description: |
+        Possible error.code values:
+        - `health.runtime_not_ready`
+      responses:
+        '200':
+          description: Runtime is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatusResponse'
+        '503':
+          description: Runtime is not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatusResponse'
+
+  /api/events/stream:
+    get:
+      tags: [Operations]
+      operationId: streamEvents
+      x-implementation-status: implemented
+      summary: Stream runtime events over SSE
+      responses:
+        '200':
+          description: SSE stream opened
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: connected
+                  data: send-flow stream connected
+
+                  : keepalive
+        '500':
+          description: Streaming transport is not supported
+
+  /api/metrics:
+    get:
+      tags: [Operations]
+      operationId: metrics
+      x-implementation-status: implemented
+      summary: Prometheus metrics endpoint
+      description: Exposes Prometheus metrics from the API process.
+      responses:
+        '200':
+          description: Prometheus metrics exposition
+          content:
+            text/plain:
+              schema:
+                type: string
