@@ -1,0 +1,289 @@
+services:
+  postgres:
+    image: bitnami/postgresql:latest
+    container_name: sendflow-postgres
+    environment:
+      POSTGRESQL_POSTGRES_PASSWORD: postgres
+      POSTGRESQL_USERNAME: sendflow
+      POSTGRESQL_PASSWORD: sendflow
+      POSTGRESQL_DATABASE: sendflow
+      POSTGRESQL_REPLICATION_MODE: master
+      POSTGRESQL_REPLICATION_USER: repl_user
+      POSTGRESQL_REPLICATION_PASSWORD: repl_pass
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sendflow -d sendflow -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/bitnami/postgresql
+
+  postgres-replica:
+    image: bitnami/postgresql:latest
+    container_name: sendflow-postgres-replica
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRESQL_POSTGRES_PASSWORD: postgres
+      POSTGRESQL_USERNAME: sendflow
+      POSTGRESQL_PASSWORD: sendflow
+      POSTGRESQL_DATABASE: sendflow
+      POSTGRESQL_REPLICATION_MODE: slave
+      POSTGRESQL_MASTER_HOST: postgres
+      POSTGRESQL_MASTER_PORT_NUMBER: 5432
+      POSTGRESQL_REPLICATION_USER: repl_user
+      POSTGRESQL_REPLICATION_PASSWORD: repl_pass
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sendflow -d sendflow -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_replica_data:/bitnami/postgresql
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: sendflow-postgres-exporter
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: postgres://sendflow:sendflow@postgres:5432/sendflow?sslmode=disable
+    ports:
+      - "9187:9187"
+
+  redis:
+    image: redis:7
+    container_name: sendflow-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - redis_data:/data
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    container_name: sendflow-redis-exporter
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "9121:9121"
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.10
+    container_name: sendflow-redpanda
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - "1G"
+      - --reserve-memory
+      - "0M"
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - "0.0.0.0:9092"
+      - --advertise-kafka-addr
+      - "redpanda:9092"
+    ports:
+      - "9092:9092"
+      - "9644:9644"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info", "-X", "brokers=localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+
+  kafka-connect:
+    image: debezium/connect:2.7.3.Final
+    container_name: sendflow-kafka-connect
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: redpanda:9092
+      GROUP_ID: "1"
+      CONFIG_STORAGE_TOPIC: sendflow_connect_configs
+      OFFSET_STORAGE_TOPIC: sendflow_connect_offsets
+      STATUS_STORAGE_TOPIC: sendflow_connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/connectors || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: sendflow-kafka-ui
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      kafka-connect:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: redpanda:9092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: local-connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: sendflow-clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+      - "9363:9363"
+    environment:
+      CLICKHOUSE_USER: sendflow
+      CLICKHOUSE_PASSWORD: sendflow
+      CLICKHOUSE_DB: sendflow
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user sendflow --password sendflow --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - ./clickhouse/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
+      - clickhouse_data:/var/lib/clickhouse
+
+  minio:
+    image: minio/minio:latest
+    container_name: sendflow-minio
+    command: server /data --console-address ":9002"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio-secret
+    ports:
+      - "9001:9000"
+      - "9002:9002"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - minio_data:/data
+
+  mailpit:
+    image: axllent/mailpit:v1.20
+    container_name: sendflow-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    environment:
+      MP_SMTP_BIND_ADDR: 0.0.0.0:1025
+      MP_UI_BIND_ADDR: 0.0.0.0:8025
+    volumes:
+      - mailpit_data:/data
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: sendflow-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: sendflow-blackbox-exporter
+    command: ["--config.file=/etc/blackbox_exporter/config.yml"]
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: sendflow-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    container_name: sendflow-promtail
+    depends_on:
+      - loki
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./promtail.yml:/etc/promtail/config.yml:ro
+      - ./logs:/var/log/sendflow:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: sendflow-tempo
+    user: "0:0"
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/tmp/tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+
+  grafana:
+    image: grafana/grafana:11.1.4
+    container_name: sendflow-grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/sendflow-services-overview.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  postgres_data:
+  postgres_replica_data:
+  redis_data:
+  redpanda_data:
+  clickhouse_data:
+  minio_data:
+  mailpit_data:
+  prometheus_data:
+  loki_data:
+  tempo_data:
+  grafana_data:

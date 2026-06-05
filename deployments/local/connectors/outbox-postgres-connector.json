@@ -1,0 +1,25 @@
+{
+  "name": "sendflow-outbox-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "plugin.name": "pgoutput",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "sendflow",
+    "database.password": "sendflow",
+    "database.dbname": "sendflow",
+    "database.server.name": "sendflow",
+    "slot.name": "sendflow_outbox_slot",
+    "publication.autocreate.mode": "filtered",
+    "table.include.list": "public.outbox_events",
+    "tombstones.on.delete": "false",
+    "topic.prefix": "sendflow",
+    "transforms": "route",
+    "transforms.route.type": "io.debezium.transforms.outbox.EventRouter",
+    "transforms.route.table.field.event.id": "id",
+    "transforms.route.table.field.event.key": "aggregate_id",
+    "transforms.route.table.field.event.type": "event_type",
+    "transforms.route.route.by.field": "event_type",
+    "transforms.route.table.fields.additional.placement": "workspace_id:header,aggregate_type:header"
+  }
+}
