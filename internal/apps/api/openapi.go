@@ -14,6 +14,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
+	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
 	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
@@ -50,7 +51,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -94,6 +95,10 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 	if deliverySvc != nil {
 		delivery := newDeliveryHTTP(deliverySvc)
 		registerDeliveryOperations(api, delivery, authMiddleware)
+	}
+	if accessSvc != nil {
+		apiKeyHandler := newAPIKeyHTTP(accessSvc)
+		registerAPIKeyOperations(api, apiKeyHandler, authMiddleware)
 	}
 	documentApplicationErrors(api.OpenAPI())
 }
@@ -227,6 +232,8 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 		return campaignErrorCodes()
 	case hasTag(op, "Delivery"):
 		return deliveryErrorCodes()
+	case hasTag(op, "Access"):
+		return apiKeyErrorCodes()
 	default:
 		return map[int][]string{
 			http.StatusInternalServerError: {"health.runtime_not_ready"},
@@ -1911,6 +1918,90 @@ func deliveryErrorCodes() map[int][]string {
 		},
 		http.StatusUnprocessableEntity: {
 			"delivery.query_invalid",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
+}
+
+func registerAPIKeyOperations(api huma.API, apiKey *apiKeyHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "listApiKeys",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/api-keys",
+		Tags:        []string{"Access"},
+		Summary:     "List API keys",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, apiKey.listAPIKeys)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "createApiKey",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/api-keys",
+		Tags:          []string{"Access"},
+		Summary:       "Create API key",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, apiKey.createAPIKey)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "updateApiKey",
+		Method:      http.MethodPatch,
+		Path:        "/api/v1/workspaces/{workspace_id}/api-keys/{api_key_id}",
+		Tags:        []string{"Access"},
+		Summary:     "Update or rotate API key",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *apiKeyPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, apiKey.updateAPIKey)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "revokeApiKey",
+		Method:        http.MethodDelete,
+		Path:          "/api/v1/workspaces/{workspace_id}/api-keys/{api_key_id}",
+		Tags:          []string{"Access"},
+		Summary:       "Revoke API key",
+		DefaultStatus: http.StatusNoContent,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *apiKeyPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, apiKey.revokeAPIKey)
+	})
+}
+
+type apiKeyPathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	APIKeyID    string `path:"api_key_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"API key ID."`
+}
+
+func apiKeyErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"api_key.manage_denied",
+		},
+		http.StatusNotFound: {
+			"api_key.not_found",
+		},
+		http.StatusConflict: {
+			"api_key.rotate_conflict",
+		},
+		http.StatusUnprocessableEntity: {
+			"api_key.scope_invalid",
+			"api_key.config_invalid",
 		},
 		http.StatusInternalServerError: {
 			"health.runtime_not_ready",

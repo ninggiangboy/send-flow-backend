@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
 	audiencedomain "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
 	campaigndomain "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/domain"
 	contentdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/content/domain"
@@ -67,6 +68,8 @@ func mapPermissionErr(permission string, workspaceDenied bool) error {
 			return campaigndomain.ErrSendDenied
 		case permission == "delivery.read":
 			return deliverydomain.ErrReadDenied
+		case permission == "api_key.manage":
+			return accessdomain.ErrAPIKeyManageDenied
 		default:
 			return senderdomain.ErrManageDenied
 		}
@@ -98,6 +101,8 @@ func mapPermissionErr(permission string, workspaceDenied bool) error {
 		return campaigndomain.ErrSendDenied
 	case permission == "delivery.read":
 		return deliverydomain.ErrReadDenied
+	case permission == "api_key.manage":
+		return accessdomain.ErrAPIKeyManageDenied
 	default:
 		return senderdomain.ErrManageDenied
 	}
