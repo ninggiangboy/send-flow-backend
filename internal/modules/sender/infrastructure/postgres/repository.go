@@ -191,7 +191,9 @@ func (w *WriteRepository) ReplaceDNSRecordStatuses(ctx context.Context, senderDo
 }
 
 func (w *WriteRepository) beginTx(ctx context.Context) (pgx.Tx, error) {
-	if conn, ok := w.db.(interface{ Begin(context.Context) (pgx.Tx, error) }); ok {
+	if conn, ok := w.db.(interface {
+		Begin(context.Context) (pgx.Tx, error)
+	}); ok {
 		return conn.Begin(ctx)
 	}
 	return nil, errors.New("write repository requires a pool or conn that supports Begin")

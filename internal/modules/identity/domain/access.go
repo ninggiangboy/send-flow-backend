@@ -22,9 +22,9 @@ const (
 type RoleType string
 
 const (
-	RoleTypeOwner   RoleType = "owner"
-	RoleTypeMember  RoleType = "member"
-	RoleTypeCustom  RoleType = "custom"
+	RoleTypeOwner  RoleType = "owner"
+	RoleTypeMember RoleType = "member"
+	RoleTypeCustom RoleType = "custom"
 )
 
 const (
@@ -33,6 +33,15 @@ const (
 	PermissionWorkspaceManageRoles   = "workspace.manage_roles"
 	PermissionWorkspaceManageSetting = "workspace.manage_settings"
 	PermissionSenderManage           = "sender.manage"
+	PermissionAudienceRead           = "audience.read"
+	PermissionAudienceWrite          = "audience.write"
+	PermissionAudienceImport         = "audience.import"
+	PermissionAudienceExport         = "audience.export"
+	PermissionTemplateRead           = "template.read"
+	PermissionTemplateWrite          = "template.write"
+	PermissionTemplateRender         = "template.render"
+	PermissionSuppressionRead        = "suppression.read"
+	PermissionSuppressionManage      = "suppression.manage"
 )
 
 var permissionRegistry = []Permission{
@@ -41,6 +50,15 @@ var permissionRegistry = []Permission{
 	{Bit: 1 << 2, Name: PermissionWorkspaceManageRoles},
 	{Bit: 1 << 3, Name: PermissionWorkspaceManageSetting},
 	{Bit: 1 << 4, Name: PermissionSenderManage},
+	{Bit: 1 << 5, Name: PermissionAudienceRead},
+	{Bit: 1 << 6, Name: PermissionAudienceWrite},
+	{Bit: 1 << 7, Name: PermissionAudienceImport},
+	{Bit: 1 << 8, Name: PermissionAudienceExport},
+	{Bit: 1 << 9, Name: PermissionTemplateRead},
+	{Bit: 1 << 10, Name: PermissionTemplateWrite},
+	{Bit: 1 << 11, Name: PermissionTemplateRender},
+	{Bit: 1 << 12, Name: PermissionSuppressionRead},
+	{Bit: 1 << 13, Name: PermissionSuppressionManage},
 }
 
 type Role struct {

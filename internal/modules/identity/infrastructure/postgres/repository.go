@@ -213,7 +213,9 @@ type TOTPRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewTOTPRepository(db DBTX, pool *pgxpool.Pool) *TOTPRepository { return &TOTPRepository{db: db, pool: pool} }
+func NewTOTPRepository(db DBTX, pool *pgxpool.Pool) *TOTPRepository {
+	return &TOTPRepository{db: db, pool: pool}
+}
 
 func (r *TOTPRepository) UpsertSecret(ctx context.Context, secret domain.TOTPSecret) error {
 	_, err := r.getDB(ctx).Exec(ctx, `

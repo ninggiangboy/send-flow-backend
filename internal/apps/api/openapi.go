@@ -14,8 +14,11 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
+	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
+	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
+	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
 )
@@ -45,7 +48,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -57,18 +60,30 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 
 	registerHealthOperations(api, healthSvc)
 
-	if authSvc == nil {
-		return
-	}
-	auth := newAuthHTTP(authSvc, authRateLimiter, secureCookies)
-	workspace := newWorkspaceHTTP(authSvc)
-	authMiddleware := humaAuthzMiddleware(authSvc)
+	var authMiddleware func(huma.Context, func(huma.Context))
+	if authSvc != nil {
+		auth := newAuthHTTP(authSvc, authRateLimiter, secureCookies)
+		workspace := newWorkspaceHTTP(authSvc)
+		authMiddleware = humaAuthzMiddleware(authSvc)
 
-	registerAuthOperations(api, auth, authMiddleware)
-	registerWorkspaceOperations(api, workspace, authMiddleware)
-	if senderSvc != nil {
-		sender := newSenderHTTP(senderSvc)
-		registerSenderOperations(api, sender, authMiddleware)
+		registerAuthOperations(api, auth, authMiddleware)
+		registerWorkspaceOperations(api, workspace, authMiddleware)
+		if senderSvc != nil {
+			sender := newSenderHTTP(senderSvc)
+			registerSenderOperations(api, sender, authMiddleware)
+		}
+	}
+	if audienceSvc != nil {
+		audience := newAudienceHTTP(audienceSvc)
+		registerAudienceOperations(api, audience, authMiddleware)
+	}
+	if contentSvc != nil {
+		content := newContentHTTP(contentSvc)
+		registerContentOperations(api, content, authMiddleware)
+	}
+	if suppressionSvc != nil {
+		suppression := newSuppressionHTTP(suppressionSvc)
+		registerSuppressionOperations(api, suppression, authMiddleware)
 	}
 	documentApplicationErrors(api.OpenAPI())
 }
@@ -142,7 +157,9 @@ func documentedErrorStatuses() []int {
 
 func protectedOperation(op huma.Operation, middleware func(huma.Context, func(huma.Context))) huma.Operation {
 	op.Security = []map[string][]string{{"bearerAuth": {}}}
-	op.Middlewares = append(op.Middlewares, middleware)
+	if middleware != nil {
+		op.Middlewares = append(op.Middlewares, middleware)
+	}
 	return op
 }
 
@@ -190,6 +207,12 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 		return workspaceErrorCodes()
 	case hasTag(op, "Sender Domains"):
 		return senderErrorCodes(op)
+	case hasTag(op, "Audience"):
+		return audienceErrorCodes()
+	case hasTag(op, "Templates") || hasTag(op, "Template Render"):
+		return templateErrorCodes()
+	case hasTag(op, "Suppression"):
+		return suppressionErrorCodes()
 	default:
 		return map[int][]string{
 			http.StatusInternalServerError: {"health.runtime_not_ready"},
@@ -963,4 +986,617 @@ func registerWorkspaceOperations(api huma.API, workspace *workspaceHTTP, authMid
 		_ = input
 		return delegateHTTP[memberOutput](ctx, nil, workspace.acceptWorkspaceInvitation)
 	})
+}
+
+// --- Audience Path Inputs ---
+
+type audienceContactPathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	ContactID   string `path:"contact_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Contact ID."`
+}
+
+type audienceListPathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	ListID      string `path:"list_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"List ID."`
+}
+
+type audienceSegmentPathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	SegmentID   string `path:"segment_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Segment ID."`
+}
+
+type audienceImportPathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	ImportID    string `path:"import_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Import job ID."`
+}
+
+type audienceExportPathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	ExportID    string `path:"export_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Export job ID."`
+}
+
+type contentTemplatePathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	TemplateID  string `path:"template_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Template ID."`
+}
+
+type suppressionPathInput struct {
+	WorkspaceID   string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	SuppressionID string `path:"suppression_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Suppression entry ID."`
+}
+
+type createContactInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Body        struct {
+		Email      string         `json:"email,omitempty" format:"email" example:"user@example.com" doc:"Contact email."`
+		FirstName  string         `json:"first_name,omitempty" example:"John" doc:"Contact first name."`
+		LastName   string         `json:"last_name,omitempty" example:"Doe" doc:"Contact last name."`
+		Tags       []string       `json:"tags,omitempty" example:"vip" doc:"Contact tags."`
+		Attributes map[string]any `json:"attributes,omitempty" doc:"Contact attributes."`
+	} `required:"true" nameHint:"CreateContactRequest"`
+}
+
+type createAudienceListInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Body        struct {
+		Name        string         `json:"name,omitempty" minLength:"1" example:"Newsletter" doc:"List name."`
+		Description string         `json:"description,omitempty" example:"Monthly newsletter subscribers" doc:"List description."`
+		Metadata    map[string]any `json:"metadata,omitempty" doc:"List metadata."`
+	} `required:"true" nameHint:"CreateAudienceListRequest"`
+}
+
+type createSegmentInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Body        struct {
+		Name       string         `json:"name,omitempty" minLength:"1" example:"VIP Customers" doc:"Segment name."`
+		Definition map[string]any `json:"definition,omitempty" doc:"Segment definition."`
+	} `required:"true" nameHint:"CreateSegmentRequest"`
+}
+
+type startAudienceImportInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Body        struct {
+		SourceURI  string         `json:"source_uri,omitempty" example:"s3://bucket/contacts.csv" doc:"Source URI for import."`
+		DedupeMode string         `json:"dedupe_mode,omitempty" example:"email" doc:"Deduplication mode."`
+		Metadata   map[string]any `json:"metadata,omitempty" doc:"Import metadata."`
+	} `required:"true" nameHint:"StartAudienceImportRequest"`
+}
+
+type startAudienceExportInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Body        struct {
+		Format         string         `json:"format,omitempty" example:"csv" doc:"Export format."`
+		Filters        map[string]any `json:"filters,omitempty" doc:"Export filters."`
+		SelectedFields []string       `json:"selected_fields,omitempty" example:"email,first_name" doc:"Fields to export."`
+	} `required:"true" nameHint:"StartAudienceExportRequest"`
+}
+
+type createTemplateInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Body        struct {
+		Name     string         `json:"name,omitempty" minLength:"1" example:"Welcome Email" doc:"Template name."`
+		Subject  string         `json:"subject,omitempty" example:"Welcome {{.name}}" doc:"Template subject."`
+		HTML     string         `json:"html,omitempty" example:"<h1>Welcome</h1>" doc:"Template HTML."`
+		Text     string         `json:"text,omitempty" example:"Welcome" doc:"Template text."`
+		Metadata map[string]any `json:"metadata,omitempty" doc:"Template metadata."`
+	} `required:"true" nameHint:"CreateTemplateRequest"`
+}
+
+type renderTemplateInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Body        struct {
+		TemplateID   string         `json:"template_id,omitempty" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Template ID."`
+		Subject      string         `json:"subject,omitempty" example:"Welcome {{.name}}" doc:"Template subject."`
+		HTML         string         `json:"html,omitempty" example:"<h1>Welcome</h1>" doc:"Template HTML."`
+		Text         string         `json:"text,omitempty" example:"Welcome" doc:"Template text."`
+		TemplateData map[string]any `json:"template_data,omitempty" doc:"Template data."`
+	} `required:"true" nameHint:"RenderTemplateRequest"`
+}
+
+type createSuppressionEntryInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Body        struct {
+		Email  string `json:"email,omitempty" format:"email" example:"bounce@example.com" doc:"Suppressed email."`
+		Scope  string `json:"scope,omitempty" example:"hard_bounce" doc:"Suppression scope."`
+		Reason string `json:"reason,omitempty" example:"hard_bounce" doc:"Suppression reason."`
+		Note   string `json:"note,omitempty" example:"Permanent bounce detected" doc:"Suppression note."`
+	} `required:"true" nameHint:"CreateSuppressionEntryRequest"`
+}
+
+type updateContactInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	ContactID   string `path:"contact_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Contact ID."`
+	Body        struct {
+		Email      *string        `json:"email,omitempty" format:"email" example:"user@example.com" doc:"Contact email."`
+		FirstName  *string        `json:"first_name,omitempty" example:"John" doc:"Contact first name."`
+		LastName   *string        `json:"last_name,omitempty" example:"Doe" doc:"Contact last name."`
+		Status     *string        `json:"status,omitempty" enum:"active,archived,bounced,unsubscribed" example:"active" doc:"Contact status."`
+		Tags       []string       `json:"tags,omitempty" example:"vip" doc:"Contact tags."`
+		Attributes map[string]any `json:"attributes,omitempty" doc:"Contact attributes."`
+	} `required:"true" nameHint:"UpdateContactRequest"`
+}
+
+type updateAudienceListContactsInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	ListID      string `path:"list_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"List ID."`
+	Body        struct {
+		Mode       string   `json:"mode,omitempty" example:"replace" doc:"Update mode (add/remove/replace)."`
+		ContactIDs []string `json:"contact_ids,omitempty" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Contact IDs."`
+	} `required:"true" nameHint:"UpdateAudienceListContactsRequest"`
+}
+
+type updateSegmentInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	SegmentID   string `path:"segment_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Segment ID."`
+	Body        struct {
+		Name       string         `json:"name,omitempty" minLength:"1" example:"VIP Customers" doc:"Segment name."`
+		Definition map[string]any `json:"definition,omitempty" doc:"Segment definition."`
+		Status     string         `json:"status,omitempty" enum:"active,archived" example:"active" doc:"Segment status."`
+	} `required:"true" nameHint:"UpdateSegmentRequest"`
+}
+
+type updateTemplateInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	TemplateID  string `path:"template_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Template ID."`
+	Body        struct {
+		Name     *string        `json:"name,omitempty" minLength:"1" example:"Welcome Email" doc:"Template name."`
+		Subject  *string        `json:"subject,omitempty" example:"Welcome {{.name}}" doc:"Template subject."`
+		HTML     *string        `json:"html,omitempty" example:"<h1>Welcome</h1>" doc:"Template HTML."`
+		Text     *string        `json:"text,omitempty" example:"Welcome" doc:"Template text."`
+		Metadata map[string]any `json:"metadata,omitempty" doc:"Template metadata."`
+	} `required:"true" nameHint:"UpdateTemplateRequest"`
+}
+
+type previewTemplateInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	TemplateID  string `path:"template_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Template ID."`
+	Body        struct {
+		TemplateData map[string]any `json:"template_data,omitempty" doc:"Template data."`
+	} `required:"true" nameHint:"PreviewTemplateRequest"`
+}
+
+// --- Audience Operations ---
+
+func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-contacts",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/contacts",
+		Tags:        []string{"Audience"},
+		Summary:     "List contacts",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, audience.listContacts)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "create-contact",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/contacts",
+		Tags:          []string{"Audience"},
+		Summary:       "Create contact",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *createContactInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.createContact)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-contact",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/contacts/{contact_id}",
+		Tags:        []string{"Audience"},
+		Summary:     "Get contact",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *audienceContactPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, audience.getContact)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "update-contact",
+		Method:      http.MethodPatch,
+		Path:        "/api/v1/workspaces/{workspace_id}/contacts/{contact_id}",
+		Tags:        []string{"Audience"},
+		Summary:     "Update contact",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *updateContactInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.updateContact)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "delete-contact",
+		Method:      http.MethodDelete,
+		Path:        "/api/v1/workspaces/{workspace_id}/contacts/{contact_id}",
+		Tags:        []string{"Audience"},
+		Summary:     "Delete contact",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *audienceContactPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, audience.deleteContact)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-audience-lists",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/lists",
+		Tags:        []string{"Audience"},
+		Summary:     "List audience lists",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, audience.listAudienceLists)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "create-audience-list",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/lists",
+		Tags:          []string{"Audience"},
+		Summary:       "Create audience list",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *createAudienceListInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.createAudienceList)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "update-audience-list-contacts",
+		Method:      http.MethodPut,
+		Path:        "/api/v1/workspaces/{workspace_id}/lists/{list_id}/contacts",
+		Tags:        []string{"Audience"},
+		Summary:     "Update audience list contacts",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *updateAudienceListContactsInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.updateAudienceListContacts)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-segments",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/segments",
+		Tags:        []string{"Audience"},
+		Summary:     "List segments",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, audience.listSegments)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "create-segment",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/segments",
+		Tags:          []string{"Audience"},
+		Summary:       "Create segment",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *createSegmentInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.createSegment)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "update-segment",
+		Method:      http.MethodPatch,
+		Path:        "/api/v1/workspaces/{workspace_id}/segments/{segment_id}",
+		Tags:        []string{"Audience"},
+		Summary:     "Update segment",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *updateSegmentInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.updateSegment)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "start-audience-import",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/audience/imports",
+		Tags:          []string{"Audience"},
+		Summary:       "Start audience import",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *startAudienceImportInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.startAudienceImport)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-audience-imports",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/audience/imports",
+		Tags:        []string{"Audience"},
+		Summary:     "List audience imports",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, audience.listAudienceImports)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-audience-import",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/audience/imports/{import_id}",
+		Tags:        []string{"Audience"},
+		Summary:     "Get audience import",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *audienceImportPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, audience.getAudienceImport)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "start-audience-export",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/audience/exports",
+		Tags:          []string{"Audience"},
+		Summary:       "Start audience export",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *startAudienceExportInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.startAudienceExport)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-audience-export",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/audience/exports/{export_id}",
+		Tags:        []string{"Audience"},
+		Summary:     "Get audience export",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *audienceExportPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, audience.getAudienceExport)
+	})
+}
+
+// --- Content Operations ---
+
+func registerContentOperations(api huma.API, content *contentHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-templates",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/templates",
+		Tags:        []string{"Templates"},
+		Summary:     "List templates",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, content.listTemplates)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "create-template",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/templates",
+		Tags:          []string{"Templates"},
+		Summary:       "Create template",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *createTemplateInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), content.createTemplate)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-template",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/templates/{template_id}",
+		Tags:        []string{"Templates"},
+		Summary:     "Get template",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *contentTemplatePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, content.getTemplate)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "update-template",
+		Method:      http.MethodPatch,
+		Path:        "/api/v1/workspaces/{workspace_id}/templates/{template_id}",
+		Tags:        []string{"Templates"},
+		Summary:     "Update template",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *updateTemplateInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), content.updateTemplate)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "publish-template",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/workspaces/{workspace_id}/templates/{template_id}/publish",
+		Tags:        []string{"Templates"},
+		Summary:     "Publish template version",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *contentTemplatePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, content.publishTemplate)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-template-versions",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/templates/{template_id}/versions",
+		Tags:        []string{"Templates"},
+		Summary:     "List template versions",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *contentTemplatePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, content.listTemplateVersions)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "preview-template",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/workspaces/{workspace_id}/templates/{template_id}/preview",
+		Tags:        []string{"Template Render"},
+		Summary:     "Preview template",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *previewTemplateInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), content.previewTemplate)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "render-template",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/workspaces/{workspace_id}/render",
+		Tags:        []string{"Template Render"},
+		Summary:     "Render template",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *renderTemplateInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), content.render)
+	})
+}
+
+// --- Suppression Operations ---
+
+func registerSuppressionOperations(api huma.API, suppression *suppressionHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-suppression-entries",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/suppression",
+		Tags:        []string{"Suppression"},
+		Summary:     "List suppression entries",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, suppression.listSuppressionEntries)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "create-suppression-entry",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/suppression",
+		Tags:          []string{"Suppression"},
+		Summary:       "Create suppression entry",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *createSuppressionEntryInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), suppression.createSuppressionEntry)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "delete-suppression-entry",
+		Method:      http.MethodDelete,
+		Path:        "/api/v1/workspaces/{workspace_id}/suppression/{suppression_id}",
+		Tags:        []string{"Suppression"},
+		Summary:     "Delete suppression entry",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *suppressionPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, suppression.deleteSuppressionEntry)
+	})
+}
+
+func audienceErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"audience.read_denied",
+			"audience.write_denied",
+			"audience.import_denied",
+			"audience.export_denied",
+		},
+		http.StatusNotFound: {
+			"audience.contact_not_found",
+			"audience.list_not_found",
+			"audience.segment_not_found",
+			"audience.import_job_not_found",
+			"audience.export_job_not_found",
+		},
+		http.StatusConflict: {
+			"audience.contact_email_conflict",
+			"audience.list_name_conflict",
+			"audience.segment_name_conflict",
+			"audience.import_duplicate_submission",
+		},
+		http.StatusUnprocessableEntity: {
+			"audience.contact_payload_invalid",
+			"audience.contact_status_invalid",
+			"audience.segment_definition_invalid",
+			"audience.list_membership_payload_invalid",
+			"audience.import_source_invalid",
+			"audience.export_filter_invalid",
+			"audience.export_format_invalid",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
+}
+
+func templateErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"template.read_denied",
+			"template.write_denied",
+			"template.render_denied",
+		},
+		http.StatusNotFound: {
+			"template.not_found",
+			"template.version_not_found",
+		},
+		http.StatusConflict: {
+			"template.publish_conflict",
+			"template.version_conflict",
+		},
+		http.StatusUnprocessableEntity: {
+			"template.source_invalid",
+			"template.publish_payload_invalid",
+			"template.render_payload_invalid",
+			"template.render_context_invalid",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
+}
+
+func suppressionErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"suppression.read_denied",
+			"suppression.manage_denied",
+		},
+		http.StatusNotFound: {
+			"suppression.entry_not_found",
+		},
+		http.StatusConflict: {
+			"suppression.unsuppress_conflict",
+		},
+		http.StatusUnprocessableEntity: {
+			"suppression.scope_invalid",
+			"suppression.reason_invalid",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
 }

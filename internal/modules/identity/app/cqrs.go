@@ -42,7 +42,7 @@ type CommandBus interface {
 	Login(ctx context.Context, cmd login.Command) (*usecase.LoginResult, error)
 	OAuthStart(ctx context.Context, cmd oauthstart.Command) (*usecase.OAuthStartResult, error)
 	OAuthExchange(ctx context.Context, cmd oauthexchange.Command) (*usecase.SessionContext, *domain.OAuthIdentity, error)
-RevokeSession(ctx context.Context, sessionID, userID string, now time.Time) error
+	RevokeSession(ctx context.Context, sessionID, userID string, now time.Time) error
 	Refresh(ctx context.Context, cmd refresh.Command) (*usecase.SessionContext, error)
 	RequestEmailVerification(ctx context.Context, userID string, now time.Time) error
 	VerifyEmail(ctx context.Context, token string, now time.Time) error
@@ -73,26 +73,26 @@ type QueryBus interface {
 }
 
 type commandBus struct {
-	signup        *signup.Handler
-	login         *login.Handler
-	oauthStart    *oauthstart.Handler
-	oauthEx       *oauthexchange.Handler
-	revoke        *revokesession.Handler
-	refresh       *refresh.Handler
-	reqVerify     *requestemailverification.Handler
-	verify        *verifyemail.Handler
-	forgot        *forgotpassword.Handler
-	reset         *resetpassword.Handler
-	mfaLogin      *mfalogin.Handler
-	mfaSetup      *mfatotpsetup.Handler
-	mfaEnable     *mfatotpenable.Handler
-	mfaDisable    *mfatotpdisable.Handler
-	mfaRegen      *mfaregenerate.Handler
-	createWS      *createworkspace.Handler
-	inviteMember  *inviteworkspacemember.Handler
-	acceptInvite  *acceptworkspaceinvitation.Handler
-	removeMember  *removeworkspacemember.Handler
-	updateRole    *updateworkspacememberrole.Handler
+	signup       *signup.Handler
+	login        *login.Handler
+	oauthStart   *oauthstart.Handler
+	oauthEx      *oauthexchange.Handler
+	revoke       *revokesession.Handler
+	refresh      *refresh.Handler
+	reqVerify    *requestemailverification.Handler
+	verify       *verifyemail.Handler
+	forgot       *forgotpassword.Handler
+	reset        *resetpassword.Handler
+	mfaLogin     *mfalogin.Handler
+	mfaSetup     *mfatotpsetup.Handler
+	mfaEnable    *mfatotpenable.Handler
+	mfaDisable   *mfatotpdisable.Handler
+	mfaRegen     *mfaregenerate.Handler
+	createWS     *createworkspace.Handler
+	inviteMember *inviteworkspacemember.Handler
+	acceptInvite *acceptworkspaceinvitation.Handler
+	removeMember *removeworkspacemember.Handler
+	updateRole   *updateworkspacememberrole.Handler
 }
 
 func newCommandBus(
@@ -203,15 +203,15 @@ func (b *commandBus) UpdateWorkspaceMemberRole(ctx context.Context, cmd updatewo
 }
 
 type queryBus struct {
-	listProvider    *listproviders.Handler
-	getMe           *getme.Handler
-	listSessions    *listsessions.Handler
-	authn           *authenticate.Handler
-	listWS          *listworkspaces.Handler
-	getWS           *getworkspace.Handler
-	listWSMembers   *listworkspacemembers.Handler
-	getWSAccess     *getworkspaceaccess.Handler
-	listWSInvites   *listworkspaceinvitations.Handler
+	listProvider  *listproviders.Handler
+	getMe         *getme.Handler
+	listSessions  *listsessions.Handler
+	authn         *authenticate.Handler
+	listWS        *listworkspaces.Handler
+	getWS         *getworkspace.Handler
+	listWSMembers *listworkspacemembers.Handler
+	getWSAccess   *getworkspaceaccess.Handler
+	listWSInvites *listworkspaceinvitations.Handler
 }
 
 func newQueryBus(

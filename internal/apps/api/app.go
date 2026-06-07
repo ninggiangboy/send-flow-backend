@@ -12,16 +12,26 @@ import (
 
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
+	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
+	audiencepostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/postgres"
+	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
+	contentpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/postgres"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	identityoauth "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/oauth"
 	identitypostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/postgres"
 	identityredis "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/redis"
 	identitytoken "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/token"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
+	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
+	senderdns "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/dns"
+	senderpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/postgres"
+	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
+	suppressionpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/infrastructure/postgres"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/httpjson"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/logger"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/migration"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/objectstorage"
@@ -31,10 +41,6 @@ import (
 	platformredis "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/sse"
-	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
-	senderdns "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/dns"
-	senderpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/postgres"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -148,7 +154,53 @@ func Run(ctx context.Context) error {
 		Logger:        log,
 	})
 
-	r := newRouter(healthSvc, authSvc, senderSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
+	audienceContactsRead := audiencepostgres.NewContactReadRepository(pgClient.ReadPool())
+	audienceContactsWrite := audiencepostgres.NewContactWriteRepository(pgClient.WritePool())
+	audienceListsRead := audiencepostgres.NewListReadRepository(pgClient.ReadPool())
+	audienceListsWrite := audiencepostgres.NewListWriteRepository(pgClient.WritePool())
+	audienceSegmentsRead := audiencepostgres.NewSegmentReadRepository(pgClient.ReadPool())
+	audienceSegmentsWrite := audiencepostgres.NewSegmentWriteRepository(pgClient.WritePool())
+	audienceImportJobsRead := audiencepostgres.NewImportJobReadRepository(pgClient.ReadPool())
+	audienceImportJobsWrite := audiencepostgres.NewImportJobWriteRepository(pgClient.WritePool())
+	audienceExportJobsRead := audiencepostgres.NewExportJobReadRepository(pgClient.ReadPool())
+	audienceExportJobsWrite := audiencepostgres.NewExportJobWriteRepository(pgClient.WritePool())
+	audienceSvc := audienceapp.NewService(audienceapp.Options{
+		ContactsRead:    audienceContactsRead,
+		ContactsWrite:   audienceContactsWrite,
+		ListsRead:       audienceListsRead,
+		ListsWrite:      audienceListsWrite,
+		SegmentsRead:    audienceSegmentsRead,
+		SegmentsWrite:   audienceSegmentsWrite,
+		ImportJobsRead:  audienceImportJobsRead,
+		ImportJobsWrite: audienceImportJobsWrite,
+		ExportJobsRead:  audienceExportJobsRead,
+		ExportJobsWrite: audienceExportJobsWrite,
+		AccessChecker:   newWorkspaceAccessAdapter(authSvc),
+		IDGen:           id.NewUUIDGenerator().New,
+		Logger:          log,
+	})
+
+	contentTemplatesRead := contentpostgres.NewTemplateReadRepository(pgClient.ReadPool())
+	contentTemplatesWrite := contentpostgres.NewTemplateWriteRepository(pgClient.WritePool())
+	contentSvc := contentapp.NewService(contentapp.Options{
+		TemplatesRead:  contentTemplatesRead,
+		TemplatesWrite: contentTemplatesWrite,
+		AccessChecker:  newWorkspaceAccessAdapter(authSvc),
+		IDGen:          id.NewUUIDGenerator().New,
+		Logger:         log,
+	})
+
+	suppressionEntriesRead := suppressionpostgres.NewReadRepository(pgClient.ReadPool())
+	suppressionEntriesWrite := suppressionpostgres.NewWriteRepository(pgClient.WritePool())
+	suppressionSvc := suppressionapp.NewService(suppressionapp.Options{
+		EntriesRead:   suppressionEntriesRead,
+		EntriesWrite:  suppressionEntriesWrite,
+		AccessChecker: newWorkspaceAccessAdapter(authSvc),
+		IDGen:         id.NewUUIDGenerator().New,
+		Logger:        log,
+	})
+
+	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -179,7 +231,7 @@ func Run(ctx context.Context) error {
 	return server.Shutdown(shutdownCtx)
 }
 
-func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
+func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware(corsOptions{
 		AllowedOrigins: []string{frontendBaseURL},
@@ -228,7 +280,7 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 		})
 	})
 	humaAPI := humachi.New(r, openAPIConfig())
-	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc)
+	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {
