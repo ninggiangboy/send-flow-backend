@@ -5,8 +5,20 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
+
+type fakeRow struct{}
+
+func (r *fakeRow) Scan(dest ...any) error {
+	if len(dest) > 0 {
+		if b, ok := dest[0].(*bool); ok {
+			*b = false
+		}
+	}
+	return nil
+}
 
 type fakeExecer struct {
 	err     error
@@ -18,6 +30,10 @@ func (f *fakeExecer) Exec(_ context.Context, query string, args ...any) (pgconn.
 	f.queries = append(f.queries, query)
 	f.args = append(f.args, args)
 	return pgconn.CommandTag{}, f.err
+}
+
+func (f *fakeExecer) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
+	return &fakeRow{}
 }
 
 func TestProcessedEventMarkers_MarkProcessed(t *testing.T) {

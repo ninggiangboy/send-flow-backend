@@ -7,6 +7,7 @@ import (
 	audiencedomain "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
 	campaigndomain "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/domain"
 	contentdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/content/domain"
+	deliverydomain "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	identitydomain "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	senderdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
@@ -64,6 +65,8 @@ func mapPermissionErr(permission string, workspaceDenied bool) error {
 			return campaigndomain.ErrWriteDenied
 		case permission == "campaign.send":
 			return campaigndomain.ErrSendDenied
+		case permission == "delivery.read":
+			return deliverydomain.ErrReadDenied
 		default:
 			return senderdomain.ErrManageDenied
 		}
@@ -93,6 +96,8 @@ func mapPermissionErr(permission string, workspaceDenied bool) error {
 		return campaigndomain.ErrWriteDenied
 	case permission == "campaign.send":
 		return campaigndomain.ErrSendDenied
+	case permission == "delivery.read":
+		return deliverydomain.ErrReadDenied
 	default:
 		return senderdomain.ErrManageDenied
 	}

@@ -17,6 +17,7 @@ import (
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
 	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
+	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
@@ -49,7 +50,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -89,6 +90,10 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 	if campaignSvc != nil {
 		campaign := newCampaignHTTP(campaignSvc)
 		registerCampaignOperations(api, campaign, authMiddleware)
+	}
+	if deliverySvc != nil {
+		delivery := newDeliveryHTTP(deliverySvc)
+		registerDeliveryOperations(api, delivery, authMiddleware)
 	}
 	documentApplicationErrors(api.OpenAPI())
 }
@@ -220,6 +225,8 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 		return suppressionErrorCodes()
 	case hasTag(op, "Campaigns"):
 		return campaignErrorCodes()
+	case hasTag(op, "Delivery"):
+		return deliveryErrorCodes()
 	default:
 		return map[int][]string{
 			http.StatusInternalServerError: {"health.runtime_not_ready"},
@@ -1848,6 +1855,62 @@ func campaignErrorCodes() map[int][]string {
 			"campaign.audience_not_ready",
 			"sender.domain_not_verified",
 			"template.publish_required",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
+}
+
+// --- Delivery Operations ---
+
+type messagePathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	MessageID   string `path:"message_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Message ID."`
+}
+
+func registerDeliveryOperations(api huma.API, delivery *deliveryHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-messages",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/messages",
+		Tags:        []string{"Delivery"},
+		Summary:     "List messages",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, delivery.listMessages)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-message",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/messages/{message_id}",
+		Tags:        []string{"Delivery"},
+		Summary:     "Get message",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *messagePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, delivery.getMessage)
+	})
+}
+
+func deliveryErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"delivery.read_denied",
+		},
+		http.StatusNotFound: {
+			"delivery.message_not_found",
+		},
+		http.StatusUnprocessableEntity: {
+			"delivery.query_invalid",
 		},
 		http.StatusInternalServerError: {
 			"health.runtime_not_ready",

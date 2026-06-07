@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type execer interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
 type ProcessedEventMarkers struct {
@@ -23,6 +25,15 @@ func NewProcessedEventMarkers(pool *pgxpool.Pool) *ProcessedEventMarkers {
 
 func NewProcessedEventMarkersWithExecer(db execer) *ProcessedEventMarkers {
 	return &ProcessedEventMarkers{db: db}
+}
+
+func (m *ProcessedEventMarkers) WasProcessed(ctx context.Context, consumerName, eventID string) (bool, error) {
+	var exists bool
+	err := m.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM processed_event_markers WHERE consumer_name=$1 AND event_id=$2::uuid)", consumerName, eventID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func (m *ProcessedEventMarkers) MarkProcessed(ctx context.Context, consumerName, eventID string) (bool, error) {

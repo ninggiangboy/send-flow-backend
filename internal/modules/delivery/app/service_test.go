@@ -1,0 +1,449 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"testing"
+	"time"
+
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
+)
+
+// --- Mocks ---
+
+type mockMessageReadRepo struct {
+	ports.MessageReadRepository
+	findByID               func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
+	findByProviderMessageID func(ctx context.Context, provider, providerMessageID string) (*domain.Message, error)
+	list                   func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error)
+	listDueQueued          func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error)
+	countByCampaign        func(ctx context.Context, workspaceID, campaignID string) (int64, error)
+}
+
+func (m *mockMessageReadRepo) FindByID(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+	return m.findByID(ctx, workspaceID, messageID)
+}
+
+func (m *mockMessageReadRepo) FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*domain.Message, error) {
+	return m.findByProviderMessageID(ctx, provider, providerMessageID)
+}
+
+func (m *mockMessageReadRepo) List(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error) {
+	return m.list(ctx, query)
+}
+
+func (m *mockMessageReadRepo) ListDueQueued(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
+	return m.listDueQueued(ctx, query)
+}
+
+func (m *mockMessageReadRepo) CountByCampaign(ctx context.Context, workspaceID, campaignID string) (int64, error) {
+	return m.countByCampaign(ctx, workspaceID, campaignID)
+}
+
+type mockMessageWriteRepo struct {
+	ports.MessageWriteRepository
+	createMany     func(ctx context.Context, messages []domain.Message) ([]string, error)
+	update         func(ctx context.Context, message domain.Message) error
+	markProcessing func(ctx context.Context, workspaceID, messageID string, now time.Time) error
+	markAccepted   func(ctx context.Context, message domain.Message) error
+	markDelivered  func(ctx context.Context, message domain.Message) error
+	markFailed     func(ctx context.Context, message domain.Message) error
+}
+
+func (m *mockMessageWriteRepo) CreateMany(ctx context.Context, messages []domain.Message) ([]string, error) {
+	return m.createMany(ctx, messages)
+}
+
+func (m *mockMessageWriteRepo) Update(ctx context.Context, message domain.Message) error {
+	return m.update(ctx, message)
+}
+
+func (m *mockMessageWriteRepo) MarkProcessing(ctx context.Context, workspaceID, messageID string, now time.Time) error {
+	return m.markProcessing(ctx, workspaceID, messageID, now)
+}
+
+func (m *mockMessageWriteRepo) MarkAccepted(ctx context.Context, message domain.Message) error {
+	return m.markAccepted(ctx, message)
+}
+
+func (m *mockMessageWriteRepo) MarkDelivered(ctx context.Context, message domain.Message) error {
+	return m.markDelivered(ctx, message)
+}
+
+func (m *mockMessageWriteRepo) MarkFailed(ctx context.Context, message domain.Message) error {
+	return m.markFailed(ctx, message)
+}
+
+type mockAttemptReadRepo struct {
+	ports.AttemptReadRepository
+	listByMessage     func(ctx context.Context, workspaceID, messageID string) ([]domain.DeliveryAttempt, error)
+	nextAttemptNumber func(ctx context.Context, workspaceID, messageID string) (int, error)
+}
+
+func (m *mockAttemptReadRepo) ListByMessage(ctx context.Context, workspaceID, messageID string) ([]domain.DeliveryAttempt, error) {
+	return m.listByMessage(ctx, workspaceID, messageID)
+}
+
+func (m *mockAttemptReadRepo) NextAttemptNumber(ctx context.Context, workspaceID, messageID string) (int, error) {
+	return m.nextAttemptNumber(ctx, workspaceID, messageID)
+}
+
+type mockAttemptWriteRepo struct {
+	ports.AttemptWriteRepository
+	create func(ctx context.Context, attempt domain.DeliveryAttempt) error
+	update func(ctx context.Context, attempt domain.DeliveryAttempt) error
+}
+
+func (m *mockAttemptWriteRepo) Create(ctx context.Context, attempt domain.DeliveryAttempt) error {
+	return m.create(ctx, attempt)
+}
+
+func (m *mockAttemptWriteRepo) Update(ctx context.Context, attempt domain.DeliveryAttempt) error {
+	return m.update(ctx, attempt)
+}
+
+type mockRetryStateReadRepo struct {
+	ports.RetryStateReadRepository
+	findByMessage func(ctx context.Context, workspaceID, messageID string) (*domain.RetryState, error)
+}
+
+func (m *mockRetryStateReadRepo) FindByMessage(ctx context.Context, workspaceID, messageID string) (*domain.RetryState, error) {
+	return m.findByMessage(ctx, workspaceID, messageID)
+}
+
+type mockRetryStateWriteRepo struct {
+	ports.RetryStateWriteRepository
+	create func(ctx context.Context, state domain.RetryState) error
+	update func(ctx context.Context, state domain.RetryState) error
+}
+
+func (m *mockRetryStateWriteRepo) Create(ctx context.Context, state domain.RetryState) error {
+	return m.create(ctx, state)
+}
+
+func (m *mockRetryStateWriteRepo) Update(ctx context.Context, state domain.RetryState) error {
+	return m.update(ctx, state)
+}
+
+type mockTxRequestReadRepo struct {
+	ports.TransactionalRequestReadRepository
+	findByID func(ctx context.Context, workspaceID, requestID string) (*domain.TransactionalSendRequest, error)
+}
+
+func (m *mockTxRequestReadRepo) FindByID(ctx context.Context, workspaceID, requestID string) (*domain.TransactionalSendRequest, error) {
+	return m.findByID(ctx, workspaceID, requestID)
+}
+
+type mockTxRequestWriteRepo struct {
+	ports.TransactionalRequestWriteRepository
+	create func(ctx context.Context, request domain.TransactionalSendRequest) error
+	update func(ctx context.Context, request domain.TransactionalSendRequest) error
+}
+
+func (m *mockTxRequestWriteRepo) Create(ctx context.Context, request domain.TransactionalSendRequest) error {
+	return m.create(ctx, request)
+}
+
+func (m *mockTxRequestWriteRepo) Update(ctx context.Context, request domain.TransactionalSendRequest) error {
+	return m.update(ctx, request)
+}
+
+type mockCampaignReader struct {
+	ports.CampaignCandidateReader
+	listCandidates  func(ctx context.Context, workspaceID, campaignID string, limit int, cursor string) ([]ports.CampaignCandidate, string, error)
+	countCandidates func(ctx context.Context, workspaceID, campaignID string) (int64, error)
+}
+
+func (m *mockCampaignReader) ListCandidates(ctx context.Context, workspaceID, campaignID string, limit int, cursor string) ([]ports.CampaignCandidate, string, error) {
+	return m.listCandidates(ctx, workspaceID, campaignID, limit, cursor)
+}
+
+func (m *mockCampaignReader) CountCandidates(ctx context.Context, workspaceID, campaignID string) (int64, error) {
+	return m.countCandidates(ctx, workspaceID, campaignID)
+}
+
+type mockContentRenderer struct{ ports.ContentRenderer }
+
+type mockSenderChecker struct{ ports.SenderReadinessChecker }
+
+type mockSuppressionChecker struct{ ports.SuppressionChecker }
+
+type mockEmailProvider struct{ ports.EmailProvider }
+
+func newTestOpts() Options {
+	return Options{
+		MessagesRead:       &mockMessageReadRepo{},
+		MessagesWrite:      &mockMessageWriteRepo{},
+		AttemptsRead:       &mockAttemptReadRepo{},
+		AttemptsWrite:      &mockAttemptWriteRepo{},
+		RetryStatesRead:    &mockRetryStateReadRepo{},
+		RetryStatesWrite:   &mockRetryStateWriteRepo{},
+		TxRequestsRead:     &mockTxRequestReadRepo{},
+		TxRequestsWrite:    &mockTxRequestWriteRepo{},
+		CampaignReader:     &mockCampaignReader{},
+		OutboxWriter: &mockOutboxWriter{
+			saveFunc: func(_ context.Context, _ ports.OutboxEvent) error { return nil },
+		},
+		TxManager: &mockTxManager{
+			runInTransactionFunc: func(ctx context.Context, fn func(ctx context.Context) error) error {
+				return fn(ctx)
+			},
+		},
+		ContentRenderer:    &mockContentRenderer{},
+		SenderChecker:      &mockSenderChecker{},
+		SuppressionChecker: &mockSuppressionChecker{},
+		EmailProvider:      &mockEmailProvider{},
+		IDGen:              func() (string, error) { return "test_id_1", nil },
+		Logger:             slog.Default(),
+	}
+}
+
+func TestQueueCampaignMessages_Success(t *testing.T) {
+	opts := newTestOpts()
+
+	campaign := opts.CampaignReader.(*mockCampaignReader)
+	campaign.countCandidates = func(ctx context.Context, workspaceID, campaignID string) (int64, error) {
+		return 2, nil
+	}
+	campaign.listCandidates = func(ctx context.Context, workspaceID, campaignID string, limit int, cursor string) ([]ports.CampaignCandidate, string, error) {
+		return []ports.CampaignCandidate{
+			{ID: "cand_1", WorkspaceID: "ws_1", CampaignID: "camp_1", ContactID: "contact_1", EmailNormalized: "test1@example.com", RecipientSnapshot: json.RawMessage(`{"contact_id":"contact_1","email":"test1@example.com","email_normalized":"test1@example.com"}`)},
+			{ID: "cand_2", WorkspaceID: "ws_1", CampaignID: "camp_1", ContactID: "contact_2", EmailNormalized: "test2@example.com", RecipientSnapshot: json.RawMessage(`{"contact_id":"contact_2","email":"test2@example.com","email_normalized":"test2@example.com"}`)},
+		}, "", nil
+	}
+
+	write := opts.MessagesWrite.(*mockMessageWriteRepo)
+	write.createMany = func(ctx context.Context, messages []domain.Message) ([]string, error) {
+		ids := make([]string, len(messages))
+		for i, m := range messages {
+			ids[i] = m.ID
+		}
+		return ids, nil
+	}
+
+	var saveCount int
+	outbox := opts.OutboxWriter.(*mockOutboxWriter)
+	outbox.saveFunc = func(ctx context.Context, event ports.OutboxEvent) error {
+		saveCount++
+		return nil
+	}
+
+	svc := NewService(opts)
+	result, err := svc.QueueCampaignMessages(context.Background(), QueueCampaignMessagesInput{
+		WorkspaceID:       "ws_1",
+		CampaignID:        "camp_1",
+		TemplateID:        "tmpl_1",
+		TemplateVersionID: "tv_1",
+		SenderDomainID:    "sd_1",
+		MessageType:       "marketing",
+		ScheduledAt:       time.Now().Add(time.Hour),
+		Now:               time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.QueuedCount != 2 {
+		t.Errorf("expected QueuedCount 2, got %d", result.QueuedCount)
+	}
+	if saveCount != 2 {
+		t.Errorf("expected outbox save called 2 times, got %d", saveCount)
+	}
+}
+
+func TestQueueCampaignMessages_EmitsOutboxEvents(t *testing.T) {
+	opts := newTestOpts()
+
+	campaign := opts.CampaignReader.(*mockCampaignReader)
+	campaign.countCandidates = func(ctx context.Context, workspaceID, campaignID string) (int64, error) {
+		return 1, nil
+	}
+	campaign.listCandidates = func(ctx context.Context, workspaceID, campaignID string, limit int, cursor string) ([]ports.CampaignCandidate, string, error) {
+		return []ports.CampaignCandidate{
+			{ID: "cand_1", WorkspaceID: "ws_1", CampaignID: "camp_1", ContactID: "contact_1", EmailNormalized: "test1@example.com", RecipientSnapshot: json.RawMessage(`{"contact_id":"contact_1","email":"test1@example.com","email_normalized":"test1@example.com"}`)},
+		}, "", nil
+	}
+
+	write := opts.MessagesWrite.(*mockMessageWriteRepo)
+	write.createMany = func(ctx context.Context, messages []domain.Message) ([]string, error) {
+		ids := make([]string, len(messages))
+		for i, m := range messages {
+			ids[i] = m.ID
+		}
+		return ids, nil
+	}
+
+	var capturedEvent ports.OutboxEvent
+	outbox := opts.OutboxWriter.(*mockOutboxWriter)
+	outbox.saveFunc = func(ctx context.Context, event ports.OutboxEvent) error {
+		capturedEvent = event
+		return nil
+	}
+
+	svc := NewService(opts)
+	_, err := svc.QueueCampaignMessages(context.Background(), QueueCampaignMessagesInput{
+		WorkspaceID:       "ws_1",
+		CampaignID:        "camp_1",
+		TemplateID:        "tmpl_1",
+		TemplateVersionID: "tv_1",
+		SenderDomainID:    "sd_1",
+		MessageType:       "marketing",
+		ScheduledAt:       time.Now().Add(time.Hour),
+		Now:               time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedEvent.EventType != "delivery.message.queued.v1" {
+		t.Errorf("expected EventType delivery.message.queued.v1, got %s", capturedEvent.EventType)
+	}
+	if !json.Valid(capturedEvent.Payload) {
+		t.Error("expected Payload to be valid JSON")
+	}
+}
+
+func TestQueueCampaignMessages_EmptyCandidates(t *testing.T) {
+	opts := newTestOpts()
+
+	campaign := opts.CampaignReader.(*mockCampaignReader)
+	campaign.countCandidates = func(ctx context.Context, workspaceID, campaignID string) (int64, error) {
+		return 0, nil
+	}
+
+	svc := NewService(opts)
+	_, err := svc.QueueCampaignMessages(context.Background(), QueueCampaignMessagesInput{
+		WorkspaceID:       "ws_1",
+		CampaignID:        "camp_1",
+		TemplateID:        "tmpl_1",
+		TemplateVersionID: "tv_1",
+		SenderDomainID:    "sd_1",
+		MessageType:       "marketing",
+		ScheduledAt:       time.Now().Add(time.Hour),
+		Now:               time.Now(),
+	})
+	if !errors.Is(err, domain.ErrCampaignCandidatesNotFound) {
+		t.Errorf("expected ErrCampaignCandidatesNotFound, got %v", err)
+	}
+}
+
+func TestQueueCampaignMessages_DuplicateHandling(t *testing.T) {
+	opts := newTestOpts()
+
+	campaign := opts.CampaignReader.(*mockCampaignReader)
+	campaign.countCandidates = func(ctx context.Context, workspaceID, campaignID string) (int64, error) {
+		return 2, nil
+	}
+	campaign.listCandidates = func(ctx context.Context, workspaceID, campaignID string, limit int, cursor string) ([]ports.CampaignCandidate, string, error) {
+		return []ports.CampaignCandidate{
+			{ID: "cand_1", WorkspaceID: "ws_1", CampaignID: "camp_1", ContactID: "contact_1", EmailNormalized: "test1@example.com", RecipientSnapshot: json.RawMessage(`{"contact_id":"contact_1","email":"test1@example.com","email_normalized":"test1@example.com"}`)},
+			{ID: "cand_2", WorkspaceID: "ws_1", CampaignID: "camp_1", ContactID: "contact_2", EmailNormalized: "test2@example.com", RecipientSnapshot: json.RawMessage(`{"contact_id":"contact_2","email":"test2@example.com","email_normalized":"test2@example.com"}`)},
+		}, "", nil
+	}
+
+	write := opts.MessagesWrite.(*mockMessageWriteRepo)
+	write.createMany = func(ctx context.Context, messages []domain.Message) ([]string, error) {
+		return nil, nil
+	}
+
+	svc := NewService(opts)
+	result, err := svc.QueueCampaignMessages(context.Background(), QueueCampaignMessagesInput{
+		WorkspaceID:       "ws_1",
+		CampaignID:        "camp_1",
+		TemplateID:        "tmpl_1",
+		TemplateVersionID: "tv_1",
+		SenderDomainID:    "sd_1",
+		MessageType:       "marketing",
+		ScheduledAt:       time.Now().Add(time.Hour),
+		Now:               time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.QueuedCount != 0 {
+		t.Errorf("expected QueuedCount 0, got %d", result.QueuedCount)
+	}
+}
+
+func TestQueueCampaignMessages_InvalidInput(t *testing.T) {
+	opts := newTestOpts()
+	svc := NewService(opts)
+	_, err := svc.QueueCampaignMessages(context.Background(), QueueCampaignMessagesInput{
+		WorkspaceID:       "",
+		CampaignID:        "camp_1",
+		TemplateID:        "tmpl_1",
+		TemplateVersionID: "tv_1",
+		SenderDomainID:    "sd_1",
+		MessageType:       "marketing",
+		ScheduledAt:       time.Now().Add(time.Hour),
+		Now:               time.Now(),
+	})
+	if !errors.Is(err, domain.ErrPayloadInvalid) {
+		t.Errorf("expected ErrPayloadInvalid, got %v", err)
+	}
+}
+
+func TestListMessages_Success(t *testing.T) {
+	opts := newTestOpts()
+
+	read := opts.MessagesRead.(*mockMessageReadRepo)
+	read.list = func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error) {
+		return []domain.Message{
+			{ID: "msg_1", WorkspaceID: "ws_1", Status: domain.MessageStatusQueued},
+			{ID: "msg_2", WorkspaceID: "ws_1", Status: domain.MessageStatusQueued},
+		}, "", nil
+	}
+
+	svc := NewService(opts)
+	result, err := svc.ListMessages(context.Background(), ListMessagesInput{WorkspaceID: "ws_1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Messages) != 2 {
+		t.Errorf("expected 2 messages, got %d", len(result.Messages))
+	}
+}
+
+func TestListMessages_EmptyWorkspaceID(t *testing.T) {
+	opts := newTestOpts()
+	svc := NewService(opts)
+	_, err := svc.ListMessages(context.Background(), ListMessagesInput{WorkspaceID: ""})
+	if !errors.Is(err, domain.ErrPayloadInvalid) {
+		t.Errorf("expected ErrPayloadInvalid, got %v", err)
+	}
+}
+
+func TestGetMessage_Success(t *testing.T) {
+	opts := newTestOpts()
+
+	read := opts.MessagesRead.(*mockMessageReadRepo)
+	read.findByID = func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+		return &domain.Message{ID: "msg_1", WorkspaceID: "ws_1", Status: domain.MessageStatusQueued}, nil
+	}
+
+	svc := NewService(opts)
+	msg, err := svc.GetMessage(context.Background(), GetMessageInput{WorkspaceID: "ws_1", MessageID: "msg_1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msg.ID != "msg_1" {
+		t.Errorf("expected message ID msg_1, got %s", msg.ID)
+	}
+}
+
+func TestGetMessage_NotFound(t *testing.T) {
+	opts := newTestOpts()
+
+	read := opts.MessagesRead.(*mockMessageReadRepo)
+	read.findByID = func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+		return nil, domain.ErrMessageNotFound
+	}
+
+	svc := NewService(opts)
+	_, err := svc.GetMessage(context.Background(), GetMessageInput{WorkspaceID: "ws_1", MessageID: "msg_1"})
+	if !errors.Is(err, domain.ErrMessageNotFound) {
+		t.Errorf("expected ErrMessageNotFound, got %v", err)
+	}
+}

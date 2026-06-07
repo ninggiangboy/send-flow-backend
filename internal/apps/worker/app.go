@@ -8,9 +8,15 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	campaignpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/infrastructure/postgres"
+	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
+	deliverycampaign "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/campaign"
+	deliverypostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/postgres"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/httpjson"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/kafka"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/logger"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/observability"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
@@ -50,6 +56,53 @@ func Run(ctx context.Context) error {
 	})
 
 	registry := NewRegistry()
+
+	// Wire delivery module
+	pgReadPool := pgClient.ReadPool()
+	pgWritePool := pgClient.WritePool()
+
+	campaignReadRepo := campaignpostgres.NewCampaignReadRepository(pgReadPool)
+	campaignCandidateReader := deliverycampaign.NewCandidateReader(campaignReadRepo)
+
+	deliveryMsgReadRepo := deliverypostgres.NewMessageReadRepository(pgReadPool)
+	deliveryMsgWriteRepo := deliverypostgres.NewMessageWriteRepository(pgWritePool)
+	deliveryOutboxRepo := deliverypostgres.NewOutboxRepository(pgWritePool)
+	deliveryTxManager := deliverypostgres.NewTransactionManager(pgWritePool)
+
+	deliveryAttemptReadRepo := deliverypostgres.NewAttemptReadRepository(pgReadPool)
+	deliveryAttemptWriteRepo := deliverypostgres.NewAttemptWriteRepository(pgWritePool)
+	deliveryRetryReadRepo := deliverypostgres.NewRetryStateReadRepository(pgReadPool)
+	deliveryRetryWriteRepo := deliverypostgres.NewRetryStateWriteRepository(pgWritePool)
+	deliveryTxReqReadRepo := deliverypostgres.NewTransactionalRequestReadRepository(pgReadPool)
+	deliveryTxReqWriteRepo := deliverypostgres.NewTransactionalRequestWriteRepository(pgWritePool)
+
+	deliverySvc := deliveryapp.NewService(deliveryapp.Options{
+		MessagesRead:      deliveryMsgReadRepo,
+		MessagesWrite:     deliveryMsgWriteRepo,
+		AttemptsRead:      deliveryAttemptReadRepo,
+		AttemptsWrite:     deliveryAttemptWriteRepo,
+		RetryStatesRead:   deliveryRetryReadRepo,
+		RetryStatesWrite:  deliveryRetryWriteRepo,
+		TxRequestsRead:    deliveryTxReqReadRepo,
+		TxRequestsWrite:   deliveryTxReqWriteRepo,
+		CampaignReader:    campaignCandidateReader,
+		OutboxWriter:      deliveryOutboxRepo,
+		TxManager:         deliveryTxManager,
+		IDGen:             id.NewUUIDGenerator().New,
+		Logger:            log,
+	})
+
+	consumer := NewCampaignScheduledConsumer(
+		deliverySvc,
+		log,
+		kafka.Brokers(cfg.KafkaBrokers),
+		cfg.WorkerConsumerGroupPrefix+".delivery_queue_campaign_messages",
+		pgClient.WritePool(),
+	)
+	if err := registry.Register(consumer); err != nil {
+		return err
+	}
+
 	workerCtx, stopWorkers := context.WithCancel(ctx)
 	defer stopWorkers()
 
