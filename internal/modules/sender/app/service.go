@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -80,6 +81,19 @@ func readinessFor(sd senderdomain.SenderDomain, records []senderdomain.DNSRecord
 		}
 	}
 	return Readiness{Ready: ready, Reason: reason, CheckedAt: now}
+}
+
+func (s *Service) GetSenderDomainReadiness(ctx context.Context, workspaceID, senderDomainID string) (*Readiness, error) {
+	sd, records, err := s.domainsRead.FindByID(ctx, workspaceID, senderDomainID)
+	if err != nil {
+		return nil, err
+	}
+	if sd == nil {
+		return nil, senderdomain.ErrDomainNotFound
+	}
+
+	readiness := readinessFor(*sd, records, time.Now())
+	return &readiness, nil
 }
 
 func buildResult(sd senderdomain.SenderDomain, records []senderdomain.DNSRecord, now time.Time) *Result {

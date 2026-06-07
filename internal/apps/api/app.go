@@ -14,6 +14,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
 	audiencepostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/postgres"
+	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
+	campaignpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/infrastructure/postgres"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
 	contentpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/postgres"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
@@ -200,7 +202,24 @@ func Run(ctx context.Context) error {
 		Logger:        log,
 	})
 
-	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
+	campaignReadRepo := campaignpostgres.NewCampaignReadRepository(pgClient.ReadPool())
+	campaignWriteRepo := campaignpostgres.NewCampaignWriteRepository(pgClient.WritePool())
+	campaignOutboxRepo := campaignpostgres.NewOutboxRepository(pgClient.WritePool())
+	campaignTxManager := campaignpostgres.NewTransactionManager(pgClient.WritePool())
+	campaignSvc := campaignapp.NewService(campaignapp.Options{
+		CampaignsRead:    campaignReadRepo,
+		CampaignsWrite:   campaignWriteRepo,
+		AudienceResolver: newAudienceResolverAdapter(audienceSvc),
+		ContentService:   newContentServiceAdapter(contentSvc),
+		SenderService:    newSenderServiceAdapter(senderSvc),
+		OutboxWriter:     campaignOutboxRepo,
+		TxManager:        campaignTxManager,
+		AccessChecker:    newWorkspaceAccessAdapter(authSvc),
+		IDGen:            id.NewUUIDGenerator().New,
+		Logger:           log,
+	})
+
+	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -231,7 +250,7 @@ func Run(ctx context.Context) error {
 	return server.Shutdown(shutdownCtx)
 }
 
-func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
+func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware(corsOptions{
 		AllowedOrigins: []string{frontendBaseURL},
@@ -280,7 +299,7 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 		})
 	})
 	humaAPI := humachi.New(r, openAPIConfig())
-	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc)
+	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {

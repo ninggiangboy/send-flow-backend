@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
@@ -809,4 +811,346 @@ func (s *Service) EstimateAudienceSize(ctx context.Context, workspaceID string, 
 		return 0, err
 	}
 	return len(ids), nil
+}
+
+type AudienceRecipient struct {
+	ContactID       string
+	Email           string
+	EmailNormalized string
+	FirstName       string
+	LastName        string
+	Tags            []string
+	Attributes      map[string]any
+}
+
+func (s *Service) ResolveAudienceRecipients(ctx context.Context, workspaceID string, ref AudienceSelectionRef) ([]AudienceRecipient, error) {
+	log := s.log.With("usecase", "resolve_audience_recipients", "workspace_id", workspaceID)
+
+	recipients := make(map[string]*AudienceRecipient)
+	order := make([]string, 0)
+
+	addContact := func(c domain.Contact) {
+		if _, ok := recipients[c.ID]; !ok {
+			recipients[c.ID] = &AudienceRecipient{
+				ContactID:       c.ID,
+				Email:           c.Email,
+				EmailNormalized: c.EmailNormalized,
+				FirstName:       c.FirstName,
+				LastName:        c.LastName,
+				Tags:            c.Tags,
+				Attributes:      c.Attributes,
+			}
+			order = append(order, c.ID)
+		}
+	}
+
+	if ref.ListID != "" {
+		list, err := s.listsRead.FindListByID(ctx, workspaceID, ref.ListID)
+		if err != nil {
+			if err == domain.ErrListNotFound {
+				return nil, err
+			}
+			log.Error("failed to find list", "error", err)
+			return nil, err
+		}
+		_ = list
+
+		query := ports.ContactListQuery{
+			WorkspaceID: workspaceID,
+			ListID:      ref.ListID,
+			Status:      string(domain.ContactStatusActive),
+			Limit:       10000,
+		}
+		for {
+			contacts, cursor, err := s.contactsRead.ListContacts(ctx, query)
+			if err != nil {
+				log.Error("failed to list contacts by list", "error", err)
+				return nil, err
+			}
+			for _, c := range contacts {
+				if c.Status == domain.ContactStatusActive {
+					addContact(c)
+				}
+			}
+			if cursor == "" {
+				break
+			}
+			query.Cursor = cursor
+		}
+	}
+
+	if ref.SegmentID != "" {
+		segment, err := s.segmentsRead.FindSegmentByID(ctx, workspaceID, ref.SegmentID)
+		if err != nil {
+			if err == domain.ErrSegmentNotFound {
+				return nil, err
+			}
+			log.Error("failed to find segment", "error", err)
+			return nil, err
+		}
+		if segment.Status != domain.SegmentStatusReady {
+			return nil, domain.ErrSegmentDefinitionInvalid
+		}
+
+		rules, err := extractRules(segment.DefinitionJSON)
+		if err != nil {
+			return nil, domain.ErrSegmentDefinitionInvalid
+		}
+
+		query := ports.ContactListQuery{
+			WorkspaceID: workspaceID,
+			Status:      string(domain.ContactStatusActive),
+			Limit:       10000,
+		}
+		for {
+			contacts, cursor, err := s.contactsRead.ListContacts(ctx, query)
+			if err != nil {
+				log.Error("failed to list contacts for segment", "error", err)
+				return nil, err
+			}
+			for _, c := range contacts {
+				if matchesSegment(c, rules) {
+					addContact(c)
+				}
+			}
+			if cursor == "" {
+				break
+			}
+			query.Cursor = cursor
+		}
+	}
+
+	for _, cid := range ref.ContactIDs {
+		contact, err := s.contactsRead.FindContactByID(ctx, workspaceID, cid)
+		if err != nil {
+			if err == domain.ErrContactNotFound {
+				return nil, err
+			}
+			log.Error("failed to find contact", "error", err)
+			return nil, err
+		}
+		addContact(*contact)
+	}
+
+	result := make([]AudienceRecipient, 0, len(order))
+	for _, id := range order {
+		if r, ok := recipients[id]; ok {
+			result = append(result, *r)
+		}
+	}
+	if result == nil {
+		result = []AudienceRecipient{}
+	}
+	return result, nil
+}
+
+type segmentRule struct {
+	Field    string      `json:"field"`
+	Operator string      `json:"operator"`
+	Value    interface{} `json:"value"`
+}
+
+func extractRules(def map[string]any) ([]segmentRule, error) {
+	rulesRaw, ok := def["rules"]
+	if !ok {
+		return nil, domain.ErrSegmentDefinitionInvalid
+	}
+	rulesArr, ok := rulesRaw.([]any)
+	if !ok || len(rulesArr) == 0 {
+		return nil, domain.ErrSegmentDefinitionInvalid
+	}
+
+	rules := make([]segmentRule, 0, len(rulesArr))
+	for _, r := range rulesArr {
+		ruleMap, ok := r.(map[string]any)
+		if !ok {
+			return nil, domain.ErrSegmentDefinitionInvalid
+		}
+		field, _ := ruleMap["field"].(string)
+		op, _ := ruleMap["operator"].(string)
+		val := ruleMap["value"]
+		if field == "" || op == "" {
+			return nil, domain.ErrSegmentDefinitionInvalid
+		}
+		rules = append(rules, segmentRule{Field: field, Operator: op, Value: val})
+	}
+	return rules, nil
+}
+
+func getContactField(c domain.Contact, field string) interface{} {
+	switch field {
+	case "email":
+		return c.Email
+	case "email_normalized":
+		return c.EmailNormalized
+	case "status":
+		return string(c.Status)
+	case "first_name":
+		return c.FirstName
+	case "last_name":
+		return c.LastName
+	case "created_at":
+		return c.CreatedAt
+	case "updated_at":
+		return c.UpdatedAt
+	case "tags":
+		return c.Tags
+	default:
+		if len(field) > 11 && field[:11] == "attributes." {
+			if c.Attributes != nil {
+				return c.Attributes[field[11:]]
+			}
+		}
+		if c.Attributes != nil {
+			return c.Attributes[field]
+		}
+		return nil
+	}
+}
+
+func matchesSegment(c domain.Contact, rules []segmentRule) bool {
+	for _, rule := range rules {
+		fieldVal := getContactField(c, rule.Field)
+		if !evaluateRule(fieldVal, rule.Operator, rule.Value) {
+			return false
+		}
+	}
+	return true
+}
+
+func evaluateRule(fieldVal interface{}, operator string, ruleVal interface{}) bool {
+	switch operator {
+	case "eq":
+		return compareEq(fieldVal, ruleVal)
+	case "neq":
+		return !compareEq(fieldVal, ruleVal)
+	case "contains":
+		return contains(fieldVal, ruleVal)
+	case "in":
+		return inList(fieldVal, ruleVal)
+	case "gte":
+		return compareGte(fieldVal, ruleVal)
+	case "lte":
+		return compareLte(fieldVal, ruleVal)
+	default:
+		return false
+	}
+}
+
+func compareEq(a, b interface{}) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	switch va := a.(type) {
+	case string:
+		vb, ok := b.(string)
+		return ok && va == vb
+	case float64:
+		vb, ok := b.(float64)
+		return ok && va == vb
+	case bool:
+		vb, ok := b.(bool)
+		return ok && va == vb
+	default:
+		return false
+	}
+}
+
+func contains(fieldVal, ruleVal interface{}) bool {
+	if fieldVal == nil || ruleVal == nil {
+		return false
+	}
+	switch va := fieldVal.(type) {
+	case string:
+		vb, ok := ruleVal.(string)
+		return ok && containsString(va, vb)
+	case []string:
+		vb, ok := ruleVal.(string)
+		if !ok {
+			return false
+		}
+		for _, s := range va {
+			if s == vb {
+				return true
+			}
+		}
+		return false
+	case []interface{}:
+		vb := fmt.Sprintf("%v", ruleVal)
+		for _, s := range va {
+			if fmt.Sprintf("%v", s) == vb {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func containsString(s, substr string) bool {
+	return len(substr) > 0 && strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+func inList(fieldVal, ruleVal interface{}) bool {
+	if fieldVal == nil || ruleVal == nil {
+		return false
+	}
+	list, ok := ruleVal.([]interface{})
+	if !ok {
+		return false
+	}
+	for _, item := range list {
+		if compareEq(fieldVal, item) {
+			return true
+		}
+	}
+	return false
+}
+
+func compareGte(a, b interface{}) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	fa, aok := toFloat64(a)
+	fb, bok := toFloat64(b)
+	if aok && bok {
+		return fa >= fb
+	}
+	sa, aok := a.(string)
+	sb, bok := b.(string)
+	if aok && bok {
+		return sa >= sb
+	}
+	return false
+}
+
+func compareLte(a, b interface{}) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	fa, aok := toFloat64(a)
+	fb, bok := toFloat64(b)
+	if aok && bok {
+		return fa <= fb
+	}
+	sa, aok := a.(string)
+	sb, bok := b.(string)
+	if aok && bok {
+		return sa <= sb
+	}
+	return false
+}
+
+func toFloat64(v interface{}) (float64, bool) {
+	switch va := v.(type) {
+	case float64:
+		return va, true
+	case int:
+		return float64(va), true
+	case int64:
+		return float64(va), true
+	default:
+		return 0, false
+	}
 }

@@ -42,6 +42,9 @@ const (
 	PermissionTemplateRender         = "template.render"
 	PermissionSuppressionRead        = "suppression.read"
 	PermissionSuppressionManage      = "suppression.manage"
+	PermissionCampaignRead           = "campaign.read"
+	PermissionCampaignWrite          = "campaign.write"
+	PermissionCampaignSend           = "campaign.send"
 )
 
 var permissionRegistry = []Permission{
@@ -59,6 +62,9 @@ var permissionRegistry = []Permission{
 	{Bit: 1 << 11, Name: PermissionTemplateRender},
 	{Bit: 1 << 12, Name: PermissionSuppressionRead},
 	{Bit: 1 << 13, Name: PermissionSuppressionManage},
+	{Bit: 1 << 14, Name: PermissionCampaignRead},
+	{Bit: 1 << 15, Name: PermissionCampaignWrite},
+	{Bit: 1 << 16, Name: PermissionCampaignSend},
 }
 
 type Role struct {

@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	audiencedomain "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
+	campaigndomain "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/domain"
 	contentdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/content/domain"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	identitydomain "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
@@ -57,6 +58,12 @@ func mapPermissionErr(permission string, workspaceDenied bool) error {
 			return suppressiondomain.ErrReadDenied
 		case permission == "suppression.manage":
 			return suppressiondomain.ErrManageDenied
+		case permission == "campaign.read":
+			return campaigndomain.ErrReadDenied
+		case permission == "campaign.write":
+			return campaigndomain.ErrWriteDenied
+		case permission == "campaign.send":
+			return campaigndomain.ErrSendDenied
 		default:
 			return senderdomain.ErrManageDenied
 		}
@@ -80,6 +87,12 @@ func mapPermissionErr(permission string, workspaceDenied bool) error {
 		return suppressiondomain.ErrReadDenied
 	case permission == "suppression.manage":
 		return suppressiondomain.ErrManageDenied
+	case permission == "campaign.read":
+		return campaigndomain.ErrReadDenied
+	case permission == "campaign.write":
+		return campaigndomain.ErrWriteDenied
+	case permission == "campaign.send":
+		return campaigndomain.ErrSendDenied
 	default:
 		return senderdomain.ErrManageDenied
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
+	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
@@ -48,7 +49,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -84,6 +85,10 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 	if suppressionSvc != nil {
 		suppression := newSuppressionHTTP(suppressionSvc)
 		registerSuppressionOperations(api, suppression, authMiddleware)
+	}
+	if campaignSvc != nil {
+		campaign := newCampaignHTTP(campaignSvc)
+		registerCampaignOperations(api, campaign, authMiddleware)
 	}
 	documentApplicationErrors(api.OpenAPI())
 }
@@ -213,6 +218,8 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 		return templateErrorCodes()
 	case hasTag(op, "Suppression"):
 		return suppressionErrorCodes()
+	case hasTag(op, "Campaigns"):
+		return campaignErrorCodes()
 	default:
 		return map[int][]string{
 			http.StatusInternalServerError: {"health.runtime_not_ready"},
@@ -1594,6 +1601,253 @@ func suppressionErrorCodes() map[int][]string {
 		http.StatusUnprocessableEntity: {
 			"suppression.scope_invalid",
 			"suppression.reason_invalid",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
+}
+
+// --- Campaign Operations ---
+
+type campaignPathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	CampaignID  string `path:"campaign_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Campaign ID."`
+}
+
+type campaignAudienceRefDoc struct {
+	Type       string   `json:"type" enum:"contacts,list,segment" example:"list" doc:"Audience type."`
+	ID         string   `json:"id,omitempty" example:"list_1" doc:"Audience list or segment ID."`
+	ContactIDs []string `json:"contact_ids,omitempty" example:"ct_1" doc:"Direct contact IDs."`
+}
+
+type createCampaignBodyDoc struct {
+	Name           string                  `json:"name,omitempty" minLength:"1" example:"Spring Sale" doc:"Campaign name."`
+	AudienceRef    *campaignAudienceRefDoc `json:"audience_ref,omitempty" doc:"Audience reference."`
+	TemplateID     string                  `json:"template_id,omitempty" example:"tpl_1" doc:"Template ID."`
+	SenderDomainID string                  `json:"sender_domain_id,omitempty" example:"sd_1" doc:"Sender domain ID."`
+	MessageType    string                  `json:"message_type,omitempty" enum:"marketing,transactional" example:"marketing" doc:"Message type."`
+}
+
+type createCampaignInput struct {
+	WorkspaceID string                `path:"workspace_id"`
+	Body        createCampaignBodyDoc `required:"true" nameHint:"CreateCampaignRequest"`
+}
+
+type updateCampaignBodyDoc struct {
+	Name           *string                 `json:"name,omitempty" minLength:"1" example:"Spring Sale" doc:"Campaign name."`
+	AudienceRef    *campaignAudienceRefDoc `json:"audience_ref,omitempty" doc:"Audience reference."`
+	TemplateID     *string                 `json:"template_id,omitempty" example:"tpl_1" doc:"Template ID."`
+	SenderDomainID *string                 `json:"sender_domain_id,omitempty" example:"sd_1" doc:"Sender domain ID."`
+	MessageType    *string                 `json:"message_type,omitempty" enum:"marketing,transactional" example:"marketing" doc:"Message type."`
+}
+
+type updateCampaignInput struct {
+	WorkspaceID string                `path:"workspace_id"`
+	CampaignID  string                `path:"campaign_id"`
+	Body        updateCampaignBodyDoc `required:"true" nameHint:"UpdateCampaignRequest"`
+}
+
+type scheduleCampaignBodyDoc struct {
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty" doc:"Scheduled send time (omit for immediate)."`
+}
+
+type scheduleCampaignInput struct {
+	WorkspaceID string                  `path:"workspace_id"`
+	CampaignID  string                  `path:"campaign_id"`
+	Body        scheduleCampaignBodyDoc `required:"true" nameHint:"ScheduleCampaignRequest"`
+}
+
+type campaignSummaryDoc struct {
+	PlannedRecipients int64     `json:"planned_recipients" example:"0" doc:"Number of planned recipients."`
+	Queued            int       `json:"queued" example:"0" doc:"Number of queued messages."`
+	Delivered         int       `json:"delivered" example:"0" doc:"Number of delivered messages."`
+	LastUpdatedAt     time.Time `json:"last_updated_at" doc:"Last update timestamp."`
+}
+
+type campaignResultDoc struct {
+	ID                string                 `json:"id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Campaign ID."`
+	WorkspaceID       string                 `json:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Name              string                 `json:"name" example:"Spring Sale" doc:"Campaign name."`
+	Status            string                 `json:"status" example:"draft" doc:"Campaign status."`
+	AudienceRef       campaignAudienceRefDoc `json:"audience_ref" doc:"Audience reference."`
+	TemplateID        string                 `json:"template_id" example:"tpl_1" doc:"Template ID."`
+	TemplateVersionID string                 `json:"template_version_id" example:"tpl_v1" doc:"Pinned template version ID."`
+	SenderDomainID    string                 `json:"sender_domain_id" example:"sd_1" doc:"Sender domain ID."`
+	MessageType       string                 `json:"message_type" example:"marketing" doc:"Message type."`
+	ScheduledAt       *time.Time             `json:"scheduled_at" doc:"Scheduled send time."`
+	PlannedRecipients int64                  `json:"planned_recipients" example:"100" doc:"Number of planned recipients."`
+	CreatedAt         time.Time              `json:"created_at" doc:"Creation timestamp."`
+	UpdatedAt         time.Time              `json:"updated_at" doc:"Update timestamp."`
+	CancelledAt       *time.Time             `json:"cancelled_at" doc:"Cancellation timestamp."`
+	PausedAt          *time.Time             `json:"paused_at" doc:"Pause timestamp."`
+	CompletedAt       *time.Time             `json:"completed_at" doc:"Completion timestamp."`
+	Summary           campaignSummaryDoc     `json:"summary" doc:"Campaign summary."`
+}
+
+type campaignListResultDoc struct {
+	Campaigns  []campaignResultDoc `json:"campaigns" doc:"List of campaigns."`
+	NextCursor string              `json:"next_cursor" doc:"Pagination cursor."`
+}
+
+type candidateResultDoc struct {
+	ID              string    `json:"id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Candidate ID."`
+	ContactID       string    `json:"contact_id" example:"ct_1" doc:"Contact ID."`
+	EmailNormalized string    `json:"email_normalized" example:"user@example.com" doc:"Normalized email."`
+	Status          string    `json:"status" example:"planned" doc:"Candidate status."`
+	CreatedAt       time.Time `json:"created_at" doc:"Creation timestamp."`
+	UpdatedAt       time.Time `json:"updated_at" doc:"Update timestamp."`
+}
+
+type campaignListOutput struct {
+	Body successEnvelopeDoc[campaignListResultDoc]
+}
+
+type campaignOutput struct {
+	Body successEnvelopeDoc[campaignResultDoc]
+}
+
+type candidateListResultDoc struct {
+	Candidates []candidateResultDoc `json:"candidates" doc:"List of candidates."`
+	NextCursor string               `json:"next_cursor" doc:"Pagination cursor."`
+}
+
+type candidateListOutput struct {
+	Body successEnvelopeDoc[candidateListResultDoc]
+}
+
+func registerCampaignOperations(api huma.API, campaign *campaignHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-campaigns",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/campaigns",
+		Tags:        []string{"Campaigns"},
+		Summary:     "List campaigns",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, campaign.listCampaigns)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "create-campaign",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/campaigns",
+		Tags:          []string{"Campaigns"},
+		Summary:       "Create campaign",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *createCampaignInput) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), campaign.createCampaign)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-campaign",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}",
+		Tags:        []string{"Campaigns"},
+		Summary:     "Get campaign",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, campaign.getCampaign)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "update-campaign",
+		Method:      http.MethodPatch,
+		Path:        "/api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}",
+		Tags:        []string{"Campaigns"},
+		Summary:     "Update campaign draft",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *updateCampaignInput) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), campaign.updateCampaign)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "schedule-campaign",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}/schedule",
+		Tags:        []string{"Campaigns"},
+		Summary:     "Schedule campaign",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *scheduleCampaignInput) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), campaign.scheduleCampaign)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "cancel-campaign",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}/cancel",
+		Tags:        []string{"Campaigns"},
+		Summary:     "Cancel campaign",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, campaign.cancelCampaign)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "pause-campaign",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}/pause",
+		Tags:        []string{"Campaigns"},
+		Summary:     "Pause campaign",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, campaign.pauseCampaign)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "resume-campaign",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}/resume",
+		Tags:        []string{"Campaigns"},
+		Summary:     "Resume campaign",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, campaign.resumeCampaign)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-campaign-candidates",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}/candidates",
+		Tags:        []string{"Campaigns"},
+		Summary:     "List campaign candidates",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, campaign.listCampaignCandidates)
+	})
+}
+
+func campaignErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"campaign.read_denied",
+			"campaign.write_denied",
+			"campaign.send_denied",
+		},
+		http.StatusNotFound: {
+			"campaign.not_found",
+		},
+		http.StatusConflict: {
+			"campaign.invalid_state_transition",
+		},
+		http.StatusUnprocessableEntity: {
+			"campaign.payload_invalid",
+			"campaign.audience_not_ready",
+			"sender.domain_not_verified",
+			"template.publish_required",
 		},
 		http.StatusInternalServerError: {
 			"health.runtime_not_ready",

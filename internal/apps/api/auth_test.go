@@ -386,7 +386,7 @@ func setupAuthRouter(t *testing.T) (http.Handler, *captureSender) {
 		PostgresCheck: func(context.Context) error { return nil },
 		RedisCheck:    func(context.Context) error { return nil },
 	})
-	return newRouter(healthSvc, svc, nil, nil, nil, nil, nil, false, "http://localhost:3000", observability.NewHTTPMetrics(nil), nil), sender
+	return newRouter(healthSvc, svc, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", observability.NewHTTPMetrics(nil), nil), sender
 }
 
 func jsonRequest(t *testing.T, method, path string, body any) *http.Request {
