@@ -15,6 +15,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
+	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
 )
@@ -44,7 +45,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -65,6 +66,10 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 
 	registerAuthOperations(api, auth, authMiddleware)
 	registerWorkspaceOperations(api, workspace, authMiddleware)
+	if senderSvc != nil {
+		sender := newSenderHTTP(senderSvc)
+		registerSenderOperations(api, sender, authMiddleware)
+	}
 	documentApplicationErrors(api.OpenAPI())
 }
 
@@ -183,10 +188,40 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 		return authErrorCodes(op)
 	case hasTag(op, "Workspaces"):
 		return workspaceErrorCodes()
+	case hasTag(op, "Sender Domains"):
+		return senderErrorCodes(op)
 	default:
 		return map[int][]string{
 			http.StatusInternalServerError: {"health.runtime_not_ready"},
 		}
+	}
+}
+
+func senderErrorCodes(_ *huma.Operation) map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"sender.manage_denied",
+		},
+		http.StatusNotFound: {
+			"sender.domain_not_found",
+		},
+		http.StatusConflict: {
+			"sender.domain_conflict",
+			"sender.invalid_state_transition",
+		},
+		http.StatusUnprocessableEntity: {
+			"sender.domain_invalid",
+			"sender.provider_config_invalid",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
 	}
 }
 
@@ -791,6 +826,81 @@ type permissionsOutput struct {
 
 type memberRoleAssignmentOutput struct {
 	Body successEnvelopeDoc[memberRoleAssignmentDoc]
+}
+
+type senderDomainPathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	DomainID    string `path:"domain_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Sender domain ID."`
+}
+
+type createSenderDomainInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Body        struct {
+		Domain   string `json:"domain,omitempty" example:"example.com" doc:"Sender domain."`
+		Provider string `json:"provider,omitempty" example:"ses" doc:"Email provider."`
+	} `required:"true" nameHint:"CreateSenderDomainRequest"`
+}
+
+func registerSenderOperations(api huma.API, sender *senderHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-sender-domains",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/sender-domains",
+		Tags:        []string{"Sender Domains"},
+		Summary:     "List sender domains",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, sender.listSenderDomains)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "create-sender-domain",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/sender-domains",
+		Tags:          []string{"Sender Domains"},
+		Summary:       "Create sender domain",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *createSenderDomainInput) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), sender.createSenderDomain)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-sender-domain",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/sender-domains/{domain_id}",
+		Tags:        []string{"Sender Domains"},
+		Summary:     "Get sender domain",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, sender.getSenderDomain)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "verify-sender-domain",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/workspaces/{workspace_id}/sender-domains/{domain_id}/verify",
+		Tags:        []string{"Sender Domains"},
+		Summary:     "Verify sender domain DNS records",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, sender.verifySenderDomain)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "disable-sender-domain",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/workspaces/{workspace_id}/sender-domains/{domain_id}/disable",
+		Tags:        []string{"Sender Domains"},
+		Summary:     "Disable sender domain",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, sender.disableSenderDomain)
+	})
 }
 
 func registerWorkspaceOperations(api huma.API, workspace *workspaceHTTP, authMiddleware func(huma.Context, func(huma.Context))) {

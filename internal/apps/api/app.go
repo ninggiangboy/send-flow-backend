@@ -31,6 +31,10 @@ import (
 	platformredis "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/sse"
+	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
+	senderdns "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/dns"
+	senderpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/postgres"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -132,7 +136,19 @@ func Run(ctx context.Context) error {
 		ObjectStorageEnabled: cfg.ObjectStorageEnabled(),
 	})
 
-	r := newRouter(healthSvc, authSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
+	senderDomainsRead := senderpostgres.NewReadRepository(pgClient.ReadPool())
+	senderDomainsWrite := senderpostgres.NewWriteRepository(pgClient.WritePool())
+	senderResolver := senderdns.NewResolver()
+	senderSvc := senderapp.NewService(senderapp.Options{
+		DomainsRead:   senderDomainsRead,
+		DomainsWrite:  senderDomainsWrite,
+		DNSResolver:   senderResolver,
+		AccessChecker: newWorkspaceAccessAdapter(authSvc),
+		IDGen:         id.NewUUIDGenerator().New,
+		Logger:        log,
+	})
+
+	r := newRouter(healthSvc, authSvc, senderSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -163,7 +179,7 @@ func Run(ctx context.Context) error {
 	return server.Shutdown(shutdownCtx)
 }
 
-func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
+func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware(corsOptions{
 		AllowedOrigins: []string{frontendBaseURL},
@@ -212,7 +228,7 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 		})
 	})
 	humaAPI := humachi.New(r, openAPIConfig())
-	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies)
+	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {

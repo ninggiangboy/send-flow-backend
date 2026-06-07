@@ -32,6 +32,7 @@ const (
 	PermissionWorkspaceManageMembers = "workspace.manage_members"
 	PermissionWorkspaceManageRoles   = "workspace.manage_roles"
 	PermissionWorkspaceManageSetting = "workspace.manage_settings"
+	PermissionSenderManage           = "sender.manage"
 )
 
 var permissionRegistry = []Permission{
@@ -39,6 +40,7 @@ var permissionRegistry = []Permission{
 	{Bit: 1 << 1, Name: PermissionWorkspaceManageMembers},
 	{Bit: 1 << 2, Name: PermissionWorkspaceManageRoles},
 	{Bit: 1 << 3, Name: PermissionWorkspaceManageSetting},
+	{Bit: 1 << 4, Name: PermissionSenderManage},
 }
 
 type Role struct {
