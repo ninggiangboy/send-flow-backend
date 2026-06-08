@@ -8,16 +8,16 @@ import (
 )
 
 type MessageListQuery struct {
-	WorkspaceID             string
-	CampaignID              string
-	TransactionalRequestID  string
-	Status                  string
+	WorkspaceID              string
+	CampaignID               string
+	TransactionalRequestID   string
+	Status                   string
 	RecipientEmailNormalized string
-	ProviderMessageID       string
-	From                    *time.Time
-	To                      *time.Time
-	Limit                   int
-	Cursor                  string
+	ProviderMessageID        string
+	From                     *time.Time
+	To                       *time.Time
+	Limit                    int
+	Cursor                   string
 }
 
 type DueMessageQuery struct {
@@ -32,6 +32,7 @@ type MessageReadRepository interface {
 	FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*domain.Message, error)
 	List(ctx context.Context, query MessageListQuery) ([]domain.Message, string, error)
 	ListDueQueued(ctx context.Context, query DueMessageQuery) ([]domain.Message, error)
+	ListDistinctWorkspacesWithDue(ctx context.Context, messageType string, now time.Time) ([]string, error)
 	CountByCampaign(ctx context.Context, workspaceID, campaignID string) (int64, error)
 }
 

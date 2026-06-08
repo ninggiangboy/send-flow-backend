@@ -545,6 +545,30 @@ func isMissingKeyError(err error) bool {
 	return strings.Contains(msg, "missing value") || strings.Contains(msg, "<nil>") || strings.Contains(msg, "map has no entry for key")
 }
 
+func (s *Service) RenderVersion(ctx context.Context, workspaceID, templateVersionID string, data map[string]any) (*RenderResult, error) {
+	log := s.log.With("usecase", "render_version", "workspace_id", workspaceID, "template_version_id", templateVersionID)
+
+	if data == nil {
+		data = map[string]any{}
+	}
+
+	version, err := s.templatesRead.FindTemplateVersionByID(ctx, workspaceID, templateVersionID)
+	if err != nil {
+		if errors.Is(err, domain.ErrTemplateVersionNotFound) {
+			return nil, err
+		}
+		log.Error("failed to find template version for render", "error", err)
+		return nil, err
+	}
+
+	rendered, err := renderTemplateSource(version.Subject, version.SourceHTML, version.SourceText, data)
+	if err != nil {
+		return nil, err
+	}
+
+	return &RenderResult{Result: *rendered}, nil
+}
+
 func (s *Service) GetPublishedTemplateVersion(ctx context.Context, workspaceID, templateID string) (*domain.TemplateVersion, error) {
 	log := s.log.With("usecase", "get_published_template_version", "workspace_id", workspaceID, "template_id", templateID)
 

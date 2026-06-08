@@ -19,8 +19,8 @@ const (
 )
 
 const (
-	MessageSourceCampaign        = "campaign"
-	MessageSourceTransactional   = "transactional"
+	MessageSourceCampaign      = "campaign"
+	MessageSourceTransactional = "transactional"
 )
 
 const (
@@ -60,34 +60,34 @@ type RecipientSnapshot struct {
 }
 
 type Message struct {
-	ID                      string
-	WorkspaceID             string
-	CampaignID              string
-	CampaignCandidateID     string
-	TransactionalRequestID  string
-	ContactID               string
+	ID                       string
+	WorkspaceID              string
+	CampaignID               string
+	CampaignCandidateID      string
+	TransactionalRequestID   string
+	ContactID                string
 	RecipientEmailNormalized string
-	RecipientSnapshot       RecipientSnapshot
-	TemplateID              string
-	TemplateVersionID       string
-	SenderDomainID          string
-	MessageType             string
-	SourceType              string
-	Status                  string
-	ScheduledAt             *time.Time
-	QueuedAt                *time.Time
-	ProcessingStartedAt     *time.Time
-	AcceptedAt              *time.Time
-	DeliveredAt             *time.Time
-	BouncedAt               *time.Time
-	ComplainedAt            *time.Time
-	FailedAt                *time.Time
-	LastErrorClass          string
-	LastErrorMessage        string
-	Provider                string
-	ProviderMessageID       string
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	RecipientSnapshot        RecipientSnapshot
+	TemplateID               string
+	TemplateVersionID        string
+	SenderDomainID           string
+	MessageType              string
+	SourceType               string
+	Status                   string
+	ScheduledAt              *time.Time
+	QueuedAt                 *time.Time
+	ProcessingStartedAt      *time.Time
+	AcceptedAt               *time.Time
+	DeliveredAt              *time.Time
+	BouncedAt                *time.Time
+	ComplainedAt             *time.Time
+	FailedAt                 *time.Time
+	LastErrorClass           string
+	LastErrorMessage         string
+	Provider                 string
+	ProviderMessageID        string
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 type DeliveryAttempt struct {
@@ -120,15 +120,15 @@ type RetryState struct {
 }
 
 type TransactionalSendRequest struct {
-	ID              string
-	WorkspaceID     string
-	IdempotencyKey  string
-	Status          string
-	RequestPayload  json.RawMessage
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	CompletedAt     *time.Time
-	FailedAt        *time.Time
+	ID             string
+	WorkspaceID    string
+	IdempotencyKey string
+	Status         string
+	RequestPayload json.RawMessage
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	CompletedAt    *time.Time
+	FailedAt       *time.Time
 }
 
 func ValidMessageStatus(s string) bool {

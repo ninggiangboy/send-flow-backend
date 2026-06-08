@@ -18,9 +18,17 @@ type SuppressionListQuery struct {
 	Limit       int
 }
 
+type SuppressionCheckQuery struct {
+	WorkspaceID     string
+	EmailNormalized string
+	Scopes          []string
+	Reasons         []string
+}
+
 type SuppressionReadRepository interface {
 	FindByID(ctx context.Context, workspaceID, entryID string) (*domain.SuppressionEntry, error)
 	List(ctx context.Context, query SuppressionListQuery) ([]domain.SuppressionEntry, string, error)
+	FindActiveByEmail(ctx context.Context, query SuppressionCheckQuery) (*domain.SuppressionEntry, error)
 }
 
 type SuppressionWriteRepository interface {

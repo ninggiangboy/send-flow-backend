@@ -362,6 +362,33 @@ func (r *MessageReadRepository) ListDueQueued(ctx context.Context, query ports.D
 	return results, nil
 }
 
+func (r *MessageReadRepository) ListDistinctWorkspacesWithDue(ctx context.Context, messageType string, now time.Time) ([]string, error) {
+	db := r.getDB(ctx)
+	rows, err := db.Query(ctx,
+		`SELECT DISTINCT workspace_id FROM messages
+		 WHERE status = 'queued' AND message_type = $1
+		   AND (scheduled_at IS NULL OR scheduled_at <= $2)`,
+		messageType, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var workspaces []string
+	for rows.Next() {
+		var ws string
+		if err := rows.Scan(&ws); err != nil {
+			return nil, err
+		}
+		workspaces = append(workspaces, ws)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return workspaces, nil
+}
+
 func (r *MessageReadRepository) CountByCampaign(ctx context.Context, workspaceID, campaignID string) (int64, error) {
 	db := r.getDB(ctx)
 	var count int64
@@ -475,7 +502,7 @@ func (w *MessageWriteRepository) MarkProcessing(ctx context.Context, workspaceID
 	db := w.getDB(ctx)
 	tag, err := db.Exec(ctx,
 		`UPDATE messages SET status = 'processing', processing_started_at = $1, updated_at = $1
-		 WHERE id = $2 AND workspace_id = $3`,
+		 WHERE id = $2 AND workspace_id = $3 AND status = 'queued'`,
 		now, messageID, workspaceID,
 	)
 	if err != nil {
@@ -490,9 +517,10 @@ func (w *MessageWriteRepository) MarkProcessing(ctx context.Context, workspaceID
 func (w *MessageWriteRepository) MarkAccepted(ctx context.Context, message domain.Message) error {
 	db := w.getDB(ctx)
 	tag, err := db.Exec(ctx,
-		`UPDATE messages SET status = 'accepted', accepted_at = $1, updated_at = $2
-		 WHERE id = $3 AND workspace_id = $4`,
-		message.AcceptedAt, message.UpdatedAt, message.ID, message.WorkspaceID,
+		`UPDATE messages SET status = 'accepted', accepted_at = $1, provider = $2, provider_message_id = $3, updated_at = $4
+		 WHERE id = $5 AND workspace_id = $6`,
+		message.AcceptedAt, message.Provider, message.ProviderMessageID, message.UpdatedAt,
+		message.ID, message.WorkspaceID,
 	)
 	if err != nil {
 		return err

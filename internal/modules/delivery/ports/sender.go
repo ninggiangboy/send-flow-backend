@@ -3,9 +3,9 @@ package ports
 import "context"
 
 type SenderReadiness struct {
-	Ready       bool
-	DomainID    string
-	VerifiedAt  string
+	Ready      bool
+	DomainID   string
+	VerifiedAt string
 }
 
 type SenderReadinessChecker interface {

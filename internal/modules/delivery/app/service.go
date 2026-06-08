@@ -153,23 +153,23 @@ func (s *Service) QueueCampaignMessages(ctx context.Context, input QueueCampaign
 			}
 
 			messages = append(messages, domain.Message{
-				ID:                      mustNewID(s.idGen),
-				WorkspaceID:             input.WorkspaceID,
-				CampaignID:              input.CampaignID,
-				CampaignCandidateID:     c.ID,
-				ContactID:               c.ContactID,
+				ID:                       mustNewID(s.idGen),
+				WorkspaceID:              input.WorkspaceID,
+				CampaignID:               input.CampaignID,
+				CampaignCandidateID:      c.ID,
+				ContactID:                c.ContactID,
 				RecipientEmailNormalized: c.EmailNormalized,
-				RecipientSnapshot:       snapshot,
-				TemplateID:              input.TemplateID,
-				TemplateVersionID:       input.TemplateVersionID,
-				SenderDomainID:          input.SenderDomainID,
-				MessageType:             input.MessageType,
-				SourceType:              domain.MessageSourceCampaign,
-				Status:                  domain.MessageStatusQueued,
-				ScheduledAt:             &input.ScheduledAt,
-				QueuedAt:                &input.Now,
-				CreatedAt:               input.Now,
-				UpdatedAt:               input.Now,
+				RecipientSnapshot:        snapshot,
+				TemplateID:               input.TemplateID,
+				TemplateVersionID:        input.TemplateVersionID,
+				SenderDomainID:           input.SenderDomainID,
+				MessageType:              input.MessageType,
+				SourceType:               domain.MessageSourceCampaign,
+				Status:                   domain.MessageStatusQueued,
+				ScheduledAt:              &input.ScheduledAt,
+				QueuedAt:                 &input.Now,
+				CreatedAt:                input.Now,
+				UpdatedAt:                input.Now,
 			})
 		}
 
@@ -199,16 +199,16 @@ func (s *Service) QueueCampaignMessages(ctx context.Context, input QueueCampaign
 				}
 
 				payload := contracts.MessageQueuedPayload{
-					MessageID:            msg.ID,
-					WorkspaceID:          msg.WorkspaceID,
-					CampaignID:           msg.CampaignID,
-					CampaignCandidateID:  msg.CampaignCandidateID,
-					TemplateID:           msg.TemplateID,
-					TemplateVersionID:    msg.TemplateVersionID,
-					SenderDomainID:       msg.SenderDomainID,
-					MessageType:          msg.MessageType,
-					SourceType:           msg.SourceType,
-					ScheduledAt:          scheduledAt,
+					MessageID:           msg.ID,
+					WorkspaceID:         msg.WorkspaceID,
+					CampaignID:          msg.CampaignID,
+					CampaignCandidateID: msg.CampaignCandidateID,
+					TemplateID:          msg.TemplateID,
+					TemplateVersionID:   msg.TemplateVersionID,
+					SenderDomainID:      msg.SenderDomainID,
+					MessageType:         msg.MessageType,
+					SourceType:          msg.SourceType,
+					ScheduledAt:         scheduledAt,
 				}
 				envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
 					EventID:       eventID,
@@ -264,17 +264,17 @@ func (s *Service) QueueCampaignMessages(ctx context.Context, input QueueCampaign
 }
 
 type ListMessagesInput struct {
-	UserID                  string
-	WorkspaceID             string
-	CampaignID              string
-	TransactionalRequestID  string
-	Status                  string
+	UserID                   string
+	WorkspaceID              string
+	CampaignID               string
+	TransactionalRequestID   string
+	Status                   string
 	RecipientEmailNormalized string
-	ProviderMessageID       string
-	From                    *time.Time
-	To                      *time.Time
-	Limit                   int
-	Cursor                  string
+	ProviderMessageID        string
+	From                     *time.Time
+	To                       *time.Time
+	Limit                    int
+	Cursor                   string
 }
 
 type ListMessagesResult struct {

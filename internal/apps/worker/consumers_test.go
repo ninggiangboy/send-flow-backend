@@ -51,9 +51,13 @@ func (m *mockMessageWrite) MarkProcessing(ctx context.Context, workspaceID, mess
 	return nil
 }
 
-func (m *mockMessageWrite) MarkAccepted(ctx context.Context, message domain.Message) error  { return nil }
-func (m *mockMessageWrite) MarkDelivered(ctx context.Context, message domain.Message) error { return nil }
-func (m *mockMessageWrite) MarkFailed(ctx context.Context, message domain.Message) error    { return nil }
+func (m *mockMessageWrite) MarkAccepted(ctx context.Context, message domain.Message) error {
+	return nil
+}
+func (m *mockMessageWrite) MarkDelivered(ctx context.Context, message domain.Message) error {
+	return nil
+}
+func (m *mockMessageWrite) MarkFailed(ctx context.Context, message domain.Message) error { return nil }
 
 type mockOutbox struct {
 	save func(ctx context.Context, event ports.OutboxEvent) error
@@ -122,12 +126,12 @@ func TestCampaignScheduledConsumer_ValidEvent(t *testing.T) {
 		listCandidates: func(ctx context.Context, ws, camp string, limit int, cursor string) ([]ports.CampaignCandidate, string, error) {
 			return []ports.CampaignCandidate{
 				{
-					ID:                 "cand-1",
-					WorkspaceID:        "ws-1",
-					CampaignID:         "camp-1",
-					ContactID:          "contact-1",
-					EmailNormalized:    "test@example.com",
-					RecipientSnapshot:  json.RawMessage(`{"contact_id":"contact-1","email":"test@example.com","email_normalized":"test@example.com"}`),
+					ID:                "cand-1",
+					WorkspaceID:       "ws-1",
+					CampaignID:        "camp-1",
+					ContactID:         "contact-1",
+					EmailNormalized:   "test@example.com",
+					RecipientSnapshot: json.RawMessage(`{"contact_id":"contact-1","email":"test@example.com","email_normalized":"test@example.com"}`),
 				},
 			}, "", nil
 		},

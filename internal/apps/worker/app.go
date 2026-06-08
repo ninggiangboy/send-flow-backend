@@ -9,10 +9,18 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	campaignpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/infrastructure/postgres"
+	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
+	contentpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/postgres"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	deliverycampaign "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/campaign"
 	deliverypostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/postgres"
+	deliveryports "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
+	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
+	senderpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/postgres"
+	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
+	suppressionpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/infrastructure/postgres"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
+	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/httpjson"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
@@ -76,20 +84,73 @@ func Run(ctx context.Context) error {
 	deliveryTxReqReadRepo := deliverypostgres.NewTransactionalRequestReadRepository(pgReadPool)
 	deliveryTxReqWriteRepo := deliverypostgres.NewTransactionalRequestWriteRepository(pgWritePool)
 
+	// Wire suppression module
+	suppressionReadRepo := suppressionpostgres.NewReadRepository(pgReadPool)
+	suppressionWriteRepo := suppressionpostgres.NewWriteRepository(pgWritePool)
+
+	suppressionSvc := suppressionapp.NewService(suppressionapp.Options{
+		EntriesRead:  suppressionReadRepo,
+		EntriesWrite: suppressionWriteRepo,
+		IDGen:        id.NewUUIDGenerator().New,
+		Logger:       log,
+	})
+
+	// Wire content module
+	contentReadRepo := contentpostgres.NewTemplateReadRepository(pgReadPool)
+	contentWriteRepo := contentpostgres.NewTemplateWriteRepository(pgWritePool)
+
+	contentSvc := contentapp.NewService(contentapp.Options{
+		TemplatesRead:  contentReadRepo,
+		TemplatesWrite: contentWriteRepo,
+		IDGen:          id.NewUUIDGenerator().New,
+		Logger:         log,
+	})
+
+	// Wire sender module
+	senderReadRepo := senderpostgres.NewReadRepository(pgReadPool)
+	senderWriteRepo := senderpostgres.NewWriteRepository(pgWritePool)
+
+	senderSvc := senderapp.NewService(senderapp.Options{
+		DomainsRead:  senderReadRepo,
+		DomainsWrite: senderWriteRepo,
+		IDGen:        id.NewUUIDGenerator().New,
+		Logger:       log,
+	})
+
+	// Create delivery-facing adapters
+	deliverySuppressionAdapter := newSuppressionAdapter(suppressionSvc)
+	deliveryContentAdapter := newContentRendererAdapter(contentSvc)
+	deliverySenderAdapter := newSenderReadinessAdapter(senderSvc)
+	var deliveryProvider deliveryports.EmailProvider
+	switch cfg.EmailProvider {
+	case "fake":
+		deliveryProvider = NewFakeEmailProvider()
+	default:
+		sender, err := platformemail.NewSender(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		deliveryProvider = newDeliveryEmailProvider(cfg.EmailProvider, sender)
+	}
+
 	deliverySvc := deliveryapp.NewService(deliveryapp.Options{
-		MessagesRead:      deliveryMsgReadRepo,
-		MessagesWrite:     deliveryMsgWriteRepo,
-		AttemptsRead:      deliveryAttemptReadRepo,
-		AttemptsWrite:     deliveryAttemptWriteRepo,
-		RetryStatesRead:   deliveryRetryReadRepo,
-		RetryStatesWrite:  deliveryRetryWriteRepo,
-		TxRequestsRead:    deliveryTxReqReadRepo,
-		TxRequestsWrite:   deliveryTxReqWriteRepo,
-		CampaignReader:    campaignCandidateReader,
-		OutboxWriter:      deliveryOutboxRepo,
-		TxManager:         deliveryTxManager,
-		IDGen:             id.NewUUIDGenerator().New,
-		Logger:            log,
+		MessagesRead:       deliveryMsgReadRepo,
+		MessagesWrite:      deliveryMsgWriteRepo,
+		AttemptsRead:       deliveryAttemptReadRepo,
+		AttemptsWrite:      deliveryAttemptWriteRepo,
+		RetryStatesRead:    deliveryRetryReadRepo,
+		RetryStatesWrite:   deliveryRetryWriteRepo,
+		TxRequestsRead:     deliveryTxReqReadRepo,
+		TxRequestsWrite:    deliveryTxReqWriteRepo,
+		CampaignReader:     campaignCandidateReader,
+		ContentRenderer:    deliveryContentAdapter,
+		SenderChecker:      deliverySenderAdapter,
+		SuppressionChecker: deliverySuppressionAdapter,
+		EmailProvider:      deliveryProvider,
+		OutboxWriter:       deliveryOutboxRepo,
+		TxManager:          deliveryTxManager,
+		IDGen:              id.NewUUIDGenerator().New,
+		Logger:             log,
 	})
 
 	consumer := NewCampaignScheduledConsumer(
@@ -100,6 +161,17 @@ func Run(ctx context.Context) error {
 		pgClient.WritePool(),
 	)
 	if err := registry.Register(consumer); err != nil {
+		return err
+	}
+
+	dueMsgProcessor := NewDueMessageProcessor(
+		deliverySvc,
+		log,
+		5*time.Second,
+		50,
+		"marketing",
+	)
+	if err := registry.Register(dueMsgProcessor); err != nil {
 		return err
 	}
 

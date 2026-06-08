@@ -13,8 +13,9 @@ import (
 
 type mockReadRepo struct {
 	ports.SuppressionReadRepository
-	findByID func(ctx context.Context, workspaceID, entryID string) (*domain.SuppressionEntry, error)
-	list     func(ctx context.Context, query ports.SuppressionListQuery) ([]domain.SuppressionEntry, string, error)
+	findByID          func(ctx context.Context, workspaceID, entryID string) (*domain.SuppressionEntry, error)
+	list              func(ctx context.Context, query ports.SuppressionListQuery) ([]domain.SuppressionEntry, string, error)
+	findActiveByEmail func(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error)
 }
 
 func (m *mockReadRepo) FindByID(ctx context.Context, workspaceID, entryID string) (*domain.SuppressionEntry, error) {
@@ -23,6 +24,10 @@ func (m *mockReadRepo) FindByID(ctx context.Context, workspaceID, entryID string
 
 func (m *mockReadRepo) List(ctx context.Context, query ports.SuppressionListQuery) ([]domain.SuppressionEntry, string, error) {
 	return m.list(ctx, query)
+}
+
+func (m *mockReadRepo) FindActiveByEmail(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error) {
+	return m.findActiveByEmail(ctx, query)
 }
 
 type mockWriteRepo struct {
@@ -193,6 +198,131 @@ func TestRemoveEntryAlreadyRemoved(t *testing.T) {
 	err := svc.RemoveEntry(context.Background(), "ws_1", "sup_1", "user_1", time.Now())
 	if !errors.Is(err, domain.ErrUnsuppressConflict) {
 		t.Errorf("expected ErrUnsuppressConflict, got %v", err)
+	}
+}
+
+func TestCheckSuppression_NotSuppressed(t *testing.T) {
+	opts := newTestOpts()
+	read := opts.EntriesRead.(*mockReadRepo)
+	read.findActiveByEmail = func(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error) {
+		return nil, nil
+	}
+
+	svc := NewService(opts)
+	result, err := svc.CheckSuppression(context.Background(), "ws_1", "test@example.com", "workspace")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Suppressed {
+		t.Error("expected not suppressed")
+	}
+}
+
+func TestCheckSuppression_ActiveWorkspaceEntry(t *testing.T) {
+	opts := newTestOpts()
+	read := opts.EntriesRead.(*mockReadRepo)
+	read.findActiveByEmail = func(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error) {
+		return &domain.SuppressionEntry{
+			ID: "sup_1", Scope: domain.SuppressionScopeWorkspace,
+			Reason: domain.SuppressionReasonManualBlock, Status: domain.SuppressionStatusActive,
+		}, nil
+	}
+
+	svc := NewService(opts)
+	result, err := svc.CheckSuppression(context.Background(), "ws_1", "test@example.com", "workspace")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Suppressed {
+		t.Fatal("expected suppressed")
+	}
+	if result.Reason != "manual_block" {
+		t.Errorf("expected reason manual_block, got %s", result.Reason)
+	}
+	if result.Scope != "workspace" {
+		t.Errorf("expected scope workspace, got %s", result.Scope)
+	}
+}
+
+func TestCheckSuppression_RemovedEntryIgnored(t *testing.T) {
+	opts := newTestOpts()
+	read := opts.EntriesRead.(*mockReadRepo)
+	read.findActiveByEmail = func(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error) {
+		return nil, nil
+	}
+
+	svc := NewService(opts)
+	result, err := svc.CheckSuppression(context.Background(), "ws_1", "test@example.com", "workspace")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Suppressed {
+		t.Error("expected not suppressed for removed entry")
+	}
+}
+
+func TestCheckSuppression_GlobalScopeConsidered(t *testing.T) {
+	opts := newTestOpts()
+	read := opts.EntriesRead.(*mockReadRepo)
+	read.findActiveByEmail = func(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error) {
+		if len(query.Scopes) == 2 && query.Scopes[0] == "workspace" && query.Scopes[1] == "global" {
+			return &domain.SuppressionEntry{
+				ID: "sup_1", Scope: domain.SuppressionScopeGlobal,
+				Reason: domain.SuppressionReasonComplaint, Status: domain.SuppressionStatusActive,
+			}, nil
+		}
+		return nil, nil
+	}
+
+	svc := NewService(opts)
+	result, err := svc.CheckSuppression(context.Background(), "ws_1", "test@example.com", "workspace")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Suppressed {
+		t.Fatal("expected suppressed by global scope")
+	}
+	if result.Scope != "global" {
+		t.Errorf("expected scope global, got %s", result.Scope)
+	}
+}
+
+func TestCheckSuppression_EmptyEmailOrWorkspace(t *testing.T) {
+	svc := NewService(newTestOpts())
+
+	result, err := svc.CheckSuppression(context.Background(), "", "test@example.com", "workspace")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Suppressed {
+		t.Error("expected not suppressed for empty workspace")
+	}
+
+	result, err = svc.CheckSuppression(context.Background(), "ws_1", "", "workspace")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Suppressed {
+		t.Error("expected not suppressed for empty email")
+	}
+}
+
+func TestCheckSuppression_EmptyScopeDefaultsToWorkspace(t *testing.T) {
+	opts := newTestOpts()
+	read := opts.EntriesRead.(*mockReadRepo)
+	var capturedScope []string
+	read.findActiveByEmail = func(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error) {
+		capturedScope = query.Scopes
+		return nil, nil
+	}
+
+	svc := NewService(opts)
+	_, err := svc.CheckSuppression(context.Background(), "ws_1", "test@example.com", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(capturedScope) != 2 || capturedScope[0] != "workspace" {
+		t.Errorf("expected scopes [workspace global], got %v", capturedScope)
 	}
 }
 

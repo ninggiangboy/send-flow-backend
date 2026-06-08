@@ -132,6 +132,47 @@ func (s *Service) CreateEntry(ctx context.Context, input CreateEntryInput) (*dom
 	return &entry, nil
 }
 
+type CheckSuppressionResult struct {
+	Suppressed bool
+	Reason     string
+	Scope      string
+	EntryID    string
+}
+
+func (s *Service) CheckSuppression(ctx context.Context, workspaceID, emailNormalized, scope string) (*CheckSuppressionResult, error) {
+	log := s.log.With("usecase", "check_suppression", "workspace_id", workspaceID)
+
+	if workspaceID == "" || emailNormalized == "" {
+		return &CheckSuppressionResult{}, nil
+	}
+
+	if scope == "" {
+		scope = "workspace"
+	}
+
+	scopes := []string{scope, "global"}
+	entry, err := s.entriesRead.FindActiveByEmail(ctx, ports.SuppressionCheckQuery{
+		WorkspaceID:     workspaceID,
+		EmailNormalized: emailNormalized,
+		Scopes:          scopes,
+	})
+	if err != nil {
+		log.Error("failed to check suppression", "error", err)
+		return nil, err
+	}
+
+	if entry == nil {
+		return &CheckSuppressionResult{Suppressed: false}, nil
+	}
+
+	return &CheckSuppressionResult{
+		Suppressed: true,
+		Reason:     string(entry.Reason),
+		Scope:      string(entry.Scope),
+		EntryID:    entry.ID,
+	}, nil
+}
+
 func (s *Service) RemoveEntry(ctx context.Context, workspaceID, entryID, userID string, now time.Time) error {
 	log := s.log.With("usecase", "remove_suppression_entry", "workspace_id", workspaceID, "entry_id", entryID)
 	if err := s.accessChecker.RequirePermission(ctx, workspaceID, userID, "suppression.manage"); err != nil {

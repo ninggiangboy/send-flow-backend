@@ -166,8 +166,8 @@ func (c Config) Validate() error {
 	if c.JWTRefreshSecret == "" {
 		return errors.New("JWT_REFRESH_SECRET is required")
 	}
-	if c.EmailProvider != "smtp" && c.EmailProvider != "ses" {
-		return errors.New("EMAIL_PROVIDER must be one of: smtp, ses")
+	if c.EmailProvider != "smtp" && c.EmailProvider != "ses" && c.EmailProvider != "fake" {
+		return errors.New("EMAIL_PROVIDER must be one of: smtp, ses, fake")
 	}
 	if c.EmailProvider == "smtp" {
 		if c.SMTP.Host == "" {

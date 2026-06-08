@@ -16,11 +16,12 @@ import (
 
 type mockMessageReadRepo struct {
 	ports.MessageReadRepository
-	findByID               func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
-	findByProviderMessageID func(ctx context.Context, provider, providerMessageID string) (*domain.Message, error)
-	list                   func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error)
-	listDueQueued          func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error)
-	countByCampaign        func(ctx context.Context, workspaceID, campaignID string) (int64, error)
+	findByID                      func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
+	findByProviderMessageID       func(ctx context.Context, provider, providerMessageID string) (*domain.Message, error)
+	list                          func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error)
+	listDueQueued                 func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error)
+	listDistinctWorkspacesWithDue func(ctx context.Context, messageType string, now time.Time) ([]string, error)
+	countByCampaign               func(ctx context.Context, workspaceID, campaignID string) (int64, error)
 }
 
 func (m *mockMessageReadRepo) FindByID(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
@@ -37,6 +38,10 @@ func (m *mockMessageReadRepo) List(ctx context.Context, query ports.MessageListQ
 
 func (m *mockMessageReadRepo) ListDueQueued(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
 	return m.listDueQueued(ctx, query)
+}
+
+func (m *mockMessageReadRepo) ListDistinctWorkspacesWithDue(ctx context.Context, messageType string, now time.Time) ([]string, error) {
+	return m.listDistinctWorkspacesWithDue(ctx, messageType, now)
 }
 
 func (m *mockMessageReadRepo) CountByCampaign(ctx context.Context, workspaceID, campaignID string) (int64, error) {
@@ -165,25 +170,57 @@ func (m *mockCampaignReader) CountCandidates(ctx context.Context, workspaceID, c
 	return m.countCandidates(ctx, workspaceID, campaignID)
 }
 
-type mockContentRenderer struct{ ports.ContentRenderer }
+type mockContentRenderer struct {
+	ports.ContentRenderer
+	renderForMessage func(ctx context.Context, workspaceID, templateID, templateVersionID string, data map[string]any) (*ports.RenderedMessage, error)
+}
 
-type mockSenderChecker struct{ ports.SenderReadinessChecker }
+func (m *mockContentRenderer) RenderForMessage(ctx context.Context, workspaceID, templateID, templateVersionID string, data map[string]any) (*ports.RenderedMessage, error) {
+	return m.renderForMessage(ctx, workspaceID, templateID, templateVersionID, data)
+}
 
-type mockSuppressionChecker struct{ ports.SuppressionChecker }
+type mockSenderChecker struct {
+	ports.SenderReadinessChecker
+	getSenderReadiness func(ctx context.Context, workspaceID, senderDomainID string) (*ports.SenderReadiness, error)
+}
 
-type mockEmailProvider struct{ ports.EmailProvider }
+func (m *mockSenderChecker) GetSenderReadiness(ctx context.Context, workspaceID, senderDomainID string) (*ports.SenderReadiness, error) {
+	return m.getSenderReadiness(ctx, workspaceID, senderDomainID)
+}
+
+type mockSuppressionChecker struct {
+	ports.SuppressionChecker
+	checkSuppression func(ctx context.Context, workspaceID, emailNormalized, scope string) (*ports.SuppressionDecision, error)
+}
+
+func (m *mockSuppressionChecker) CheckSuppression(ctx context.Context, workspaceID, emailNormalized, scope string) (*ports.SuppressionDecision, error) {
+	return m.checkSuppression(ctx, workspaceID, emailNormalized, scope)
+}
+
+type mockEmailProvider struct {
+	ports.EmailProvider
+	sendEmail func(ctx context.Context, request ports.ProviderSendRequest) (*ports.ProviderSendResult, error)
+}
+
+func (m *mockEmailProvider) SendEmail(ctx context.Context, request ports.ProviderSendRequest) (*ports.ProviderSendResult, error) {
+	return m.sendEmail(ctx, request)
+}
 
 func newTestOpts() Options {
 	return Options{
-		MessagesRead:       &mockMessageReadRepo{},
-		MessagesWrite:      &mockMessageWriteRepo{},
-		AttemptsRead:       &mockAttemptReadRepo{},
-		AttemptsWrite:      &mockAttemptWriteRepo{},
-		RetryStatesRead:    &mockRetryStateReadRepo{},
-		RetryStatesWrite:   &mockRetryStateWriteRepo{},
-		TxRequestsRead:     &mockTxRequestReadRepo{},
-		TxRequestsWrite:    &mockTxRequestWriteRepo{},
-		CampaignReader:     &mockCampaignReader{},
+		MessagesRead:  &mockMessageReadRepo{},
+		MessagesWrite: &mockMessageWriteRepo{},
+		AttemptsRead:  &mockAttemptReadRepo{},
+		AttemptsWrite: &mockAttemptWriteRepo{},
+		RetryStatesRead: &mockRetryStateReadRepo{
+			findByMessage: func(ctx context.Context, workspaceID, messageID string) (*domain.RetryState, error) {
+				return nil, nil
+			},
+		},
+		RetryStatesWrite: &mockRetryStateWriteRepo{},
+		TxRequestsRead:   &mockTxRequestReadRepo{},
+		TxRequestsWrite:  &mockTxRequestWriteRepo{},
+		CampaignReader:   &mockCampaignReader{},
 		OutboxWriter: &mockOutboxWriter{
 			saveFunc: func(_ context.Context, _ ports.OutboxEvent) error { return nil },
 		},
@@ -192,12 +229,28 @@ func newTestOpts() Options {
 				return fn(ctx)
 			},
 		},
-		ContentRenderer:    &mockContentRenderer{},
-		SenderChecker:      &mockSenderChecker{},
-		SuppressionChecker: &mockSuppressionChecker{},
-		EmailProvider:      &mockEmailProvider{},
-		IDGen:              func() (string, error) { return "test_id_1", nil },
-		Logger:             slog.Default(),
+		ContentRenderer: &mockContentRenderer{
+			renderForMessage: func(ctx context.Context, workspaceID, templateID, templateVersionID string, data map[string]any) (*ports.RenderedMessage, error) {
+				return &ports.RenderedMessage{Subject: "Test Subject", HTMLBody: "<p>Test</p>", TextBody: "Test"}, nil
+			},
+		},
+		SenderChecker: &mockSenderChecker{
+			getSenderReadiness: func(ctx context.Context, workspaceID, senderDomainID string) (*ports.SenderReadiness, error) {
+				return &ports.SenderReadiness{Ready: true, DomainID: senderDomainID}, nil
+			},
+		},
+		SuppressionChecker: &mockSuppressionChecker{
+			checkSuppression: func(ctx context.Context, workspaceID, emailNormalized, scope string) (*ports.SuppressionDecision, error) {
+				return &ports.SuppressionDecision{Suppressed: false}, nil
+			},
+		},
+		EmailProvider: &mockEmailProvider{
+			sendEmail: func(ctx context.Context, request ports.ProviderSendRequest) (*ports.ProviderSendResult, error) {
+				return &ports.ProviderSendResult{Provider: "test", ProviderMessageID: "prov_msg_1", AcceptedAt: time.Now()}, nil
+			},
+		},
+		IDGen:  func() (string, error) { return "test_id_1", nil },
+		Logger: slog.Default(),
 	}
 }
 

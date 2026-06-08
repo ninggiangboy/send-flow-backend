@@ -112,13 +112,13 @@ func TestHandleCampaignScheduled_ValidEvent(t *testing.T) {
 		},
 	}
 	msgWrite := &mockMessageWriteRepository{
-			createManyFunc: func(_ context.Context, msgs []domain.Message) ([]string, error) {
-				ids := make([]string, len(msgs))
-				for i, m := range msgs {
-					ids[i] = m.ID
-				}
-				return ids, nil
-			},
+		createManyFunc: func(_ context.Context, msgs []domain.Message) ([]string, error) {
+			ids := make([]string, len(msgs))
+			for i, m := range msgs {
+				ids[i] = m.ID
+			}
+			return ids, nil
+		},
 	}
 	outbox := &mockOutboxWriter{
 		saveFunc: func(_ context.Context, _ ports.OutboxEvent) error {

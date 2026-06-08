@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -127,6 +128,45 @@ func (w *WriteRepository) Create(ctx context.Context, e domain.SuppressionEntry)
 		e.ID, e.WorkspaceID, e.Email, e.EmailNormalized, string(e.Scope), string(e.Reason), string(e.Status), nullable(e.Note), e.CreatedAt, e.UpdatedAt, e.RemovedAt,
 	)
 	return err
+}
+
+func (r *ReadRepository) FindActiveByEmail(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error) {
+	args := []any{query.WorkspaceID, query.EmailNormalized, domain.SuppressionStatusActive}
+	where := "WHERE workspace_id = $1 AND email_normalized = $2 AND status = $3"
+	argIdx := 4
+
+	if len(query.Scopes) > 0 {
+		placeholders := make([]string, len(query.Scopes))
+		for i, s := range query.Scopes {
+			placeholders[i] = "$" + itoa(argIdx)
+			args = append(args, s)
+			argIdx++
+		}
+		where += " AND scope IN (" + strings.Join(placeholders, ",") + ")"
+	}
+	if len(query.Reasons) > 0 {
+		placeholders := make([]string, len(query.Reasons))
+		for i, r := range query.Reasons {
+			placeholders[i] = "$" + itoa(argIdx)
+			args = append(args, r)
+			argIdx++
+		}
+		where += " AND reason IN (" + strings.Join(placeholders, ",") + ")"
+	}
+
+	where += " ORDER BY reason = 'complaint' DESC, reason = 'bounce' DESC, reason = 'unsubscribe' DESC, reason = 'manual_block' DESC, created_at DESC LIMIT 1"
+
+	var e domain.SuppressionEntry
+	err := r.db.QueryRow(ctx,
+		`SELECT id, workspace_id, email, email_normalized, scope, reason, status, COALESCE(note, ''), created_at, updated_at, removed_at FROM suppression_entries `+where, args...).Scan(
+		&e.ID, &e.WorkspaceID, &e.Email, &e.EmailNormalized, &e.Scope, &e.Reason, &e.Status, &e.Note, &e.CreatedAt, &e.UpdatedAt, &e.RemovedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &e, nil
 }
 
 func (w *WriteRepository) Remove(ctx context.Context, workspaceID, entryID string, removedAt time.Time) error {
