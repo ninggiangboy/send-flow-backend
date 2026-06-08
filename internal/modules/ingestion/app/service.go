@@ -137,6 +137,7 @@ func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProvide
 
 	var rawEventID string
 	var normalizedEventID string
+	var workspaceID, messageID string
 
 	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
 		now := input.ReceivedAt
@@ -145,8 +146,6 @@ func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProvide
 		}
 
 		rawEventID = mustNewID(s.idGen)
-
-		var workspaceID, messageID string
 		if normErr == nil && normalized.ProviderMessageID != "" {
 			ref, resolveErr := s.messageResolver.FindByProviderMessageID(txCtx, provider, normalized.ProviderMessageID)
 			if resolveErr == nil && ref != nil {
@@ -315,8 +314,8 @@ func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProvide
 	log.Info("provider webhook accepted",
 		"raw_event_id", rawEventID,
 		"normalized_event_id", normalizedEventID,
-		"message_id", rawEventID,
-		"workspace_id", rawEventID,
+		"message_id", messageID,
+		"workspace_id", workspaceID,
 	)
 	_ = log
 

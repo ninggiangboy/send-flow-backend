@@ -9,6 +9,7 @@ const (
 	EventDeliveryMessageComplainedV1         = "delivery.message.complained.v1"
 	EventDeliveryMessageRetryScheduledV1     = "delivery.message.retry_scheduled.v1"
 	EventDeliveryTransactionalSendAcceptedV1 = "delivery.transactional_send.accepted.v1"
+	EventSuppressionRecipientSuppressedV1    = "suppression.recipient_suppressed.v1"
 )
 
 type MessageQueuedPayload struct {
@@ -39,4 +40,54 @@ type MessageAcceptedPayload struct {
 	Provider               string `json:"provider"`
 	ProviderMessageID      string `json:"provider_message_id"`
 	AcceptedAt             string `json:"accepted_at"`
+}
+
+type MessageDeliveredPayload struct {
+	MessageID              string `json:"message_id"`
+	WorkspaceID            string `json:"workspace_id"`
+	CampaignID             string `json:"campaign_id,omitempty"`
+	TransactionalRequestID string `json:"transactional_request_id,omitempty"`
+	Provider               string `json:"provider"`
+	ProviderMessageID      string `json:"provider_message_id"`
+	ProviderEventID        string `json:"provider_event_id,omitempty"`
+	NormalizedEventID      string `json:"normalized_event_id"`
+	OccurredAt             string `json:"occurred_at"`
+	ReceivedAt             string `json:"received_at"`
+}
+
+type MessageBouncedPayload struct {
+	MessageID              string `json:"message_id"`
+	WorkspaceID            string `json:"workspace_id"`
+	CampaignID             string `json:"campaign_id,omitempty"`
+	TransactionalRequestID string `json:"transactional_request_id,omitempty"`
+	Provider               string `json:"provider"`
+	ProviderMessageID      string `json:"provider_message_id"`
+	ProviderEventID        string `json:"provider_event_id,omitempty"`
+	NormalizedEventID      string `json:"normalized_event_id"`
+	OccurredAt             string `json:"occurred_at"`
+	ReceivedAt             string `json:"received_at"`
+}
+
+type MessageComplainedPayload struct {
+	MessageID              string `json:"message_id"`
+	WorkspaceID            string `json:"workspace_id"`
+	CampaignID             string `json:"campaign_id,omitempty"`
+	TransactionalRequestID string `json:"transactional_request_id,omitempty"`
+	Provider               string `json:"provider"`
+	ProviderMessageID      string `json:"provider_message_id"`
+	ProviderEventID        string `json:"provider_event_id,omitempty"`
+	NormalizedEventID      string `json:"normalized_event_id"`
+	OccurredAt             string `json:"occurred_at"`
+	ReceivedAt             string `json:"received_at"`
+}
+
+type SuppressionRecipientSuppressedPayload struct {
+	SuppressionID   string `json:"suppression_id"`
+	WorkspaceID     string `json:"workspace_id"`
+	EmailNormalized string `json:"email_normalized"`
+	Scope           string `json:"scope"`
+	Reason          string `json:"reason"`
+	Source          string `json:"source"`
+	SourceEventID   string `json:"source_event_id,omitempty"`
+	CreatedAt       string `json:"created_at"`
 }

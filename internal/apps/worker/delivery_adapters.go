@@ -5,6 +5,7 @@ import (
 	"time"
 
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
+	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	deliveryports "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
@@ -70,8 +71,36 @@ func (a *senderReadinessAdapter) GetSenderReadiness(ctx context.Context, workspa
 	}, nil
 }
 
+type recipientSuppressorAdapter struct {
+	svc *suppressionapp.Service
+}
+
+func newRecipientSuppressorAdapter(svc *suppressionapp.Service) *recipientSuppressorAdapter {
+	return &recipientSuppressorAdapter{svc: svc}
+}
+
+func (a *recipientSuppressorAdapter) SuppressFromSignal(ctx context.Context, input deliveryapp.SuppressFromSignalInput) (*deliveryapp.SuppressFromSignalResult, error) {
+	suppressionInput := suppressionapp.CreateSystemEntryInput{
+		WorkspaceID:     input.WorkspaceID,
+		Email:           input.Email,
+		EmailNormalized: input.EmailNormalized,
+		Scope:           input.Scope,
+		Reason:          input.Reason,
+		Source:          input.Source,
+		SourceEventID:   input.SourceEventID,
+		Note:            input.Note,
+		Now:             input.Now,
+	}
+	entry, created, err := a.svc.CreateSystemEntry(ctx, suppressionInput)
+	if err != nil {
+		return nil, err
+	}
+	return &deliveryapp.SuppressFromSignalResult{EntryID: entry.ID, Created: created}, nil
+}
+
 var (
 	_ deliveryports.SuppressionChecker     = (*suppressionAdapter)(nil)
 	_ deliveryports.ContentRenderer        = (*contentRendererAdapter)(nil)
 	_ deliveryports.SenderReadinessChecker = (*senderReadinessAdapter)(nil)
+	_ deliveryapp.RecipientSuppressor      = (*recipientSuppressorAdapter)(nil)
 )

@@ -57,6 +57,15 @@ func (m *mockMessageWrite) MarkAccepted(ctx context.Context, message domain.Mess
 func (m *mockMessageWrite) MarkDelivered(ctx context.Context, message domain.Message) error {
 	return nil
 }
+func (m *mockMessageWrite) MarkBounced(ctx context.Context, message domain.Message) error {
+	return nil
+}
+func (m *mockMessageWrite) MarkComplained(ctx context.Context, message domain.Message) error {
+	return nil
+}
+func (m *mockMessageWrite) MarkDelayed(ctx context.Context, message domain.Message) error {
+	return nil
+}
 func (m *mockMessageWrite) MarkFailed(ctx context.Context, message domain.Message) error { return nil }
 
 type mockOutbox struct {

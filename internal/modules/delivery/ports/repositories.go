@@ -29,6 +29,7 @@ type DueMessageQuery struct {
 
 type MessageReadRepository interface {
 	FindByID(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
+	FindByIDForUpdate(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
 	FindByTransactionalRequestID(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error)
 	FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*domain.Message, error)
 	List(ctx context.Context, query MessageListQuery) ([]domain.Message, string, error)
@@ -43,6 +44,9 @@ type MessageWriteRepository interface {
 	MarkProcessing(ctx context.Context, workspaceID, messageID string, now time.Time) error
 	MarkAccepted(ctx context.Context, message domain.Message) error
 	MarkDelivered(ctx context.Context, message domain.Message) error
+	MarkBounced(ctx context.Context, message domain.Message) error
+	MarkComplained(ctx context.Context, message domain.Message) error
+	MarkDelayed(ctx context.Context, message domain.Message) error
 	MarkFailed(ctx context.Context, message domain.Message) error
 }
 

@@ -16,45 +16,47 @@ import (
 )
 
 type Options struct {
-	MessagesRead       ports.MessageReadRepository
-	MessagesWrite      ports.MessageWriteRepository
-	AttemptsRead       ports.AttemptReadRepository
-	AttemptsWrite      ports.AttemptWriteRepository
-	RetryStatesRead    ports.RetryStateReadRepository
-	RetryStatesWrite   ports.RetryStateWriteRepository
-	TxRequestsRead     ports.TransactionalRequestReadRepository
-	TxRequestsWrite    ports.TransactionalRequestWriteRepository
-	CampaignReader     ports.CampaignCandidateReader
-	ContentRenderer    ports.ContentRenderer
-	SenderChecker      ports.SenderReadinessChecker
-	SuppressionChecker ports.SuppressionChecker
-	EmailProvider      ports.EmailProvider
-	OutboxWriter       ports.OutboxWriter
-	TxManager          ports.TransactionManager
-	AccessChecker      ports.WorkspaceAccessChecker
-	IDGen              func() (string, error)
-	Logger             *slog.Logger
+	MessagesRead        ports.MessageReadRepository
+	MessagesWrite       ports.MessageWriteRepository
+	AttemptsRead        ports.AttemptReadRepository
+	AttemptsWrite       ports.AttemptWriteRepository
+	RetryStatesRead     ports.RetryStateReadRepository
+	RetryStatesWrite    ports.RetryStateWriteRepository
+	TxRequestsRead      ports.TransactionalRequestReadRepository
+	TxRequestsWrite     ports.TransactionalRequestWriteRepository
+	CampaignReader      ports.CampaignCandidateReader
+	ContentRenderer     ports.ContentRenderer
+	SenderChecker       ports.SenderReadinessChecker
+	SuppressionChecker  ports.SuppressionChecker
+	RecipientSuppressor RecipientSuppressor
+	EmailProvider       ports.EmailProvider
+	OutboxWriter        ports.OutboxWriter
+	TxManager           ports.TransactionManager
+	AccessChecker       ports.WorkspaceAccessChecker
+	IDGen               func() (string, error)
+	Logger              *slog.Logger
 }
 
 type Service struct {
-	messagesRead       ports.MessageReadRepository
-	messagesWrite      ports.MessageWriteRepository
-	attemptsRead       ports.AttemptReadRepository
-	attemptsWrite      ports.AttemptWriteRepository
-	retryStatesRead    ports.RetryStateReadRepository
-	retryStatesWrite   ports.RetryStateWriteRepository
-	txRequestsRead     ports.TransactionalRequestReadRepository
-	txRequestsWrite    ports.TransactionalRequestWriteRepository
-	campaignReader     ports.CampaignCandidateReader
-	contentRenderer    ports.ContentRenderer
-	senderChecker      ports.SenderReadinessChecker
-	suppressionChecker ports.SuppressionChecker
-	emailProvider      ports.EmailProvider
-	outboxWriter       ports.OutboxWriter
-	txManager          ports.TransactionManager
-	accessChecker      ports.WorkspaceAccessChecker
-	idGen              func() (string, error)
-	log                *slog.Logger
+	messagesRead        ports.MessageReadRepository
+	messagesWrite       ports.MessageWriteRepository
+	attemptsRead        ports.AttemptReadRepository
+	attemptsWrite       ports.AttemptWriteRepository
+	retryStatesRead     ports.RetryStateReadRepository
+	retryStatesWrite    ports.RetryStateWriteRepository
+	txRequestsRead      ports.TransactionalRequestReadRepository
+	txRequestsWrite     ports.TransactionalRequestWriteRepository
+	campaignReader      ports.CampaignCandidateReader
+	contentRenderer     ports.ContentRenderer
+	senderChecker       ports.SenderReadinessChecker
+	suppressionChecker  ports.SuppressionChecker
+	recipientSuppressor RecipientSuppressor
+	emailProvider       ports.EmailProvider
+	outboxWriter        ports.OutboxWriter
+	txManager           ports.TransactionManager
+	accessChecker       ports.WorkspaceAccessChecker
+	idGen               func() (string, error)
+	log                 *slog.Logger
 }
 
 func NewService(opts Options) *Service {
@@ -65,24 +67,25 @@ func NewService(opts Options) *Service {
 		opts.IDGen = id.NewUUIDGenerator().New
 	}
 	return &Service{
-		messagesRead:       opts.MessagesRead,
-		messagesWrite:      opts.MessagesWrite,
-		attemptsRead:       opts.AttemptsRead,
-		attemptsWrite:      opts.AttemptsWrite,
-		retryStatesRead:    opts.RetryStatesRead,
-		retryStatesWrite:   opts.RetryStatesWrite,
-		txRequestsRead:     opts.TxRequestsRead,
-		txRequestsWrite:    opts.TxRequestsWrite,
-		campaignReader:     opts.CampaignReader,
-		contentRenderer:    opts.ContentRenderer,
-		senderChecker:      opts.SenderChecker,
-		suppressionChecker: opts.SuppressionChecker,
-		emailProvider:      opts.EmailProvider,
-		outboxWriter:       opts.OutboxWriter,
-		txManager:          opts.TxManager,
-		accessChecker:      opts.AccessChecker,
-		idGen:              opts.IDGen,
-		log:                opts.Logger.With("module", "delivery"),
+		messagesRead:        opts.MessagesRead,
+		messagesWrite:       opts.MessagesWrite,
+		attemptsRead:        opts.AttemptsRead,
+		attemptsWrite:       opts.AttemptsWrite,
+		retryStatesRead:     opts.RetryStatesRead,
+		retryStatesWrite:    opts.RetryStatesWrite,
+		txRequestsRead:      opts.TxRequestsRead,
+		txRequestsWrite:     opts.TxRequestsWrite,
+		campaignReader:      opts.CampaignReader,
+		contentRenderer:     opts.ContentRenderer,
+		senderChecker:       opts.SenderChecker,
+		suppressionChecker:  opts.SuppressionChecker,
+		recipientSuppressor: opts.RecipientSuppressor,
+		emailProvider:       opts.EmailProvider,
+		outboxWriter:        opts.OutboxWriter,
+		txManager:           opts.TxManager,
+		accessChecker:       opts.AccessChecker,
+		idGen:               opts.IDGen,
+		log:                 opts.Logger.With("module", "delivery"),
 	}
 }
 

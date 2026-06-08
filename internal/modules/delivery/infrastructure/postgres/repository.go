@@ -128,6 +128,53 @@ func (r *MessageReadRepository) FindByID(ctx context.Context, workspaceID, messa
 	return &msg, nil
 }
 
+func (r *MessageReadRepository) FindByIDForUpdate(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+	db := r.getDB(ctx)
+	var msg domain.Message
+	var snapshotJSON []byte
+	var scheduledAt, queuedAt, processingStartedAt, acceptedAt, deliveredAt, bouncedAt, complainedAt, failedAt *time.Time
+
+	err := db.QueryRow(ctx,
+		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
+		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
+		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
+		        message_type, source_type, status,
+		        scheduled_at, queued_at, processing_started_at,
+		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
+		        last_error_class, last_error_message, provider, provider_message_id,
+		        created_at, updated_at
+		 FROM messages WHERE id = $1 AND workspace_id = $2 FOR UPDATE`,
+		messageID, workspaceID,
+	).Scan(&msg.ID, &msg.WorkspaceID, &msg.CampaignID, &msg.CampaignCandidateID, &msg.TransactionalRequestID,
+		&msg.ContactID, &msg.RecipientEmailNormalized, &snapshotJSON,
+		&msg.TemplateID, &msg.TemplateVersionID, &msg.SenderDomainID,
+		&msg.MessageType, &msg.SourceType, &msg.Status,
+		&scheduledAt, &queuedAt, &processingStartedAt,
+		&acceptedAt, &deliveredAt, &bouncedAt, &complainedAt, &failedAt,
+		&msg.LastErrorClass, &msg.LastErrorMessage, &msg.Provider, &msg.ProviderMessageID,
+		&msg.CreatedAt, &msg.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrMessageNotFound
+		}
+		return nil, err
+	}
+
+	if snapshotJSON != nil {
+		json.Unmarshal(snapshotJSON, &msg.RecipientSnapshot)
+	}
+	msg.ScheduledAt = scheduledAt
+	msg.QueuedAt = queuedAt
+	msg.ProcessingStartedAt = processingStartedAt
+	msg.AcceptedAt = acceptedAt
+	msg.DeliveredAt = deliveredAt
+	msg.BouncedAt = bouncedAt
+	msg.ComplainedAt = complainedAt
+	msg.FailedAt = failedAt
+
+	return &msg, nil
+}
+
 func (r *MessageReadRepository) FindByTransactionalRequestID(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error) {
 	db := r.getDB(ctx)
 	var msg domain.Message
@@ -584,6 +631,57 @@ func (w *MessageWriteRepository) MarkDelivered(ctx context.Context, message doma
 		`UPDATE messages SET status = 'delivered', delivered_at = $1, updated_at = $2
 		 WHERE id = $3 AND workspace_id = $4`,
 		message.DeliveredAt, message.UpdatedAt, message.ID, message.WorkspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrMessageNotFound
+	}
+	return nil
+}
+
+func (w *MessageWriteRepository) MarkBounced(ctx context.Context, message domain.Message) error {
+	db := w.getDB(ctx)
+	tag, err := db.Exec(ctx,
+		`UPDATE messages SET status = 'bounced', bounced_at = $1, last_error_class = $2, last_error_message = $3, updated_at = $4
+		 WHERE id = $5 AND workspace_id = $6`,
+		message.BouncedAt, message.LastErrorClass, message.LastErrorMessage, message.UpdatedAt,
+		message.ID, message.WorkspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrMessageNotFound
+	}
+	return nil
+}
+
+func (w *MessageWriteRepository) MarkComplained(ctx context.Context, message domain.Message) error {
+	db := w.getDB(ctx)
+	tag, err := db.Exec(ctx,
+		`UPDATE messages SET status = 'complained', complained_at = $1, last_error_class = $2, last_error_message = $3, updated_at = $4
+		 WHERE id = $5 AND workspace_id = $6`,
+		message.ComplainedAt, message.LastErrorClass, message.LastErrorMessage, message.UpdatedAt,
+		message.ID, message.WorkspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrMessageNotFound
+	}
+	return nil
+}
+
+func (w *MessageWriteRepository) MarkDelayed(ctx context.Context, message domain.Message) error {
+	db := w.getDB(ctx)
+	tag, err := db.Exec(ctx,
+		`UPDATE messages SET status = 'delayed', last_error_class = $1, last_error_message = $2, updated_at = $3
+		 WHERE id = $4 AND workspace_id = $5`,
+		message.LastErrorClass, message.LastErrorMessage, message.UpdatedAt,
+		message.ID, message.WorkspaceID,
 	)
 	if err != nil {
 		return err

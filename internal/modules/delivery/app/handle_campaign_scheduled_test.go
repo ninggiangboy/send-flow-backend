@@ -49,6 +49,18 @@ func (m *mockMessageWriteRepository) MarkDelivered(_ context.Context, _ domain.M
 	return nil
 }
 
+func (m *mockMessageWriteRepository) MarkBounced(_ context.Context, _ domain.Message) error {
+	return nil
+}
+
+func (m *mockMessageWriteRepository) MarkComplained(_ context.Context, _ domain.Message) error {
+	return nil
+}
+
+func (m *mockMessageWriteRepository) MarkDelayed(_ context.Context, _ domain.Message) error {
+	return nil
+}
+
 func (m *mockMessageWriteRepository) MarkFailed(_ context.Context, _ domain.Message) error {
 	return nil
 }

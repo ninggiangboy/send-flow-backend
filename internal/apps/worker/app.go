@@ -94,6 +94,7 @@ func Run(ctx context.Context) error {
 		IDGen:        id.NewUUIDGenerator().New,
 		Logger:       log,
 	})
+	suppressionRecipientSuppressorAdapter := newRecipientSuppressorAdapter(suppressionSvc)
 
 	// Wire content module
 	contentReadRepo := contentpostgres.NewTemplateReadRepository(pgReadPool)
@@ -134,23 +135,24 @@ func Run(ctx context.Context) error {
 	}
 
 	deliverySvc := deliveryapp.NewService(deliveryapp.Options{
-		MessagesRead:       deliveryMsgReadRepo,
-		MessagesWrite:      deliveryMsgWriteRepo,
-		AttemptsRead:       deliveryAttemptReadRepo,
-		AttemptsWrite:      deliveryAttemptWriteRepo,
-		RetryStatesRead:    deliveryRetryReadRepo,
-		RetryStatesWrite:   deliveryRetryWriteRepo,
-		TxRequestsRead:     deliveryTxReqReadRepo,
-		TxRequestsWrite:    deliveryTxReqWriteRepo,
-		CampaignReader:     campaignCandidateReader,
-		ContentRenderer:    deliveryContentAdapter,
-		SenderChecker:      deliverySenderAdapter,
-		SuppressionChecker: deliverySuppressionAdapter,
-		EmailProvider:      deliveryProvider,
-		OutboxWriter:       deliveryOutboxRepo,
-		TxManager:          deliveryTxManager,
-		IDGen:              id.NewUUIDGenerator().New,
-		Logger:             log,
+		MessagesRead:        deliveryMsgReadRepo,
+		MessagesWrite:       deliveryMsgWriteRepo,
+		AttemptsRead:        deliveryAttemptReadRepo,
+		AttemptsWrite:       deliveryAttemptWriteRepo,
+		RetryStatesRead:     deliveryRetryReadRepo,
+		RetryStatesWrite:    deliveryRetryWriteRepo,
+		TxRequestsRead:      deliveryTxReqReadRepo,
+		TxRequestsWrite:     deliveryTxReqWriteRepo,
+		CampaignReader:      campaignCandidateReader,
+		ContentRenderer:     deliveryContentAdapter,
+		SenderChecker:       deliverySenderAdapter,
+		SuppressionChecker:  deliverySuppressionAdapter,
+		RecipientSuppressor: suppressionRecipientSuppressorAdapter,
+		EmailProvider:       deliveryProvider,
+		OutboxWriter:        deliveryOutboxRepo,
+		TxManager:           deliveryTxManager,
+		IDGen:               id.NewUUIDGenerator().New,
+		Logger:              log,
 	})
 
 	consumer := NewCampaignScheduledConsumer(
@@ -161,6 +163,17 @@ func Run(ctx context.Context) error {
 		pgClient.WritePool(),
 	)
 	if err := registry.Register(consumer); err != nil {
+		return err
+	}
+
+	providerEventConsumer := NewProviderEventConsumer(
+		deliverySvc,
+		log,
+		kafka.Brokers(cfg.KafkaBrokers),
+		cfg.WorkerConsumerGroupPrefix+".delivery_provider_events",
+		pgClient.WritePool(),
+	)
+	if err := registry.Register(providerEventConsumer); err != nil {
 		return err
 	}
 

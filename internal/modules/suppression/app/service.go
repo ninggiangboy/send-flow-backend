@@ -79,6 +79,18 @@ type CreateEntryInput struct {
 	Now         time.Time
 }
 
+type CreateSystemEntryInput struct {
+	WorkspaceID     string
+	Email           string
+	EmailNormalized string
+	Scope           string
+	Reason          string
+	Source          string
+	SourceEventID   string
+	Note            string
+	Now             time.Time
+}
+
 func (s *Service) CreateEntry(ctx context.Context, input CreateEntryInput) (*domain.SuppressionEntry, error) {
 	log := s.log.With("usecase", "create_suppression_entry", "workspace_id", input.WorkspaceID)
 	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "suppression.manage"); err != nil {
@@ -130,6 +142,71 @@ func (s *Service) CreateEntry(ctx context.Context, input CreateEntryInput) (*dom
 
 	log.Info("suppression entry created", "entry_id", id)
 	return &entry, nil
+}
+
+func (s *Service) CreateSystemEntry(ctx context.Context, input CreateSystemEntryInput) (*domain.SuppressionEntry, bool, error) {
+	log := s.log.With("usecase", "create_system_suppression_entry", "workspace_id", input.WorkspaceID)
+
+	if !domain.ValidSuppressionScope(input.Scope) {
+		return nil, false, domain.ErrScopeInvalid
+	}
+	if !domain.ValidSuppressionReason(input.Reason) {
+		return nil, false, domain.ErrReasonInvalid
+	}
+
+	emailNormalized := input.EmailNormalized
+	if emailNormalized == "" && input.Email != "" {
+		emailNormalized = domain.NormalizeEmail(input.Email)
+	}
+	if emailNormalized == "" {
+		return nil, false, domain.ErrScopeInvalid
+	}
+
+	existing, err := s.entriesRead.FindActiveByEmail(ctx, ports.SuppressionCheckQuery{
+		WorkspaceID:     input.WorkspaceID,
+		EmailNormalized: emailNormalized,
+		Scopes:          []string{input.Scope},
+		Reasons:         []string{input.Reason},
+	})
+	if err != nil {
+		log.Error("failed to check existing suppression", "error", err)
+		return nil, false, err
+	}
+	if existing != nil {
+		log.Info("active suppression entry already exists, skipping", "entry_id", existing.ID)
+		return existing, false, nil
+	}
+
+	id, err := s.idGen()
+	if err != nil {
+		log.Error("failed to generate id", "error", err)
+		return nil, false, err
+	}
+
+	entry := domain.SuppressionEntry{
+		ID:              id,
+		WorkspaceID:     input.WorkspaceID,
+		Email:           input.Email,
+		EmailNormalized: emailNormalized,
+		Scope:           domain.SuppressionScope(input.Scope),
+		Reason:          domain.SuppressionReason(input.Reason),
+		Status:          domain.SuppressionStatusActive,
+		Note:            input.Note,
+		CreatedAt:       input.Now,
+		UpdatedAt:       input.Now,
+	}
+
+	if err := s.entriesWrite.Create(ctx, entry); err != nil {
+		log.Error("failed to create system suppression entry", "error", err)
+		return nil, false, err
+	}
+
+	log.Info("system suppression entry created",
+		"entry_id", id,
+		"source", input.Source,
+		"source_event_id", input.SourceEventID,
+	)
+	return &entry, true, nil
 }
 
 type CheckSuppressionResult struct {

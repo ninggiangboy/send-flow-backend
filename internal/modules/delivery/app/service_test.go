@@ -17,6 +17,7 @@ import (
 type mockMessageReadRepo struct {
 	ports.MessageReadRepository
 	findByID                      func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
+	findByIDForUpdate             func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
 	findByTransactionalRequestID  func(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error)
 	findByProviderMessageID       func(ctx context.Context, provider, providerMessageID string) (*domain.Message, error)
 	list                          func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error)
@@ -26,6 +27,13 @@ type mockMessageReadRepo struct {
 }
 
 func (m *mockMessageReadRepo) FindByID(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+	return m.findByID(ctx, workspaceID, messageID)
+}
+
+func (m *mockMessageReadRepo) FindByIDForUpdate(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+	if m.findByIDForUpdate != nil {
+		return m.findByIDForUpdate(ctx, workspaceID, messageID)
+	}
 	return m.findByID(ctx, workspaceID, messageID)
 }
 
@@ -60,6 +68,9 @@ type mockMessageWriteRepo struct {
 	markProcessing func(ctx context.Context, workspaceID, messageID string, now time.Time) error
 	markAccepted   func(ctx context.Context, message domain.Message) error
 	markDelivered  func(ctx context.Context, message domain.Message) error
+	markBounced    func(ctx context.Context, message domain.Message) error
+	markComplained func(ctx context.Context, message domain.Message) error
+	markDelayed    func(ctx context.Context, message domain.Message) error
 	markFailed     func(ctx context.Context, message domain.Message) error
 }
 
@@ -81,6 +92,18 @@ func (m *mockMessageWriteRepo) MarkAccepted(ctx context.Context, message domain.
 
 func (m *mockMessageWriteRepo) MarkDelivered(ctx context.Context, message domain.Message) error {
 	return m.markDelivered(ctx, message)
+}
+
+func (m *mockMessageWriteRepo) MarkBounced(ctx context.Context, message domain.Message) error {
+	return m.markBounced(ctx, message)
+}
+
+func (m *mockMessageWriteRepo) MarkComplained(ctx context.Context, message domain.Message) error {
+	return m.markComplained(ctx, message)
+}
+
+func (m *mockMessageWriteRepo) MarkDelayed(ctx context.Context, message domain.Message) error {
+	return m.markDelayed(ctx, message)
 }
 
 func (m *mockMessageWriteRepo) MarkFailed(ctx context.Context, message domain.Message) error {
@@ -200,6 +223,15 @@ type mockSuppressionChecker struct {
 
 func (m *mockSuppressionChecker) CheckSuppression(ctx context.Context, workspaceID, emailNormalized, scope string) (*ports.SuppressionDecision, error) {
 	return m.checkSuppression(ctx, workspaceID, emailNormalized, scope)
+}
+
+type mockRecipientSuppressor struct {
+	RecipientSuppressor
+	suppressFromSignal func(ctx context.Context, input SuppressFromSignalInput) (*SuppressFromSignalResult, error)
+}
+
+func (m *mockRecipientSuppressor) SuppressFromSignal(ctx context.Context, input SuppressFromSignalInput) (*SuppressFromSignalResult, error) {
+	return m.suppressFromSignal(ctx, input)
 }
 
 type mockEmailProvider struct {
