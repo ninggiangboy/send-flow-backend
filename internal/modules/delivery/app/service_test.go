@@ -17,6 +17,7 @@ import (
 type mockMessageReadRepo struct {
 	ports.MessageReadRepository
 	findByID                      func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
+	findByTransactionalRequestID  func(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error)
 	findByProviderMessageID       func(ctx context.Context, provider, providerMessageID string) (*domain.Message, error)
 	list                          func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error)
 	listDueQueued                 func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error)
@@ -26,6 +27,10 @@ type mockMessageReadRepo struct {
 
 func (m *mockMessageReadRepo) FindByID(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 	return m.findByID(ctx, workspaceID, messageID)
+}
+
+func (m *mockMessageReadRepo) FindByTransactionalRequestID(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error) {
+	return m.findByTransactionalRequestID(ctx, workspaceID, transactionalRequestID)
 }
 
 func (m *mockMessageReadRepo) FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*domain.Message, error) {

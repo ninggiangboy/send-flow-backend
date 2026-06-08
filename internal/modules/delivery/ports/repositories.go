@@ -29,6 +29,7 @@ type DueMessageQuery struct {
 
 type MessageReadRepository interface {
 	FindByID(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
+	FindByTransactionalRequestID(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error)
 	FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*domain.Message, error)
 	List(ctx context.Context, query MessageListQuery) ([]domain.Message, string, error)
 	ListDueQueued(ctx context.Context, query DueMessageQuery) ([]domain.Message, error)
@@ -66,6 +67,7 @@ type RetryStateWriteRepository interface {
 
 type TransactionalRequestReadRepository interface {
 	FindByID(ctx context.Context, workspaceID, requestID string) (*domain.TransactionalSendRequest, error)
+	FindByIdempotencyKey(ctx context.Context, workspaceID, idempotencyKey string) (*domain.TransactionalSendRequest, error)
 }
 
 type TransactionalRequestWriteRepository interface {

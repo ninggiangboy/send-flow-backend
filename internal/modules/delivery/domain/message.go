@@ -57,6 +57,7 @@ type RecipientSnapshot struct {
 	LastName        string         `json:"last_name"`
 	Tags            []string       `json:"tags"`
 	Attributes      map[string]any `json:"attributes"`
+	TemplateData    map[string]any `json:"template_data,omitempty"`
 }
 
 type Message struct {
@@ -122,7 +123,7 @@ type RetryState struct {
 type TransactionalSendRequest struct {
 	ID             string
 	WorkspaceID    string
-	IdempotencyKey string
+	IdempotencyKey *string
 	Status         string
 	RequestPayload json.RawMessage
 	CreatedAt      time.Time

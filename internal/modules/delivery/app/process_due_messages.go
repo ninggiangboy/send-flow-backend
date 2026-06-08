@@ -309,6 +309,11 @@ func buildRenderData(snapshot domain.RecipientSnapshot) map[string]any {
 	if snapshot.Attributes != nil {
 		data["attributes"] = snapshot.Attributes
 	}
+	if snapshot.TemplateData != nil {
+		for k, v := range snapshot.TemplateData {
+			data[k] = v
+		}
+	}
 	return data
 }
 

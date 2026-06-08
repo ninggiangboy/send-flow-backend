@@ -225,12 +225,35 @@ func Run(ctx context.Context) error {
 	})
 
 	deliveryMsgReadRepo := deliverypostgres.NewMessageReadRepository(pgClient.ReadPool())
+	deliveryMsgWriteRepo := deliverypostgres.NewMessageWriteRepository(pgClient.WritePool())
+	deliveryTxReqReadRepo := deliverypostgres.NewTransactionalRequestReadRepository(pgClient.ReadPool())
+	deliveryTxReqWriteRepo := deliverypostgres.NewTransactionalRequestWriteRepository(pgClient.WritePool())
+	deliveryAttemptReadRepo := deliverypostgres.NewAttemptReadRepository(pgClient.ReadPool())
+	deliveryAttemptWriteRepo := deliverypostgres.NewAttemptWriteRepository(pgClient.WritePool())
+	deliveryRetryStateReadRepo := deliverypostgres.NewRetryStateReadRepository(pgClient.ReadPool())
+	deliveryRetryStateWriteRepo := deliverypostgres.NewRetryStateWriteRepository(pgClient.WritePool())
+	deliveryOutboxRepo := deliverypostgres.NewOutboxRepository(pgClient.WritePool())
+	deliveryTxManager := deliverypostgres.NewTransactionManager(pgClient.WritePool())
+	deliveryContentRenderer := newTransactionalContentRenderer(contentSvc)
+	deliverySenderChecker := newTransactionalSenderChecker(senderSvc)
+	deliverySuppressionChecker := newTransactionalSuppressionChecker(suppressionSvc)
 	deliverySvc := deliveryapp.NewService(deliveryapp.Options{
-		MessagesRead:  deliveryMsgReadRepo,
-		MessagesWrite: deliverypostgres.NewMessageWriteRepository(pgClient.WritePool()),
-		AccessChecker: newWorkspaceAccessAdapter(authSvc),
-		Logger:        log,
-		IDGen:         id.NewUUIDGenerator().New,
+		MessagesRead:       deliveryMsgReadRepo,
+		MessagesWrite:      deliveryMsgWriteRepo,
+		AttemptsRead:       deliveryAttemptReadRepo,
+		AttemptsWrite:      deliveryAttemptWriteRepo,
+		RetryStatesRead:    deliveryRetryStateReadRepo,
+		RetryStatesWrite:   deliveryRetryStateWriteRepo,
+		TxRequestsRead:     deliveryTxReqReadRepo,
+		TxRequestsWrite:    deliveryTxReqWriteRepo,
+		ContentRenderer:    deliveryContentRenderer,
+		SenderChecker:      deliverySenderChecker,
+		SuppressionChecker: deliverySuppressionChecker,
+		OutboxWriter:       deliveryOutboxRepo,
+		TxManager:          deliveryTxManager,
+		AccessChecker:      newWorkspaceAccessAdapter(authSvc),
+		Logger:             log,
+		IDGen:              id.NewUUIDGenerator().New,
 	})
 
 	accessAPIKeyRepo := accesspostgres.NewAPIKeyRepository(pgClient.ReadPool(), pgClient.WritePool())

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"reflect"
@@ -15,6 +16,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
+	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
 	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
@@ -46,6 +48,12 @@ func openAPIConfig() huma.Config {
 			Scheme:       "bearer",
 			BearerFormat: "JWT",
 			Description:  "Access token issued by the authentication API.",
+		},
+		"apiKeyAuth": {
+			Type:         "http",
+			Scheme:       "bearer",
+			BearerFormat: "API key",
+			Description:  "API key for service-to-service requests.",
 		},
 	}
 	return cfg
@@ -95,6 +103,9 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 	if deliverySvc != nil {
 		delivery := newDeliveryHTTP(deliverySvc)
 		registerDeliveryOperations(api, delivery, authMiddleware)
+
+		transactional := newTransactionalHTTP(deliverySvc)
+		registerTransactionalOperations(api, transactional, accessSvc)
 	}
 	if accessSvc != nil {
 		apiKeyHandler := newAPIKeyHTTP(accessSvc)
@@ -1902,22 +1913,123 @@ func registerDeliveryOperations(api huma.API, delivery *deliveryHTTP, authMiddle
 	})
 }
 
+func humaAPIKeyAuthMiddleware(svc *accessapp.Service) func(huma.Context, func(huma.Context)) {
+	return func(ctx huma.Context, next func(huma.Context)) {
+		req, w := humachi.Unwrap(ctx)
+
+		authHeader := strings.TrimSpace(req.Header.Get("Authorization"))
+		token, ok := accessdomain.ExtractBearerToken(authHeader)
+		if !ok {
+			writeError(w, req, http.StatusUnauthorized, "api_key.invalid", "missing or malformed bearer token", nil)
+			return
+		}
+
+		key, err := svc.AuthenticateAPIKey(req.Context(), accessapp.AuthenticateAPIKeyInput{
+			BearerToken: token,
+		})
+		if err != nil {
+			if errors.Is(err, accessdomain.ErrAPIKeyInvalid) {
+				writeError(w, req, http.StatusUnauthorized, "api_key.invalid", "invalid, revoked, or expired api key", nil)
+				return
+			}
+			writeError(w, req, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+			return
+		}
+
+		baseCtx := context.WithValue(req.Context(), ctxAPIKeyWorkspaceID, key.WorkspaceID)
+		baseCtx = context.WithValue(baseCtx, ctxAPIKeyID, key.APIKeyID)
+		baseCtx = context.WithValue(baseCtx, ctxAPIKeyScopes, key.Scopes)
+		baseCtx = context.WithValue(baseCtx, ctxAPIKeyPrefix, key.KeyPrefix)
+
+		next(huma.WithContext(ctx, baseCtx))
+	}
+}
+
+func humaAPIKeyScopeMiddleware(scope string) func(huma.Context, func(huma.Context)) {
+	return func(ctx huma.Context, next func(huma.Context)) {
+		scopes, _ := ctx.Context().Value(ctxAPIKeyScopes).([]string)
+		if !accessdomain.HasScope(scopes, scope) {
+			req, w := humachi.Unwrap(ctx)
+			writeError(w, req, http.StatusForbidden, "api_key.scope_denied", "api key does not have required scope: "+scope, nil)
+			return
+		}
+		next(ctx)
+	}
+}
+
+func apiKeyProtectedOperation(op huma.Operation, svc *accessapp.Service, scope string) huma.Operation {
+	op.Security = []map[string][]string{{"apiKeyAuth": {}}}
+	op.Middlewares = append(op.Middlewares, humaAPIKeyAuthMiddleware(svc))
+	if scope != "" {
+		op.Middlewares = append(op.Middlewares, humaAPIKeyScopeMiddleware(scope))
+	}
+	return op
+}
+
+type transactionalMessagePathInput struct {
+	MessageID string `path:"message_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Message ID."`
+}
+
+func registerTransactionalOperations(api huma.API, transactional *transactionalHTTP, accessSvc *accessapp.Service) {
+	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
+		OperationID:   "sendTransactionalEmail",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/transactional/send",
+		Tags:          []string{"Delivery"},
+		Summary:       "Send a transactional email",
+		DefaultStatus: http.StatusAccepted,
+		Errors:        documentedErrorStatuses(),
+	}, accessSvc, "transactional.send"), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, nil, transactional.send)
+	})
+
+	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
+		OperationID: "getTransactionalMessage",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/transactional/messages/{message_id}",
+		Tags:        []string{"Delivery"},
+		Summary:     "Get transactional message status",
+		Errors:      documentedErrorStatuses(),
+	}, accessSvc, "transactional.read"), func(ctx context.Context, input *transactionalMessagePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, transactional.getMessage)
+	})
+}
+
 func deliveryErrorCodes() map[int][]string {
 	return map[int][]string{
 		http.StatusBadRequest: {
 			"auth.invalid_request_body",
+			"delivery.request_body_invalid",
 		},
 		http.StatusUnauthorized: {
 			"auth.invalid_token",
+			"api_key.invalid",
 		},
 		http.StatusForbidden: {
 			"delivery.read_denied",
+			"api_key.scope_denied",
 		},
 		http.StatusNotFound: {
 			"delivery.message_not_found",
+			"sender.domain_not_found",
+			"template.not_found",
+		},
+		http.StatusConflict: {
+			"delivery.idempotency_key_conflict",
 		},
 		http.StatusUnprocessableEntity: {
 			"delivery.query_invalid",
+			"delivery.recipient_invalid",
+			"template.render_payload_invalid",
+			"sender.domain_not_verified",
+			"delivery.recipient_suppressed",
+		},
+		http.StatusTooManyRequests: {
+			"delivery.request_rate_limited",
+		},
+		http.StatusServiceUnavailable: {
+			"delivery.temporarily_unavailable",
 		},
 		http.StatusInternalServerError: {
 			"health.runtime_not_ready",

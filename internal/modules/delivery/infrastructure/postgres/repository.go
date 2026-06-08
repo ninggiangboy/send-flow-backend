@@ -128,6 +128,53 @@ func (r *MessageReadRepository) FindByID(ctx context.Context, workspaceID, messa
 	return &msg, nil
 }
 
+func (r *MessageReadRepository) FindByTransactionalRequestID(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error) {
+	db := r.getDB(ctx)
+	var msg domain.Message
+	var snapshotJSON []byte
+	var scheduledAt, queuedAt, processingStartedAt, acceptedAt, deliveredAt, bouncedAt, complainedAt, failedAt *time.Time
+
+	err := db.QueryRow(ctx,
+		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
+		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
+		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
+		        message_type, source_type, status,
+		        scheduled_at, queued_at, processing_started_at,
+		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
+		        last_error_class, last_error_message, provider, provider_message_id,
+		        created_at, updated_at
+		 FROM messages WHERE workspace_id = $1 AND transactional_request_id = $2`,
+		workspaceID, transactionalRequestID,
+	).Scan(&msg.ID, &msg.WorkspaceID, &msg.CampaignID, &msg.CampaignCandidateID, &msg.TransactionalRequestID,
+		&msg.ContactID, &msg.RecipientEmailNormalized, &snapshotJSON,
+		&msg.TemplateID, &msg.TemplateVersionID, &msg.SenderDomainID,
+		&msg.MessageType, &msg.SourceType, &msg.Status,
+		&scheduledAt, &queuedAt, &processingStartedAt,
+		&acceptedAt, &deliveredAt, &bouncedAt, &complainedAt, &failedAt,
+		&msg.LastErrorClass, &msg.LastErrorMessage, &msg.Provider, &msg.ProviderMessageID,
+		&msg.CreatedAt, &msg.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrMessageNotFound
+		}
+		return nil, err
+	}
+
+	if snapshotJSON != nil {
+		json.Unmarshal(snapshotJSON, &msg.RecipientSnapshot)
+	}
+	msg.ScheduledAt = scheduledAt
+	msg.QueuedAt = queuedAt
+	msg.ProcessingStartedAt = processingStartedAt
+	msg.AcceptedAt = acceptedAt
+	msg.DeliveredAt = deliveredAt
+	msg.BouncedAt = bouncedAt
+	msg.ComplainedAt = complainedAt
+	msg.FailedAt = failedAt
+
+	return &msg, nil
+}
+
 func (r *MessageReadRepository) FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*domain.Message, error) {
 	db := r.getDB(ctx)
 	var msg domain.Message
@@ -818,6 +865,32 @@ func (w *TransactionalRequestWriteRepository) getDB(ctx context.Context) DBTX {
 		return tx
 	}
 	return w.db
+}
+
+func (r *TransactionalRequestReadRepository) FindByIdempotencyKey(ctx context.Context, workspaceID, idempotencyKey string) (*domain.TransactionalSendRequest, error) {
+	db := r.getDB(ctx)
+	var req domain.TransactionalSendRequest
+	var payloadJSON []byte
+
+	err := db.QueryRow(ctx,
+		`SELECT id, workspace_id, idempotency_key, status, request_payload,
+		        created_at, updated_at, completed_at, failed_at
+		 FROM transactional_send_requests WHERE workspace_id = $1 AND idempotency_key = $2`,
+		workspaceID, idempotencyKey,
+	).Scan(&req.ID, &req.WorkspaceID, &req.IdempotencyKey, &req.Status, &payloadJSON,
+		&req.CreatedAt, &req.UpdatedAt, &req.CompletedAt, &req.FailedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrTransactionalRequestNotFound
+		}
+		return nil, err
+	}
+
+	if payloadJSON != nil {
+		json.Unmarshal(payloadJSON, &req.RequestPayload)
+	}
+
+	return &req, nil
 }
 
 func (r *TransactionalRequestReadRepository) FindByID(ctx context.Context, workspaceID, requestID string) (*domain.TransactionalSendRequest, error) {
