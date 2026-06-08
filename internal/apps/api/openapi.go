@@ -22,6 +22,7 @@ import (
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
+	ingestionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/app"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
@@ -59,7 +60,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -106,6 +107,10 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 
 		transactional := newTransactionalHTTP(deliverySvc)
 		registerTransactionalOperations(api, transactional, accessSvc)
+	}
+	if ingestionSvc != nil {
+		ingestion := newIngestionHTTP(ingestionSvc)
+		registerIngestionWebhookOperations(api, ingestion)
 	}
 	if accessSvc != nil {
 		apiKeyHandler := newAPIKeyHTTP(accessSvc)
@@ -245,6 +250,8 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 		return deliveryErrorCodes()
 	case hasTag(op, "Access"):
 		return apiKeyErrorCodes()
+	case hasTag(op, "Webhooks"):
+		return webhookErrorCodes()
 	default:
 		return map[int][]string{
 			http.StatusInternalServerError: {"health.runtime_not_ready"},
@@ -2092,6 +2099,47 @@ func registerAPIKeyOperations(api huma.API, apiKey *apiKeyHTTP, authMiddleware f
 type apiKeyPathInput struct {
 	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
 	APIKeyID    string `path:"api_key_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"API key ID."`
+}
+
+func registerIngestionWebhookOperations(api huma.API, ingestion *ingestionHTTP) {
+	huma.Register(api, huma.Operation{
+		OperationID: "ingest-provider-webhook",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/webhooks/providers/{provider}",
+		Tags:        []string{"Webhooks"},
+		Summary:     "Ingest a provider webhook",
+		Errors:      documentedErrorStatuses(),
+	}, func(ctx context.Context, input *providerWebhookInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, ingestion.ingestProviderWebhook)
+	})
+}
+
+type providerWebhookInput struct {
+	Provider string `path:"provider" example:"fake" doc:"Provider identifier."`
+}
+
+func webhookErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"webhook.payload_invalid",
+		},
+		http.StatusUnauthorized: {
+			"webhook.invalid_signature",
+		},
+		http.StatusNotFound: {
+			"webhook.provider_not_supported",
+		},
+		http.StatusConflict: {
+			"webhook.duplicate_event_conflict",
+		},
+		http.StatusServiceUnavailable: {
+			"webhook.ingest_temporarily_unavailable",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
 }
 
 func apiKeyErrorCodes() map[int][]string {

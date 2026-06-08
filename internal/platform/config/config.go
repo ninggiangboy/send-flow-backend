@@ -48,6 +48,7 @@ type Config struct {
 	EmailVerificationTTL time.Duration
 	PasswordResetTTL     time.Duration
 	MFAChallengeTTL      time.Duration
+	FakeWebhookSecret    string
 }
 
 type ObjectStorageConfig struct {
@@ -139,6 +140,7 @@ func LoadFromEnv() (Config, error) {
 		EmailVerificationTTL: parseDuration("AUTH_EMAIL_VERIFICATION_TTL", 24*time.Hour),
 		PasswordResetTTL:     parseDuration("AUTH_PASSWORD_RESET_TTL", time.Hour),
 		MFAChallengeTTL:      parseDuration("AUTH_MFA_CHALLENGE_TTL", 10*time.Minute),
+		FakeWebhookSecret:    os.Getenv("FAKE_WEBHOOK_SECRET"),
 	}
 
 	redisDB, err := strconv.Atoi(getenv("REDIS_DB", "0"))

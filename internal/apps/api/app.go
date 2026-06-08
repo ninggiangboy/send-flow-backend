@@ -29,6 +29,9 @@ import (
 	identityredis "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/redis"
 	identitytoken "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/token"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
+	ingestionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/app"
+	ingestionpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/infrastructure/postgres"
+	ingestionprovider "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/infrastructure/provider"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	senderdns "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/dns"
 	senderpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/postgres"
@@ -266,7 +269,33 @@ func Run(ctx context.Context) error {
 		Logger:        log,
 	})
 
-	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
+	ingestionRawReadRepo := ingestionpostgres.NewRawEventRepository(pgClient.ReadPool())
+	ingestionRawWriteRepo := ingestionpostgres.NewRawEventRepository(pgClient.WritePool())
+	ingestionNormReadRepo := ingestionpostgres.NewNormalizedEventRepository(pgClient.ReadPool())
+	ingestionNormWriteRepo := ingestionpostgres.NewNormalizedEventRepository(pgClient.WritePool())
+	ingestionOutboxRepo := ingestionpostgres.NewOutboxRepository(pgClient.WritePool())
+	ingestionTxManager := ingestionpostgres.NewTransactionManager(pgClient.WritePool())
+	ingestionMsgResolver := ingestionpostgres.NewDeliveryMessageResolver(pgClient.ReadPool())
+
+	ingestionFakeVerifier := &ingestionprovider.FakeVerifier{Secret: cfg.FakeWebhookSecret}
+	ingestionFakeNormalizer := &ingestionprovider.FakeNormalizer{}
+	ingestionReg := ingestionprovider.NewRegistry()
+	ingestionReg.Register("fake", ingestionFakeVerifier, ingestionFakeNormalizer)
+
+	ingestionSvc := ingestionapp.NewService(ingestionapp.Options{
+		RawEventsRead:         ingestionRawReadRepo,
+		RawEventsWrite:        ingestionRawWriteRepo,
+		NormalizedEventsRead:  ingestionNormReadRepo,
+		NormalizedEventsWrite: ingestionNormWriteRepo,
+		ProviderRegistry:      ingestionReg,
+		MessageResolver:       ingestionMsgResolver,
+		OutboxWriter:          ingestionOutboxRepo,
+		TxManager:             ingestionTxManager,
+		IDGen:                 id.NewUUIDGenerator().New,
+		Logger:                log,
+	})
+
+	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -297,7 +326,7 @@ func Run(ctx context.Context) error {
 	return server.Shutdown(shutdownCtx)
 }
 
-func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
+func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware(corsOptions{
 		AllowedOrigins: []string{frontendBaseURL},
@@ -346,7 +375,7 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 		})
 	})
 	humaAPI := humachi.New(r, openAPIConfig())
-	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc)
+	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {

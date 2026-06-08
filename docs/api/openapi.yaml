@@ -4836,7 +4836,7 @@ paths:
     post:
       tags: [Webhooks]
       operationId: ingestProviderWebhook
-      x-implementation-status: not_implemented
+      x-implementation-status: implemented
       summary: Ingest a provider webhook
       description: |
         Possible error.code values:

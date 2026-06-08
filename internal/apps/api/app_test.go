@@ -26,7 +26,7 @@ func TestHealthz(t *testing.T) {
 	})
 	metrics := observability.NewHTTPMetrics(nil)
 	logger := slog.Default()
-	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
+	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
 	rec := httptest.NewRecorder()
@@ -49,7 +49,7 @@ func TestReadyzDegraded(t *testing.T) {
 	})
 	metrics := observability.NewHTTPMetrics(nil)
 	logger := slog.Default()
-	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
+	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/readyz", nil)
 	rec := httptest.NewRecorder()
@@ -72,7 +72,7 @@ func TestEventsStream(t *testing.T) {
 	})
 	metrics := observability.NewHTTPMetrics(nil)
 	logger := slog.Default()
-	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
+	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -118,7 +118,7 @@ func TestCORSPreflightAllowsFrontendOrigin(t *testing.T) {
 	})
 	metrics := observability.NewHTTPMetrics(nil)
 	logger := slog.Default()
-	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
+	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/providers", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -152,7 +152,7 @@ func TestCORSDoesNotAllowUnknownOrigin(t *testing.T) {
 	})
 	metrics := observability.NewHTTPMetrics(nil)
 	logger := slog.Default()
-	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
+	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
 	req.Header.Set("Origin", "http://example.com")
