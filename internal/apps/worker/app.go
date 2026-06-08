@@ -19,6 +19,9 @@ import (
 	senderpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/postgres"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
 	suppressionpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/infrastructure/postgres"
+	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/unsubscribetoken"
+	trackingpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/infrastructure/postgres"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
@@ -174,6 +177,40 @@ func Run(ctx context.Context) error {
 		pgClient.WritePool(),
 	)
 	if err := registry.Register(providerEventConsumer); err != nil {
+		return err
+	}
+
+	// Wire tracking module
+	trackingLinkReadRepo := trackingpostgres.NewTrackingLinkRepository(pgReadPool)
+	trackingLinkWriteRepo := trackingpostgres.NewTrackingLinkRepository(pgWritePool)
+	trackingEventReadRepo := trackingpostgres.NewTrackingEventRepository(pgReadPool)
+	trackingEventWriteRepo := trackingpostgres.NewTrackingEventRepository(pgWritePool)
+	trackingMessageResolver := newTrackingMessageResolverAdapter(deliveryMsgReadRepo)
+	trackingSuppressor := newTrackingSuppressorAdapter(suppressionSvc)
+	trackingOutboxRepo := trackingpostgres.NewOutboxRepository(pgWritePool)
+	trackingTxManager := trackingpostgres.NewTransactionManager(pgWritePool)
+	trackingSvc := trackingapp.NewService(trackingapp.Options{
+		LinkReadRepo:        trackingLinkReadRepo,
+		LinkWriteRepo:       trackingLinkWriteRepo,
+		EventReadRepo:       trackingEventReadRepo,
+		EventWriteRepo:      trackingEventWriteRepo,
+		MessageResolver:     trackingMessageResolver,
+		RecipientSuppressor: trackingSuppressor,
+		OutboxWriter:        trackingOutboxRepo,
+		TxManager:           trackingTxManager,
+		IDGen:               id.NewUUIDGenerator().New,
+		Logger:              log,
+		TokenSigner:         unsubscribetoken.NewSigner(cfg.UnsubscribeTokenSecret),
+	})
+
+	trackingConsumer := NewTrackingProviderEventConsumer(
+		trackingSvc,
+		log,
+		kafka.Brokers(cfg.KafkaBrokers),
+		cfg.WorkerConsumerGroupPrefix+".tracking_provider_events",
+		pgClient.WritePool(),
+	)
+	if err := registry.Register(trackingConsumer); err != nil {
 		return err
 	}
 

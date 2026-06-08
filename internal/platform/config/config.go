@@ -35,20 +35,21 @@ type Config struct {
 	WorkerShutdownTimeout     time.Duration
 	WorkerConsumerGroupPrefix string
 
-	JWTIssuer            string
-	JWTAccessSecret      string
-	JWTRefreshSecret     string
-	JWTAccessTTL         time.Duration
-	JWTRefreshTTL        time.Duration
-	OAuthStateTTL        time.Duration
-	OAuthGoogleClientID  string
-	OAuthGoogleSecret    string
-	OAuthGithubClientID  string
-	OAuthGithubSecret    string
-	EmailVerificationTTL time.Duration
-	PasswordResetTTL     time.Duration
-	MFAChallengeTTL      time.Duration
-	FakeWebhookSecret    string
+	JWTIssuer              string
+	JWTAccessSecret        string
+	JWTRefreshSecret       string
+	JWTAccessTTL           time.Duration
+	JWTRefreshTTL          time.Duration
+	OAuthStateTTL          time.Duration
+	OAuthGoogleClientID    string
+	OAuthGoogleSecret      string
+	OAuthGithubClientID    string
+	OAuthGithubSecret      string
+	EmailVerificationTTL   time.Duration
+	PasswordResetTTL       time.Duration
+	MFAChallengeTTL        time.Duration
+	FakeWebhookSecret      string
+	UnsubscribeTokenSecret string
 }
 
 type ObjectStorageConfig struct {
@@ -127,20 +128,21 @@ func LoadFromEnv() (Config, error) {
 		WorkerShutdownTimeout:     parseDuration("WORKER_SHUTDOWN_TIMEOUT", 10*time.Second),
 		WorkerConsumerGroupPrefix: getenv("WORKER_CONSUMER_GROUP_PREFIX", "send-flow"),
 
-		JWTIssuer:            getenv("JWT_ISSUER", "send-flow"),
-		JWTAccessSecret:      getenv("JWT_ACCESS_SECRET", "dev-access-secret-change-me"),
-		JWTRefreshSecret:     getenv("JWT_REFRESH_SECRET", "dev-refresh-secret-change-me"),
-		JWTAccessTTL:         parseDuration("JWT_ACCESS_TTL", 15*time.Minute),
-		JWTRefreshTTL:        parseDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
-		OAuthStateTTL:        parseDuration("OAUTH_STATE_TTL", 10*time.Minute),
-		OAuthGoogleClientID:  os.Getenv("OAUTH_GOOGLE_CLIENT_ID"),
-		OAuthGoogleSecret:    os.Getenv("OAUTH_GOOGLE_CLIENT_SECRET"),
-		OAuthGithubClientID:  os.Getenv("OAUTH_GITHUB_CLIENT_ID"),
-		OAuthGithubSecret:    os.Getenv("OAUTH_GITHUB_CLIENT_SECRET"),
-		EmailVerificationTTL: parseDuration("AUTH_EMAIL_VERIFICATION_TTL", 24*time.Hour),
-		PasswordResetTTL:     parseDuration("AUTH_PASSWORD_RESET_TTL", time.Hour),
-		MFAChallengeTTL:      parseDuration("AUTH_MFA_CHALLENGE_TTL", 10*time.Minute),
-		FakeWebhookSecret:    os.Getenv("FAKE_WEBHOOK_SECRET"),
+		JWTIssuer:              getenv("JWT_ISSUER", "send-flow"),
+		JWTAccessSecret:        getenv("JWT_ACCESS_SECRET", "dev-access-secret-change-me"),
+		JWTRefreshSecret:       getenv("JWT_REFRESH_SECRET", "dev-refresh-secret-change-me"),
+		JWTAccessTTL:           parseDuration("JWT_ACCESS_TTL", 15*time.Minute),
+		JWTRefreshTTL:          parseDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
+		OAuthStateTTL:          parseDuration("OAUTH_STATE_TTL", 10*time.Minute),
+		OAuthGoogleClientID:    os.Getenv("OAUTH_GOOGLE_CLIENT_ID"),
+		OAuthGoogleSecret:      os.Getenv("OAUTH_GOOGLE_CLIENT_SECRET"),
+		OAuthGithubClientID:    os.Getenv("OAUTH_GITHUB_CLIENT_ID"),
+		OAuthGithubSecret:      os.Getenv("OAUTH_GITHUB_CLIENT_SECRET"),
+		EmailVerificationTTL:   parseDuration("AUTH_EMAIL_VERIFICATION_TTL", 24*time.Hour),
+		PasswordResetTTL:       parseDuration("AUTH_PASSWORD_RESET_TTL", time.Hour),
+		MFAChallengeTTL:        parseDuration("AUTH_MFA_CHALLENGE_TTL", 10*time.Minute),
+		FakeWebhookSecret:      os.Getenv("FAKE_WEBHOOK_SECRET"),
+		UnsubscribeTokenSecret: getenv("UNSUBSCRIBE_TOKEN_SECRET", "dev-unsubscribe-secret-change-me"),
 	}
 
 	redisDB, err := strconv.Atoi(getenv("REDIS_DB", "0"))

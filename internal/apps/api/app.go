@@ -37,6 +37,9 @@ import (
 	senderpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/postgres"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
 	suppressionpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/infrastructure/postgres"
+	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/unsubscribetoken"
+	trackingpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/infrastructure/postgres"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
@@ -282,6 +285,28 @@ func Run(ctx context.Context) error {
 	ingestionReg := ingestionprovider.NewRegistry()
 	ingestionReg.Register("fake", ingestionFakeVerifier, ingestionFakeNormalizer)
 
+	trackingLinkReadRepo := trackingpostgres.NewTrackingLinkRepository(pgClient.ReadPool())
+	trackingLinkWriteRepo := trackingpostgres.NewTrackingLinkRepository(pgClient.WritePool())
+	trackingEventReadRepo := trackingpostgres.NewTrackingEventRepository(pgClient.ReadPool())
+	trackingEventWriteRepo := trackingpostgres.NewTrackingEventRepository(pgClient.WritePool())
+	trackingMessageResolver := newTrackingMessageResolverAdapter(deliveryMsgReadRepo)
+	trackingSuppressor := newTrackingSuppressorAdapter(suppressionSvc)
+	trackingOutboxRepo := trackingpostgres.NewOutboxRepository(pgClient.WritePool())
+	trackingTxManager := trackingpostgres.NewTransactionManager(pgClient.WritePool())
+	trackingSvc := trackingapp.NewService(trackingapp.Options{
+		LinkReadRepo:        trackingLinkReadRepo,
+		LinkWriteRepo:       trackingLinkWriteRepo,
+		EventReadRepo:       trackingEventReadRepo,
+		EventWriteRepo:      trackingEventWriteRepo,
+		MessageResolver:     trackingMessageResolver,
+		RecipientSuppressor: trackingSuppressor,
+		OutboxWriter:        trackingOutboxRepo,
+		TxManager:           trackingTxManager,
+		IDGen:               id.NewUUIDGenerator().New,
+		Logger:              log,
+		TokenSigner:         unsubscribetoken.NewSigner(cfg.UnsubscribeTokenSecret),
+	})
+
 	ingestionSvc := ingestionapp.NewService(ingestionapp.Options{
 		RawEventsRead:         ingestionRawReadRepo,
 		RawEventsWrite:        ingestionRawWriteRepo,
@@ -295,7 +320,7 @@ func Run(ctx context.Context) error {
 		Logger:                log,
 	})
 
-	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
+	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -326,7 +351,7 @@ func Run(ctx context.Context) error {
 	return server.Shutdown(shutdownCtx)
 }
 
-func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
+func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware(corsOptions{
 		AllowedOrigins: []string{frontendBaseURL},
@@ -375,7 +400,7 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 		})
 	})
 	humaAPI := humachi.New(r, openAPIConfig())
-	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc)
+	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {
@@ -403,6 +428,12 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 		})
 		r.Handle("/metrics", promhttp.Handler())
 	})
+	if trackingSvc != nil {
+		tracking := newTrackingHTTP(trackingSvc)
+		r.Get("/o/{tracking_id}", tracking.serveOpenPixel)
+		r.Get("/t/{tracking_id}", tracking.serveClickRedirect)
+		r.Get("/u/{token}", tracking.serveUnsubscribe)
+	}
 	return r
 }
 

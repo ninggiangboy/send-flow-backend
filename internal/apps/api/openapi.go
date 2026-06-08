@@ -25,6 +25,7 @@ import (
 	ingestionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/app"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
+	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
 )
@@ -60,7 +61,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -115,6 +116,10 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 	if accessSvc != nil {
 		apiKeyHandler := newAPIKeyHTTP(accessSvc)
 		registerAPIKeyOperations(api, apiKeyHandler, authMiddleware)
+	}
+	if trackingSvc != nil {
+		tracking := newTrackingHTTP(trackingSvc)
+		registerTrackingOperations(api, tracking)
 	}
 	documentApplicationErrors(api.OpenAPI())
 }
@@ -252,6 +257,8 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 		return apiKeyErrorCodes()
 	case hasTag(op, "Webhooks"):
 		return webhookErrorCodes()
+	case hasTag(op, "Tracking"):
+		return trackingErrorCodes()
 	default:
 		return map[int][]string{
 			http.StatusInternalServerError: {"health.runtime_not_ready"},
@@ -2162,6 +2169,70 @@ func apiKeyErrorCodes() map[int][]string {
 		http.StatusUnprocessableEntity: {
 			"api_key.scope_invalid",
 			"api_key.config_invalid",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
+}
+
+func registerTrackingOperations(api huma.API, tracking *trackingHTTP) {
+	huma.Register(api, huma.Operation{
+		OperationID: "tracking-serve-open-pixel",
+		Method:      http.MethodGet,
+		Path:        "/o/{tracking_id}",
+		Tags:        []string{"Tracking"},
+		Summary:     "Serve open tracking pixel",
+		Errors:      documentedErrorStatuses(),
+	}, func(ctx context.Context, input *trackingOpenInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, tracking.serveOpenPixel)
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "tracking-redirect-click",
+		Method:      http.MethodGet,
+		Path:        "/t/{tracking_id}",
+		Tags:        []string{"Tracking"},
+		Summary:     "Redirect click tracking link",
+		Errors:      documentedErrorStatuses(),
+	}, func(ctx context.Context, input *trackingClickInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, tracking.serveClickRedirect)
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "tracking-unsubscribe",
+		Method:      http.MethodGet,
+		Path:        "/u/{token}",
+		Tags:        []string{"Tracking"},
+		Summary:     "Handle unsubscribe request",
+		Errors:      documentedErrorStatuses(),
+	}, func(ctx context.Context, input *trackingUnsubscribeInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, tracking.serveUnsubscribe)
+	})
+}
+
+type trackingOpenInput struct {
+	TrackingID string `path:"tracking_id" doc:"Tracking ID for the open pixel."`
+}
+
+type trackingClickInput struct {
+	TrackingID string `path:"tracking_id" doc:"Tracking ID for the click redirect."`
+}
+
+type trackingUnsubscribeInput struct {
+	Token string `path:"token" doc:"Unsubscribe token."`
+}
+
+func trackingErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"suppression.unsubscribe_token_invalid",
+		},
+		http.StatusNotFound: {
+			"tracking.invalid_tracking_id",
 		},
 		http.StatusInternalServerError: {
 			"health.runtime_not_ready",
