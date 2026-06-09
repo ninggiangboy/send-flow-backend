@@ -19,6 +19,7 @@ import (
 	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
+	auditapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audit/app"
 	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
@@ -64,7 +65,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, operationsSvc *operationsapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, operationsSvc *operationsapp.Service, settingsSvc *identityapp.Service, auditSvc *auditapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -77,6 +78,11 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 	registerHealthOperations(api, healthSvc)
 
 	var authMiddleware func(huma.Context, func(huma.Context))
+	var auditRecorder identityapp.AuditRecorder
+	if auditSvc != nil {
+		auditRecorder = newAuditRecorderAdapter(auditSvc)
+	}
+
 	if authSvc != nil {
 		auth := newAuthHTTP(authSvc, authRateLimiter, secureCookies)
 		workspace := newWorkspaceHTTP(authSvc)
@@ -85,7 +91,7 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 		registerAuthOperations(api, auth, authMiddleware)
 		registerWorkspaceOperations(api, workspace, authMiddleware)
 		if senderSvc != nil {
-			sender := newSenderHTTP(senderSvc)
+			sender := newSenderHTTP(senderSvc, auditRecorder)
 			registerSenderOperations(api, sender, authMiddleware)
 		}
 	}
@@ -117,7 +123,7 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 		registerIngestionWebhookOperations(api, ingestion)
 	}
 	if accessSvc != nil {
-		apiKeyHandler := newAPIKeyHTTP(accessSvc)
+		apiKeyHandler := newAPIKeyHTTP(accessSvc, auditRecorder)
 		registerAPIKeyOperations(api, apiKeyHandler, authMiddleware)
 	}
 	if trackingSvc != nil {
@@ -129,7 +135,7 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 		registerAnalyticsOperations(api, analytics, authMiddleware)
 	}
 	if webhooksSvc != nil {
-		webhookConfig := newWebhookHTTP(webhooksSvc)
+		webhookConfig := newWebhookHTTP(webhooksSvc, auditRecorder)
 		registerWebhookConfigOperations(api, webhookConfig, authMiddleware)
 		webhookDelivery := newWebhookDeliveryHTTP(webhooksSvc)
 		registerWebhookDeliveryOperations(api, webhookDelivery, authMiddleware)
@@ -137,6 +143,12 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 	if operationsSvc != nil {
 		operations := newOperationsHTTP(operationsSvc)
 		registerOperationsRoutes(api, operations, authMiddleware)
+	}
+	if authSvc != nil && auditSvc != nil {
+		settings := newSettingsHTTP(authSvc)
+		audit := newAuditHTTP(auditSvc)
+		registerSettingsOperations(api, settings, authMiddleware)
+		registerAuditOperations(api, audit, authMiddleware)
 	}
 	documentApplicationErrors(api.OpenAPI())
 }
@@ -256,6 +268,10 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 	switch {
 	case hasTag(op, "Auth"):
 		return authErrorCodes(op)
+	case hasTag(op, "Settings"):
+		return settingsErrorCodes()
+	case hasTag(op, "Audit"):
+		return auditErrorCodes()
 	case hasTag(op, "Workspaces"):
 		return workspaceErrorCodes()
 	case hasTag(op, "Sender Domains"):
@@ -2496,6 +2512,147 @@ func operationsErrorCodes() map[int][]string {
 		},
 		http.StatusConflict: {
 			"operations.replay_conflict",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
+}
+
+type settingsGetOutput struct {
+	Body successEnvelopeDoc[settingsDoc]
+}
+
+type settingsDoc struct {
+	Version         int64            `json:"version" example:"1" doc:"Settings version for optimistic concurrency."`
+	EmailDefaults   emailDefaultsDoc `json:"email_defaults" doc:"Email default configuration."`
+	FeatureControls map[string]any   `json:"feature_controls" doc:"Feature control toggles."`
+	UpdatedByUserID string           `json:"updated_by_user_id,omitempty" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"User ID that last updated settings."`
+	CreatedAt       time.Time        `json:"created_at" doc:"Creation timestamp."`
+	UpdatedAt       time.Time        `json:"updated_at" doc:"Update timestamp."`
+}
+
+type emailDefaultsDoc struct {
+	DefaultSenderDomainID string `json:"default_sender_domain_id,omitempty" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Default sender domain ID."`
+}
+
+type settingsUpdateInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Body        struct {
+		Version         *int64            `json:"version,omitempty" example:"1" doc:"Expected current version for optimistic concurrency."`
+		EmailDefaults   *emailDefaultsDoc `json:"email_defaults,omitempty" doc:"Email default configuration to update."`
+		FeatureControls *map[string]any   `json:"feature_controls,omitempty" doc:"Feature control toggles to update."`
+	} `required:"true" nameHint:"UpdateSettingsRequest"`
+}
+
+type auditListInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	ActorUserID string `query:"actor_user_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Filter by actor user ID."`
+	ActionType  string `query:"action_type" example:"workspace.settings.updated" doc:"Filter by action type."`
+	TargetType  string `query:"target_type" example:"workspace_settings" doc:"Filter by target type."`
+	TargetID    string `query:"target_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Filter by target ID."`
+	From        string `query:"from" example:"2024-01-01T00:00:00Z" doc:"Filter entries after this timestamp (RFC3339)."`
+	To          string `query:"to" example:"2024-12-31T23:59:59Z" doc:"Filter entries before this timestamp (RFC3339)."`
+	Limit       int    `query:"limit" example:"50" doc:"Maximum number of entries to return (1-100)."`
+	Cursor      string `query:"cursor" doc:"Pagination cursor from previous response."`
+}
+
+type auditListOutput struct {
+	Body successEnvelopeDoc[auditListResultDoc]
+}
+
+type auditListResultDoc struct {
+	Entries    []auditEntryDoc `json:"entries" doc:"Audit entries."`
+	NextCursor string          `json:"next_cursor" doc:"Pagination cursor for next page."`
+}
+
+type auditEntryDoc struct {
+	ID             string         `json:"id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Audit entry ID."`
+	ActorUserID    string         `json:"actor_user_id,omitempty" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"User ID that performed the action."`
+	ActionType     string         `json:"action_type" example:"workspace.settings.updated" doc:"Type of action performed."`
+	TargetType     string         `json:"target_type,omitempty" example:"workspace_settings" doc:"Type of target resource."`
+	TargetID       string         `json:"target_id,omitempty" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"ID of target resource."`
+	PayloadSummary map[string]any `json:"payload_summary,omitempty" doc:"Sanitized action payload summary."`
+	RequestID      string         `json:"request_id,omitempty" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Request correlation ID."`
+	OccurredAt     time.Time      `json:"occurred_at" doc:"When the action occurred."`
+}
+
+func registerSettingsOperations(api huma.API, settings *settingsHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "getSettings",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/settings",
+		Tags:        []string{"Settings"},
+		Summary:     "Get workspace settings",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*settingsGetOutput, error) {
+		_ = input
+		return delegateHTTP[settingsGetOutput](ctx, nil, settings.getSettings)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "updateSettings",
+		Method:      http.MethodPatch,
+		Path:        "/api/v1/workspaces/{workspace_id}/settings",
+		Tags:        []string{"Settings"},
+		Summary:     "Update workspace settings",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *settingsUpdateInput) (*settingsGetOutput, error) {
+		return delegateHTTP[settingsGetOutput](ctx, jsonBody(input.Body), settings.updateSettings)
+	})
+}
+
+func registerAuditOperations(api huma.API, audit *auditHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "listAuditLogs",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/audit-logs",
+		Tags:        []string{"Audit"},
+		Summary:     "List workspace audit logs",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *auditListInput) (*auditListOutput, error) {
+		_ = input
+		return delegateHTTP[auditListOutput](ctx, nil, audit.listAuditLogs)
+	})
+}
+
+func settingsErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"settings.manage_denied",
+		},
+		http.StatusNotFound: {
+			"identity.workspace_not_found",
+		},
+		http.StatusConflict: {
+			"settings.version_conflict",
+		},
+		http.StatusUnprocessableEntity: {
+			"settings.payload_invalid",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
+}
+
+func auditErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+			"audit.filter_invalid",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"audit.read_denied",
 		},
 		http.StatusInternalServerError: {
 			"health.runtime_not_ready",

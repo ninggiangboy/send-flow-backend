@@ -7,16 +7,18 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
 )
 
 type webhookConfigHTTP struct {
-	svc *webhooksapp.Service
+	svc           *webhooksapp.Service
+	auditRecorder identityapp.AuditRecorder
 }
 
-func newWebhookHTTP(svc *webhooksapp.Service) *webhookConfigHTTP {
-	return &webhookConfigHTTP{svc: svc}
+func newWebhookHTTP(svc *webhooksapp.Service, auditRecorder identityapp.AuditRecorder) *webhookConfigHTTP {
+	return &webhookConfigHTTP{svc: svc, auditRecorder: auditRecorder}
 }
 
 type createWebhookConfigRequest struct {
@@ -118,6 +120,18 @@ func (h *webhookConfigHTTP) createWebhookConfig(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID: workspaceID,
+		ActorUserID: userID,
+		ActionType:  "webhook.created",
+		TargetType:  "webhook",
+		TargetID:    result.Config.ID,
+		PayloadSummary: map[string]any{
+			"name":       result.Config.Name,
+			"target_url": result.Config.TargetURL,
+		},
+	})
+
 	writeEnvelope(w, r, http.StatusCreated, webhookConfigResponse{
 		ID:               result.Config.ID,
 		Name:             result.Config.Name,
@@ -157,6 +171,15 @@ func (h *webhookConfigHTTP) updateWebhookConfig(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID:    workspaceID,
+		ActorUserID:    userID,
+		ActionType:     "webhook.updated",
+		TargetType:     "webhook",
+		TargetID:       webhookID,
+		PayloadSummary: map[string]any{},
+	})
+
 	writeEnvelope(w, r, http.StatusOK, webhookConfigResponse{
 		ID:               result.Config.ID,
 		Name:             result.Config.Name,
@@ -183,6 +206,15 @@ func (h *webhookConfigHTTP) disableWebhookConfig(w http.ResponseWriter, r *http.
 		return
 	}
 
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID:    workspaceID,
+		ActorUserID:    userID,
+		ActionType:     "webhook.disabled",
+		TargetType:     "webhook",
+		TargetID:       webhookID,
+		PayloadSummary: map[string]any{},
+	})
+
 	writeEnvelope(w, r, http.StatusOK, map[string]bool{"disabled": true})
 }
 
@@ -201,11 +233,32 @@ func (h *webhookConfigHTTP) rotateWebhookSecret(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID:    workspaceID,
+		ActorUserID:    userID,
+		ActionType:     "webhook.secret_rotated",
+		TargetType:     "webhook",
+		TargetID:       webhookID,
+		PayloadSummary: map[string]any{},
+	})
+
 	writeEnvelope(w, r, http.StatusOK, map[string]any{
 		"secret":  result.RawSecret,
 		"hint":    result.Hint,
 		"version": result.Version,
 	})
+}
+
+func (h *webhookConfigHTTP) recordAudit(r *http.Request, input identityapp.RecordAuditInput) {
+	if h.auditRecorder == nil {
+		return
+	}
+	reqCtx := r.Context().Value(ctxRequestContext).(*requestLogContext)
+	input.RequestID = reqCtx.RequestID
+	input.OccurredAt = time.Now().UTC()
+	if err := h.auditRecorder.Record(r.Context(), input); err != nil {
+		// Best-effort audit; log error but don't fail the request
+	}
 }
 
 type webhookDeliveryHTTP struct {

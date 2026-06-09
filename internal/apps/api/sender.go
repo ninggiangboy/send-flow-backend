@@ -6,16 +6,18 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
 )
 
 type senderHTTP struct {
-	svc *senderapp.Service
+	svc           *senderapp.Service
+	auditRecorder identityapp.AuditRecorder
 }
 
-func newSenderHTTP(svc *senderapp.Service) *senderHTTP {
-	return &senderHTTP{svc: svc}
+func newSenderHTTP(svc *senderapp.Service, auditRecorder identityapp.AuditRecorder) *senderHTTP {
+	return &senderHTTP{svc: svc, auditRecorder: auditRecorder}
 }
 
 func (h *senderHTTP) listSenderDomains(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +54,19 @@ func (h *senderHTTP) createSenderDomain(w http.ResponseWriter, r *http.Request) 
 		writeSenderErr(w, r, err)
 		return
 	}
+
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID: workspaceID,
+		ActorUserID: userID,
+		ActionType:  "sender_domain.created",
+		TargetType:  "sender_domain",
+		TargetID:    result.Domain.ID,
+		PayloadSummary: map[string]any{
+			"domain":   result.Domain.Domain,
+			"provider": string(result.Domain.Provider),
+		},
+	})
+
 	writeEnvelope(w, r, http.StatusCreated, senderDomainResponse(*result))
 }
 
@@ -78,6 +93,16 @@ func (h *senderHTTP) verifySenderDomain(w http.ResponseWriter, r *http.Request) 
 		writeSenderErr(w, r, err)
 		return
 	}
+
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID:    workspaceID,
+		ActorUserID:    userID,
+		ActionType:     "sender_domain.verification_refreshed",
+		TargetType:     "sender_domain",
+		TargetID:       domainID,
+		PayloadSummary: map[string]any{},
+	})
+
 	writeEnvelope(w, r, http.StatusOK, senderDomainResponse(*result))
 }
 
@@ -91,7 +116,29 @@ func (h *senderHTTP) disableSenderDomain(w http.ResponseWriter, r *http.Request)
 		writeSenderErr(w, r, err)
 		return
 	}
+
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID:    workspaceID,
+		ActorUserID:    userID,
+		ActionType:     "sender_domain.disabled",
+		TargetType:     "sender_domain",
+		TargetID:       domainID,
+		PayloadSummary: map[string]any{},
+	})
+
 	writeEnvelope(w, r, http.StatusOK, senderDomainResponse(*result))
+}
+
+func (h *senderHTTP) recordAudit(r *http.Request, input identityapp.RecordAuditInput) {
+	if h.auditRecorder == nil {
+		return
+	}
+	reqCtx := r.Context().Value(ctxRequestContext).(*requestLogContext)
+	input.RequestID = reqCtx.RequestID
+	input.OccurredAt = time.Now().UTC()
+	if err := h.auditRecorder.Record(r.Context(), input); err != nil {
+		// Best-effort audit; log error but don't fail the request
+	}
 }
 
 func writeSenderErr(w http.ResponseWriter, r *http.Request, err error) {

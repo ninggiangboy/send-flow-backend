@@ -8,14 +8,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
 	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
+	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 )
 
 type apiKeyHTTP struct {
-	svc *accessapp.Service
+	svc           *accessapp.Service
+	auditRecorder identityapp.AuditRecorder
 }
 
-func newAPIKeyHTTP(svc *accessapp.Service) *apiKeyHTTP {
-	return &apiKeyHTTP{svc: svc}
+func newAPIKeyHTTP(svc *accessapp.Service, auditRecorder identityapp.AuditRecorder) *apiKeyHTTP {
+	return &apiKeyHTTP{svc: svc, auditRecorder: auditRecorder}
 }
 
 func (h *apiKeyHTTP) listAPIKeys(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +72,19 @@ func (h *apiKeyHTTP) createAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID: workspaceID,
+		ActorUserID: userID,
+		ActionType:  "api_key.created",
+		TargetType:  "api_key",
+		TargetID:    result.ID,
+		PayloadSummary: map[string]any{
+			"name":       result.Name,
+			"scopes":     result.Scopes,
+			"expires_at": result.ExpiresAt,
+		},
+	})
+
 	writeEnvelope(w, r, http.StatusCreated, map[string]any{
 		"id":         result.ID,
 		"name":       result.Name,
@@ -111,6 +126,19 @@ func (h *apiKeyHTTP) updateAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	actionType := "api_key.updated"
+	if req.Rotate {
+		actionType = "api_key.rotated"
+	}
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID:    workspaceID,
+		ActorUserID:    userID,
+		ActionType:     actionType,
+		TargetType:     "api_key",
+		TargetID:       apiKeyID,
+		PayloadSummary: map[string]any{},
+	})
+
 	resp := map[string]any{
 		"id":         result.ID,
 		"name":       result.Name,
@@ -142,7 +170,28 @@ func (h *apiKeyHTTP) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID:    workspaceID,
+		ActorUserID:    userID,
+		ActionType:     "api_key.revoked",
+		TargetType:     "api_key",
+		TargetID:       apiKeyID,
+		PayloadSummary: map[string]any{},
+	})
+
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *apiKeyHTTP) recordAudit(r *http.Request, input identityapp.RecordAuditInput) {
+	if h.auditRecorder == nil {
+		return
+	}
+	reqCtx := r.Context().Value(ctxRequestContext).(*requestLogContext)
+	input.RequestID = reqCtx.RequestID
+	input.OccurredAt = time.Now().UTC()
+	if err := h.auditRecorder.Record(r.Context(), input); err != nil {
+		// Best-effort audit; log error but don't fail the request
+	}
 }
 
 func writeAPIKeyErr(w http.ResponseWriter, r *http.Request, err error) {

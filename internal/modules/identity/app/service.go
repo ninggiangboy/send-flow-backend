@@ -41,6 +41,21 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
 )
 
+type AuditRecorder interface {
+	Record(ctx context.Context, input RecordAuditInput) error
+}
+
+type RecordAuditInput struct {
+	WorkspaceID    string
+	ActorUserID    string
+	ActionType     string
+	TargetType     string
+	TargetID       string
+	PayloadSummary map[string]any
+	RequestID      string
+	OccurredAt     time.Time
+}
+
 type Options struct {
 	UsersRead        ports.UserReadRepository
 	UsersWrite       ports.UserWriteRepository
@@ -70,14 +85,21 @@ type Options struct {
 	MembershipsWrite ports.MembershipWriteRepository
 	InvitationsRead  ports.InvitationReadRepository
 	InvitationsWrite ports.InvitationWriteRepository
+	SettingsRead     ports.WorkspaceSettingsReadRepository
+	SettingsWrite    ports.WorkspaceSettingsWriteRepository
+	AuditRecorder    AuditRecorder
 	Logger           *slog.Logger
 	UnitOfWork       ports.UnitOfWork
 }
 
 type Service struct {
-	commands CommandBus
-	queries  QueryBus
-	deps     usecase.Deps
+	commands      CommandBus
+	queries       QueryBus
+	deps          usecase.Deps
+	settingsRead  ports.WorkspaceSettingsReadRepository
+	settingsWrite ports.WorkspaceSettingsWriteRepository
+	auditRecorder AuditRecorder
+	logger        *slog.Logger
 }
 
 type SessionContext = usecase.SessionContext
@@ -156,9 +178,13 @@ func NewService(opts Options) *Service {
 	listWSInvitesH := listworkspaceinvitations.New(deps)
 
 	return &Service{
-		commands: newCommandBus(signupH, loginH, oauthStartH, oauthExchangeH, revokeH, refreshH, reqVerifyH, verifyH, forgotH, resetH, mfaLoginH, mfaSetupH, mfaEnableH, mfaDisableH, mfaRegenH, createWSH, inviteMemberH, acceptInviteH, removeMemberH, updateRoleH),
-		queries:  newQueryBus(listProviderH, getMeH, listSessionsH, authnH, listWSH, getWSH, listWSMembersH, getWSAccessH, listWSInvitesH),
-		deps:     deps,
+		commands:      newCommandBus(signupH, loginH, oauthStartH, oauthExchangeH, revokeH, refreshH, reqVerifyH, verifyH, forgotH, resetH, mfaLoginH, mfaSetupH, mfaEnableH, mfaDisableH, mfaRegenH, createWSH, inviteMemberH, acceptInviteH, removeMemberH, updateRoleH),
+		queries:       newQueryBus(listProviderH, getMeH, listSessionsH, authnH, listWSH, getWSH, listWSMembersH, getWSAccessH, listWSInvitesH),
+		deps:          deps,
+		settingsRead:  opts.SettingsRead,
+		settingsWrite: opts.SettingsWrite,
+		auditRecorder: opts.AuditRecorder,
+		logger:        opts.Logger.With("usecase", "identity"),
 	}
 }
 

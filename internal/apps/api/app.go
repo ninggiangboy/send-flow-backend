@@ -19,6 +19,8 @@ import (
 	analyticspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/postgres"
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
 	audiencepostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/postgres"
+	auditapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audit/app"
+	auditpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/audit/infrastructure/postgres"
 	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
 	campaignpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/infrastructure/postgres"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
@@ -113,6 +115,12 @@ func Run(ctx context.Context) error {
 		}
 	}
 
+	settingsRead := identitypostgres.NewSettingsReadRepository(pgClient.ReadPool())
+	settingsWrite := identitypostgres.NewSettingsWriteRepository(pgClient.WritePool())
+
+	auditReadRepo := auditpostgres.NewReadRepository(pgClient.ReadPool())
+	auditWriteRepo := auditpostgres.NewWriteRepository(pgClient.WritePool())
+
 	authSvc := identityapp.NewService(identityapp.Options{
 		UsersRead:        identitypostgres.NewUserReadRepository(pgClient.ReadPool()),
 		UsersWrite:       identitypostgres.NewUserWriteRepository(pgClient.WritePool()),
@@ -142,9 +150,21 @@ func Run(ctx context.Context) error {
 		MembershipsWrite: identitypostgres.NewMembershipWriteRepository(pgClient.WritePool()),
 		InvitationsRead:  identitypostgres.NewInvitationReadRepository(pgClient.ReadPool()),
 		InvitationsWrite: identitypostgres.NewInvitationWriteRepository(pgClient.WritePool()),
+		SettingsRead:     settingsRead,
+		SettingsWrite:    settingsWrite,
 		Logger:           log,
 		UnitOfWork:       identitypostgres.NewUnitOfWork(pgClient.WritePool()),
 	})
+
+	auditSvc := auditapp.NewService(auditapp.Options{
+		EntriesRead:  auditReadRepo,
+		EntriesWrite: auditWriteRepo,
+		PermChecker:  newPermissionCheckerAdapter(authSvc),
+		IDGen:        id.NewUUIDGenerator().New,
+		Logger:       log,
+	})
+
+	authSvc.SetAuditRecorder(newAuditRecorderAdapter(auditSvc))
 
 	healthSvc := platformhealth.NewService(platformhealth.Options{
 		AppName:           cfg.AppName,
@@ -383,7 +403,7 @@ func Run(ctx context.Context) error {
 		Logger:         log,
 	})
 
-	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc, operationsSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
+	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc, operationsSvc, authSvc, auditSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -414,7 +434,7 @@ func Run(ctx context.Context) error {
 	return server.Shutdown(shutdownCtx)
 }
 
-func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, operationsSvc *operationsapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
+func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, operationsSvc *operationsapp.Service, settingsSvc *identityapp.Service, auditSvc *auditapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware(corsOptions{
 		AllowedOrigins: []string{frontendBaseURL},
@@ -463,7 +483,7 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 		})
 	})
 	humaAPI := humachi.New(r, openAPIConfig())
-	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc, operationsSvc)
+	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc, operationsSvc, settingsSvc, auditSvc)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {
