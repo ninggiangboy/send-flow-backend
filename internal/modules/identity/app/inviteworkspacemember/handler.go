@@ -9,6 +9,8 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
 
@@ -72,6 +74,11 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 	if email == "" {
 		return nil, domain.ErrInvitationPayloadInvalid
 	}
+	inviter, err := h.deps.UsersRead.FindByID(ctx, cmd.InviterID)
+	if err != nil {
+		h.log.Error("failed to lookup inviter", "inviter_id", cmd.InviterID, "error", err)
+		return nil, err
+	}
 	invitedUser, err := h.deps.UsersRead.FindByEmail(ctx, email)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		h.log.Error("failed to lookup invited user", "workspace_id", cmd.WorkspaceID, "error", err)
@@ -95,11 +102,56 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 	invitation := domain.NewInvitation(id.Must(id.NewUUIDGenerator()), cmd.WorkspaceID, email, token, legacyRole, expiresAt, cmd.Now)
 	invitation.Role = legacyRole
 	invitation.RoleIDs = roleIDs
-	persistInvitation := func(ctx context.Context) error {
-		if err := h.deps.InvitationsWrite.Create(ctx, invitation); err != nil {
+	persistInvitation := func(txCtx context.Context) error {
+		if err := h.deps.InvitationsWrite.Create(txCtx, invitation); err != nil {
 			return err
 		}
-		return h.deps.RolesWrite.ReplaceInvitationRoles(ctx, invitation.ID, roleIDs, cmd.Now)
+		if err := h.deps.RolesWrite.ReplaceInvitationRoles(txCtx, invitation.ID, roleIDs, cmd.Now); err != nil {
+			return err
+		}
+		if h.deps.OutboxWriter == nil {
+			return nil
+		}
+		payload := map[string]string{
+			"workspace_id":     cmd.WorkspaceID,
+			"email":            email,
+			"role":             string(legacyRole),
+			"invited_by":       cmd.InviterID,
+			"invited_by_email": inviter.Email,
+			"at":               cmd.Now.Format(time.RFC3339),
+		}
+		eventID := id.Must(id.NewUUIDGenerator())
+		envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
+			EventID:       eventID,
+			EventType:     "identity.workspace.member_invited.v1",
+			EventVersion:  1,
+			AggregateType: "invitation",
+			AggregateID:   invitation.ID,
+			WorkspaceID:   cmd.WorkspaceID,
+			OccurredAt:    cmd.Now,
+		}, payload)
+		if err != nil {
+			h.log.Error("failed to create member invited envelope", "error", err)
+			return err
+		}
+		envBytes, err := events.Marshal(envelope)
+		if err != nil {
+			h.log.Error("failed to marshal member invited event", "error", err)
+			return err
+		}
+		if err := h.deps.OutboxWriter.Save(txCtx, ports.OutboxEvent{
+			ID:            eventID,
+			AggregateType: "invitation",
+			AggregateID:   invitation.ID,
+			EventType:     "identity.workspace.member_invited.v1",
+			Payload:       envBytes,
+			WorkspaceID:   cmd.WorkspaceID,
+			OccurredAt:    cmd.Now,
+		}); err != nil {
+			h.log.Error("failed to save member invited outbox event", "error", err)
+			return err
+		}
+		return nil
 	}
 	if h.deps.UnitOfWork != nil {
 		if err := h.deps.UnitOfWork.WithinTx(ctx, persistInvitation); err != nil {
@@ -113,5 +165,6 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 		}
 	}
 	h.log.Info("workspace invitation created", "workspace_id", cmd.WorkspaceID, "inviter_id", cmd.InviterID)
+
 	return &Result{Invitation: &invitation}, nil
 }

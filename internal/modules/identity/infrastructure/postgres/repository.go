@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
 
 type DBTX interface {
@@ -676,4 +678,27 @@ func placeholders(start, count int) string {
 		out += fmt.Sprintf("$%d", start+i)
 	}
 	return out
+}
+
+type OutboxRepository struct {
+	db DBTX
+}
+
+func NewIdentityOutboxRepository(db DBTX) *OutboxRepository {
+	return &OutboxRepository{db: db}
+}
+
+func (r *OutboxRepository) Save(ctx context.Context, event ports.OutboxEvent) error {
+	db := r.getDB(ctx)
+	headersJSON, err := json.Marshal(event.Headers)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(ctx,
+		`INSERT INTO outbox_events (id, aggregate_type, aggregate_id, event_type, payload, headers, workspace_id, occurred_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		event.ID, event.AggregateType, event.AggregateID, event.EventType,
+		event.Payload, headersJSON, event.WorkspaceID, event.OccurredAt,
+	)
+	return err
 }

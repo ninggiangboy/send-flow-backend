@@ -90,6 +90,7 @@ type Options struct {
 	AuditRecorder    AuditRecorder
 	Logger           *slog.Logger
 	UnitOfWork       ports.UnitOfWork
+	OutboxWriter     ports.OutboxWriter
 }
 
 type Service struct {
@@ -145,6 +146,7 @@ func NewService(opts Options) *Service {
 		InvitationsWrite: opts.InvitationsWrite,
 		Logger:           opts.Logger,
 		UnitOfWork:       opts.UnitOfWork,
+		OutboxWriter:     opts.OutboxWriter,
 	}
 	newSession := usecase.BuildNewSession(deps)
 	signupH := signup.New(deps, newSession)

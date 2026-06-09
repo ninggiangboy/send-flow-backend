@@ -42,6 +42,7 @@ type Deps struct {
 	InvitationsWrite ports.InvitationWriteRepository
 	Logger           *slog.Logger
 	UnitOfWork       ports.UnitOfWork
+	OutboxWriter     ports.OutboxWriter
 }
 
 type SessionContext struct {

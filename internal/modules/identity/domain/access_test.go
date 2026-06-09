@@ -33,6 +33,7 @@ func TestNewPermissionsInRegistry(t *testing.T) {
 		PermissionAPIKeyManage,
 		PermissionAnalyticsRead,
 		PermissionAuditRead,
+		PermissionNotificationRead,
 	}
 
 	for _, name := range expected {
@@ -66,6 +67,7 @@ func TestAllPermissionsMaskIncludesNewPermissions(t *testing.T) {
 		PermissionAPIKeyManage,
 		PermissionAnalyticsRead,
 		PermissionAuditRead,
+		PermissionNotificationRead,
 	}
 
 	names := PermissionNamesFromMask(mask)
@@ -98,6 +100,7 @@ func TestPermissionsMaskFromNamesAcceptsNewPermissions(t *testing.T) {
 		PermissionAPIKeyManage,
 		PermissionAnalyticsRead,
 		PermissionAuditRead,
+		PermissionNotificationRead,
 	}
 
 	for _, name := range newPerms {
@@ -150,6 +153,7 @@ func TestOwnerMaskIncludesNewPermissions(t *testing.T) {
 		PermissionAPIKeyManage,
 		PermissionAnalyticsRead,
 		PermissionAuditRead,
+		PermissionNotificationRead,
 	}
 
 	for _, name := range newPerms {

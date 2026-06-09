@@ -54,6 +54,7 @@ const (
 	PermissionOperationsDLQRead      = "operations.dlq.read"
 	PermissionOperationsReplayManage = "operations.replay.manage"
 	PermissionAuditRead              = "audit.read"
+	PermissionNotificationRead       = "notification.read"
 )
 
 var permissionRegistry = []Permission{
@@ -83,6 +84,7 @@ var permissionRegistry = []Permission{
 	{Bit: 1 << 23, Name: PermissionOperationsDLQRead},
 	{Bit: 1 << 24, Name: PermissionOperationsReplayManage},
 	{Bit: 1 << 25, Name: PermissionAuditRead},
+	{Bit: 1 << 26, Name: PermissionNotificationRead},
 }
 
 type Role struct {

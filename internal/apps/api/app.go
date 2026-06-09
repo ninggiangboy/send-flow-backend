@@ -36,6 +36,9 @@ import (
 	ingestionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/app"
 	ingestionpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/infrastructure/postgres"
 	ingestionprovider "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/infrastructure/provider"
+	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
+	notificationemail "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/email"
+	notificationpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/postgres"
 	operationsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app"
 	operationspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/operations/infrastructure/postgres"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
@@ -154,6 +157,7 @@ func Run(ctx context.Context) error {
 		SettingsWrite:    settingsWrite,
 		Logger:           log,
 		UnitOfWork:       identitypostgres.NewUnitOfWork(pgClient.WritePool()),
+		OutboxWriter:     identitypostgres.NewIdentityOutboxRepository(pgClient.WritePool()),
 	})
 
 	auditSvc := auditapp.NewService(auditapp.Options{
@@ -403,7 +407,28 @@ func Run(ctx context.Context) error {
 		Logger:         log,
 	})
 
-	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc, operationsSvc, authSvc, auditSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
+	notificationMsgRead := notificationpostgres.NewMessageReadRepository(pgClient.ReadPool())
+	notificationMsgWrite := notificationpostgres.NewMessageWriteRepository(pgClient.WritePool())
+	notificationAttemptRead := notificationpostgres.NewAttemptReadRepository(pgClient.ReadPool())
+	notificationAttemptWrite := notificationpostgres.NewAttemptWriteRepository(pgClient.WritePool())
+	notificationOutbox := notificationpostgres.NewOutboxRepository(pgClient.WritePool())
+	notificationTxManager := notificationpostgres.NewTransactionManager(pgClient.WritePool())
+	notificationEmailAdapter := notificationemail.NewEmailAdapter(emailSender)
+
+	notificationSvc := notificationapp.NewService(notificationapp.Options{
+		MessagesRead:  notificationMsgRead,
+		MessagesWrite: notificationMsgWrite,
+		AttemptsRead:  notificationAttemptRead,
+		AttemptsWrite: notificationAttemptWrite,
+		OutboxWriter:  notificationOutbox,
+		TxManager:     notificationTxManager,
+		AccessChecker: newWorkspaceAccessAdapter(authSvc),
+		EmailSender:   notificationEmailAdapter,
+		IDGen:         id.NewUUIDGenerator().New,
+		Logger:        log,
+	})
+
+	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc, operationsSvc, notificationSvc, authSvc, auditSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -434,7 +459,7 @@ func Run(ctx context.Context) error {
 	return server.Shutdown(shutdownCtx)
 }
 
-func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, operationsSvc *operationsapp.Service, settingsSvc *identityapp.Service, auditSvc *auditapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
+func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, operationsSvc *operationsapp.Service, notificationSvc *notificationapp.Service, settingsSvc *identityapp.Service, auditSvc *auditapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware(corsOptions{
 		AllowedOrigins: []string{frontendBaseURL},
@@ -483,7 +508,7 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 		})
 	})
 	humaAPI := humachi.New(r, openAPIConfig())
-	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc, operationsSvc, settingsSvc, auditSvc)
+	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, notificationSvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc, operationsSvc, settingsSvc, auditSvc)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {

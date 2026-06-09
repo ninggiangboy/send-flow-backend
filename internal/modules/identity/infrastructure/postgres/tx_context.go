@@ -128,3 +128,10 @@ func (r *InvitationReadRepository) getDB(ctx context.Context) DBTX {
 	}
 	return r.db
 }
+
+func (r *OutboxRepository) getDB(ctx context.Context) DBTX {
+	if tx, ok := TxFromCtx(ctx); ok {
+		return tx
+	}
+	return r.db
+}

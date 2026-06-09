@@ -25,6 +25,7 @@ import (
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	ingestionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/app"
+	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
 	operationsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
@@ -65,7 +66,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, operationsSvc *operationsapp.Service, settingsSvc *identityapp.Service, auditSvc *auditapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, notificationSvc *notificationapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, operationsSvc *operationsapp.Service, settingsSvc *identityapp.Service, auditSvc *auditapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -139,6 +140,10 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 		registerWebhookConfigOperations(api, webhookConfig, authMiddleware)
 		webhookDelivery := newWebhookDeliveryHTTP(webhooksSvc)
 		registerWebhookDeliveryOperations(api, webhookDelivery, authMiddleware)
+	}
+	if notificationSvc != nil {
+		notification := newNotificationHTTP(notificationSvc)
+		registerNotificationOperations(api, notification, authMiddleware)
 	}
 	if operationsSvc != nil {
 		operations := newOperationsHTTP(operationsSvc)
@@ -294,6 +299,8 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 		return trackingErrorCodes()
 	case hasTag(op, "Analytics"):
 		return analyticsErrorCodes()
+	case hasTag(op, "Notifications"):
+		return notificationErrorCodes()
 	case hasTag(op, "Operations"):
 		return operationsErrorCodes()
 	default:
@@ -2751,4 +2758,146 @@ func registerOperationsRoutes(api huma.API, ops *operationsHTTP, authMiddleware 
 	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
 		return delegateHTTP[emptyOutput](ctx, nil, ops.getReplayJob)
 	})
+}
+
+type notificationListInput struct {
+	WorkspaceID string `path:"workspace_id" doc:"Workspace ID."`
+	Type        string `query:"type" doc:"Filter by notification type."`
+	Status      string `query:"status" doc:"Filter by notification status."`
+	From        string `query:"from" doc:"Filter entries after this timestamp (RFC3339)."`
+	To          string `query:"to" doc:"Filter entries before this timestamp (RFC3339)."`
+	Limit       int    `query:"limit" doc:"Maximum number of entries to return (1-100)."`
+	Cursor      string `query:"cursor" doc:"Pagination cursor from previous response."`
+}
+
+type notificationListOutput struct {
+	Body successEnvelopeDoc[notificationListResultDoc]
+}
+
+type notificationListResultDoc struct {
+	Notifications []notificationDoc `json:"notifications" doc:"List of notification messages."`
+	NextCursor    string            `json:"next_cursor" doc:"Pagination cursor for next page."`
+}
+
+type notificationDoc struct {
+	ID              string `json:"id" doc:"Notification message ID."`
+	WorkspaceID     string `json:"workspace_id,omitempty" doc:"Workspace ID."`
+	Type            string `json:"type" doc:"Notification type."`
+	Status          string `json:"status" doc:"Current status."`
+	RecipientEmail  string `json:"recipient_email" doc:"Recipient email address."`
+	RecipientUserID string `json:"recipient_user_id,omitempty" doc:"Recipient user ID."`
+	Subject         string `json:"subject" doc:"Email subject."`
+	MaxAttempts     int    `json:"max_attempts" doc:"Maximum send attempts."`
+	AttemptCount    int    `json:"attempt_count" doc:"Current attempt count."`
+	LastAttemptAt   string `json:"last_attempt_at,omitempty" doc:"Last attempt timestamp."`
+	CreatedAt       string `json:"created_at" doc:"Creation timestamp."`
+	UpdatedAt       string `json:"updated_at" doc:"Update timestamp."`
+}
+
+type notificationDetailDoc struct {
+	Notification notificationDetailResultDoc `json:"notification" doc:"Notification message with attempts."`
+}
+
+type notificationDetailResultDoc struct {
+	ID              string       `json:"id" doc:"Notification message ID."`
+	WorkspaceID     string       `json:"workspace_id,omitempty" doc:"Workspace ID."`
+	Type            string       `json:"type" doc:"Notification type."`
+	Status          string       `json:"status" doc:"Current status."`
+	RecipientEmail  string       `json:"recipient_email" doc:"Recipient email address."`
+	RecipientUserID string       `json:"recipient_user_id,omitempty" doc:"Recipient user ID."`
+	Subject         string       `json:"subject" doc:"Email subject."`
+	MaxAttempts     int          `json:"max_attempts" doc:"Maximum send attempts."`
+	AttemptCount    int          `json:"attempt_count" doc:"Current attempt count."`
+	LastAttemptAt   string       `json:"last_attempt_at,omitempty" doc:"Last attempt timestamp."`
+	CreatedAt       string       `json:"created_at" doc:"Creation timestamp."`
+	UpdatedAt       string       `json:"updated_at" doc:"Update timestamp."`
+	Attempts        []attemptDoc `json:"attempts" doc:"Send attempts."`
+}
+
+type attemptDoc struct {
+	ID                    string `json:"id" doc:"Attempt ID."`
+	NotificationMessageID string `json:"notification_message_id" doc:"Parent notification message ID."`
+	AttemptNumber         int    `json:"attempt_number" doc:"Sequential attempt number."`
+	Status                string `json:"status" doc:"Attempt status."`
+	Provider              string `json:"provider" doc:"Email provider used."`
+	ProviderMessageID     string `json:"provider_message_id,omitempty" doc:"Provider message ID."`
+	ErrorMessage          string `json:"error_message,omitempty" doc:"Error message on failure."`
+	AttemptedAt           string `json:"attempted_at" doc:"Attempt timestamp."`
+}
+
+type notificationPathInput struct {
+	WorkspaceID    string `path:"workspace_id" doc:"Workspace ID."`
+	NotificationID string `path:"notification_id" doc:"Notification message ID."`
+}
+
+type notificationAlertInput struct {
+	WorkspaceID string `path:"workspace_id" doc:"Workspace ID."`
+	Body        struct {
+		RecipientEmail string `json:"recipient_email" required:"true" doc:"Recipient email address."`
+		Subject        string `json:"subject" required:"true" doc:"Email subject."`
+		Body           string `json:"body" required:"true" doc:"Alert body content."`
+	}
+}
+
+type notificationAlertOutput struct {
+	Body successEnvelopeDoc[notificationDetailDoc]
+}
+
+func registerNotificationOperations(api huma.API, notification *notificationHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "listNotifications",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/notifications",
+		Tags:        []string{"Notifications"},
+		Summary:     "List workspace notification messages",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *notificationListInput) (*notificationListOutput, error) {
+		_ = input
+		return delegateHTTP[notificationListOutput](ctx, nil, notification.listNotifications)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "getNotificationStatus",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/notifications/{notification_id}",
+		Tags:        []string{"Notifications"},
+		Summary:     "Get notification message with attempts",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *notificationPathInput) (*notificationDetailDoc, error) {
+		_ = input
+		return delegateHTTP[notificationDetailDoc](ctx, nil, notification.getNotificationStatus)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "sendSystemAlert",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/notifications/alert",
+		Tags:          []string{"Notifications"},
+		Summary:       "Send a system alert notification",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *notificationAlertInput) (*notificationAlertOutput, error) {
+		return delegateHTTP[notificationAlertOutput](ctx, jsonBody(input.Body), notification.sendSystemAlert)
+	})
+}
+
+func notificationErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+			"notification.filter_invalid",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"notification.read_denied",
+		},
+		http.StatusNotFound: {
+			"notification.not_found",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
 }

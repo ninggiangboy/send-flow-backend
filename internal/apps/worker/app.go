@@ -17,6 +17,9 @@ import (
 	deliverycampaign "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/campaign"
 	deliverypostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/postgres"
 	deliveryports "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
+	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
+	notificationemail "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/email"
+	notificationpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/postgres"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	senderpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/postgres"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
@@ -126,6 +129,12 @@ func Run(ctx context.Context) error {
 		Logger:       log,
 	})
 
+	// Create platform email sender (shared across modules)
+	emailSender, err := platformemail.NewSender(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
 	// Create delivery-facing adapters
 	deliverySuppressionAdapter := newSuppressionAdapter(suppressionSvc)
 	deliveryContentAdapter := newContentRendererAdapter(contentSvc)
@@ -135,11 +144,7 @@ func Run(ctx context.Context) error {
 	case "fake":
 		deliveryProvider = NewFakeEmailProvider()
 	default:
-		sender, err := platformemail.NewSender(ctx, cfg)
-		if err != nil {
-			return err
-		}
-		deliveryProvider = newDeliveryEmailProvider(cfg.EmailProvider, sender)
+		deliveryProvider = newDeliveryEmailProvider(cfg.EmailProvider, emailSender)
 	}
 
 	deliverySvc := deliveryapp.NewService(deliveryapp.Options{
@@ -254,6 +259,38 @@ func Run(ctx context.Context) error {
 		pgClient.WritePool(),
 	)
 	if err := registry.Register(analyticsConsumer); err != nil {
+		return err
+	}
+
+	notificationMsgRead := notificationpostgres.NewMessageReadRepository(pgReadPool)
+	notificationMsgWrite := notificationpostgres.NewMessageWriteRepository(pgWritePool)
+	notificationAttemptRead := notificationpostgres.NewAttemptReadRepository(pgReadPool)
+	notificationAttemptWrite := notificationpostgres.NewAttemptWriteRepository(pgWritePool)
+	notificationOutbox := notificationpostgres.NewOutboxRepository(pgWritePool)
+	notificationTxManager := notificationpostgres.NewTransactionManager(pgWritePool)
+	notificationEmailAdapter := notificationemail.NewEmailAdapter(emailSender)
+
+	notificationSvc := notificationapp.NewService(notificationapp.Options{
+		MessagesRead:  notificationMsgRead,
+		MessagesWrite: notificationMsgWrite,
+		AttemptsRead:  notificationAttemptRead,
+		AttemptsWrite: notificationAttemptWrite,
+		OutboxWriter:  notificationOutbox,
+		TxManager:     notificationTxManager,
+		EmailSender:   notificationEmailAdapter,
+		IDGen:         id.NewUUIDGenerator().New,
+		Logger:        log,
+	})
+
+	notificationConsumer := NewNotificationEventConsumer(
+		notificationSvc,
+		log,
+		kafka.Brokers(cfg.KafkaBrokers),
+		cfg.WorkerConsumerGroupPrefix+".notification_identity_events",
+		pgClient.WritePool(),
+		cfg.FrontendBaseURL,
+	)
+	if err := registry.Register(notificationConsumer); err != nil {
 		return err
 	}
 
