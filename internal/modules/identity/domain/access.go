@@ -47,6 +47,9 @@ const (
 	PermissionCampaignSend           = "campaign.send"
 	PermissionAPIKeyManage           = "api_key.manage"
 	PermissionAnalyticsRead          = "analytics.read"
+	PermissionWebhookManage          = "webhook.manage"
+	PermissionWebhookDeliveryRead    = "webhook.delivery.read"
+	PermissionWebhookDeliveryRetry   = "webhook.delivery.retry"
 )
 
 var permissionRegistry = []Permission{
@@ -69,6 +72,9 @@ var permissionRegistry = []Permission{
 	{Bit: 1 << 16, Name: PermissionCampaignSend},
 	{Bit: 1 << 17, Name: PermissionAPIKeyManage},
 	{Bit: 1 << 18, Name: PermissionAnalyticsRead},
+	{Bit: 1 << 19, Name: PermissionWebhookManage},
+	{Bit: 1 << 20, Name: PermissionWebhookDeliveryRead},
+	{Bit: 1 << 21, Name: PermissionWebhookDeliveryRetry},
 }
 
 type Role struct {

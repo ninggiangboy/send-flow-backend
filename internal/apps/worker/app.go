@@ -24,6 +24,9 @@ import (
 	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/unsubscribetoken"
 	trackingpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/infrastructure/postgres"
+	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
+	webhookshttp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/infrastructure/http"
+	webhookspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/infrastructure/postgres"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
@@ -251,6 +254,41 @@ func Run(ctx context.Context) error {
 		pgClient.WritePool(),
 	)
 	if err := registry.Register(analyticsConsumer); err != nil {
+		return err
+	}
+
+	webhooksConfigRead := webhookspostgres.NewConfigReadRepository(pgReadPool)
+	webhooksConfigWrite := webhookspostgres.NewConfigWriteRepository(pgWritePool)
+	webhooksDeliveryRead := webhookspostgres.NewDeliveryReadRepository(pgReadPool)
+	webhooksDeliveryWrite := webhookspostgres.NewDeliveryWriteRepository(pgWritePool)
+	webhooksAttemptRead := webhookspostgres.NewAttemptReadRepository(pgReadPool)
+	webhooksAttemptWrite := webhookspostgres.NewAttemptWriteRepository(pgWritePool)
+	webhooksTxManager := webhookspostgres.NewTransactionManager(pgWritePool)
+	webhooksOutbox := webhookspostgres.NewOutboxRepository(pgWritePool)
+	webhooksDeliverer := webhookshttp.NewDeliverer()
+
+	webhooksSvc := webhooksapp.NewService(webhooksapp.Options{
+		ConfigRead:    webhooksConfigRead,
+		ConfigWrite:   webhooksConfigWrite,
+		DeliveryRead:  webhooksDeliveryRead,
+		DeliveryWrite: webhooksDeliveryWrite,
+		AttemptRead:   webhooksAttemptRead,
+		AttemptWrite:  webhooksAttemptWrite,
+		TxManager:     webhooksTxManager,
+		OutboxWriter:  webhooksOutbox,
+		Deliverer:     webhooksDeliverer,
+		IDGen:         id.NewUUIDGenerator().New,
+		Logger:        log,
+	})
+
+	webhookConsumer := NewWebhookEventConsumer(
+		webhooksSvc,
+		log,
+		kafka.Brokers(cfg.KafkaBrokers),
+		cfg.WorkerConsumerGroupPrefix+".webhooks_deliver_events",
+		pgClient.WritePool(),
+	)
+	if err := registry.Register(webhookConsumer); err != nil {
 		return err
 	}
 

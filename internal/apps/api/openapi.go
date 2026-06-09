@@ -27,6 +27,7 @@ import (
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
 	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
+	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
 )
@@ -62,7 +63,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -125,6 +126,12 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 	if analyticsSvc != nil {
 		analytics := newAnalyticsHTTP(analyticsSvc)
 		registerAnalyticsOperations(api, analytics, authMiddleware)
+	}
+	if webhooksSvc != nil {
+		webhookConfig := newWebhookHTTP(webhooksSvc)
+		registerWebhookConfigOperations(api, webhookConfig, authMiddleware)
+		webhookDelivery := newWebhookDeliveryHTTP(webhooksSvc)
+		registerWebhookDeliveryOperations(api, webhookDelivery, authMiddleware)
 	}
 	documentApplicationErrors(api.OpenAPI())
 }
@@ -2133,19 +2140,164 @@ type providerWebhookInput struct {
 	Provider string `path:"provider" example:"fake" doc:"Provider identifier."`
 }
 
+type webhookConfigPathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	WebhookID   string `path:"webhook_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Webhook config ID."`
+}
+
+type webhookConfigListOutput struct {
+	Body successEnvelopeDoc[[]webhookConfigListItem]
+}
+
+type webhookConfigOutput struct {
+	Body successEnvelopeDoc[webhookConfigResponse]
+}
+
+type webhookDeliveryPathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	DeliveryID  string `path:"delivery_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Webhook delivery ID."`
+}
+
+type webhookDeliveryListOutput struct {
+	Body successEnvelopeDoc[[]deliveryListItem]
+}
+
+type webhookDeliveryDetailOutput struct {
+	Body successEnvelopeDoc[deliveryDetailDoc]
+}
+
+func registerWebhookConfigOperations(api huma.API, handler *webhookConfigHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-webhook-configs",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/webhooks",
+		Tags:        []string{"Webhooks"},
+		Summary:     "List webhook configs",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*webhookConfigListOutput, error) {
+		_ = input
+		return delegateHTTP[webhookConfigListOutput](ctx, nil, handler.listWebhookConfigs)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "create-webhook-config",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/webhooks",
+		Tags:          []string{"Webhooks"},
+		Summary:       "Create webhook config",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*webhookConfigOutput, error) {
+		_ = input
+		return delegateHTTP[webhookConfigOutput](ctx, nil, handler.createWebhookConfig)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "update-webhook-config",
+		Method:      http.MethodPatch,
+		Path:        "/api/v1/workspaces/{workspace_id}/webhooks/{webhook_id}",
+		Tags:        []string{"Webhooks"},
+		Summary:     "Update webhook config",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *webhookConfigPathInput) (*webhookConfigOutput, error) {
+		_ = input
+		return delegateHTTP[webhookConfigOutput](ctx, nil, handler.updateWebhookConfig)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "disable-webhook-config",
+		Method:      http.MethodDelete,
+		Path:        "/api/v1/workspaces/{workspace_id}/webhooks/{webhook_id}",
+		Tags:        []string{"Webhooks"},
+		Summary:     "Disable webhook config",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *webhookConfigPathInput) (*boolOutput, error) {
+		_ = input
+		return delegateHTTP[boolOutput](ctx, nil, handler.disableWebhookConfig)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "rotate-webhook-secret",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/workspaces/{workspace_id}/webhooks/{webhook_id}/rotate-secret",
+		Tags:        []string{"Webhooks"},
+		Summary:     "Rotate webhook signing secret",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *webhookConfigPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, handler.rotateWebhookSecret)
+	})
+}
+
+func registerWebhookDeliveryOperations(api huma.API, handler *webhookDeliveryHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-webhook-deliveries",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/webhook-deliveries",
+		Tags:        []string{"Webhooks"},
+		Summary:     "List webhook deliveries",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*webhookDeliveryListOutput, error) {
+		_ = input
+		return delegateHTTP[webhookDeliveryListOutput](ctx, nil, handler.listWebhookDeliveries)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-webhook-delivery",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/webhook-deliveries/{delivery_id}",
+		Tags:        []string{"Webhooks"},
+		Summary:     "Get webhook delivery detail",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *webhookDeliveryPathInput) (*webhookDeliveryDetailOutput, error) {
+		_ = input
+		return delegateHTTP[webhookDeliveryDetailOutput](ctx, nil, handler.getWebhookDelivery)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "retry-webhook-delivery",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/workspaces/{workspace_id}/webhook-deliveries/{delivery_id}/retry",
+		Tags:        []string{"Webhooks"},
+		Summary:     "Retry a failed webhook delivery",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *webhookDeliveryPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, handler.retryWebhookDelivery)
+	})
+}
+
 func webhookErrorCodes() map[int][]string {
 	return map[int][]string{
 		http.StatusBadRequest: {
+			"auth.invalid_request_body",
 			"webhook.payload_invalid",
 		},
 		http.StatusUnauthorized: {
+			"auth.invalid_token",
 			"webhook.invalid_signature",
+		},
+		http.StatusForbidden: {
+			"webhook.manage_denied",
+			"webhook.delivery_read_denied",
+			"webhook.delivery_retry_denied",
 		},
 		http.StatusNotFound: {
 			"webhook.provider_not_supported",
+			"webhook.config_not_found",
+			"webhook.delivery_not_found",
 		},
 		http.StatusConflict: {
 			"webhook.duplicate_event_conflict",
+			"webhook.config_name_conflict",
+			"webhook.rotate_conflict",
+			"webhook.delivery_retry_conflict",
+			"webhook.config_disabled",
+		},
+		http.StatusUnprocessableEntity: {
+			"webhook.target_url_invalid",
+			"webhook.subscription_invalid",
+			"webhook.config_invalid",
 		},
 		http.StatusServiceUnavailable: {
 			"webhook.ingest_temporarily_unavailable",

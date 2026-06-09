@@ -14,6 +14,7 @@ import (
 	identitydomain "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	senderdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
 	suppressiondomain "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/domain"
+	webhooksdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
 )
 
 type moduleErrFunc func() error
@@ -73,6 +74,12 @@ func mapPermissionErr(permission string, workspaceDenied bool) error {
 			return analyticsdomain.ErrAnalyticsReadDenied
 		case permission == "api_key.manage":
 			return accessdomain.ErrAPIKeyManageDenied
+		case permission == "webhook.manage":
+			return webhooksdomain.ErrManageDenied
+		case permission == "webhook.delivery.read":
+			return webhooksdomain.ErrDeliveryReadDenied
+		case permission == "webhook.delivery.retry":
+			return webhooksdomain.ErrDeliveryRetryDenied
 		default:
 			return senderdomain.ErrManageDenied
 		}
@@ -108,6 +115,12 @@ func mapPermissionErr(permission string, workspaceDenied bool) error {
 		return deliverydomain.ErrReadDenied
 	case permission == "api_key.manage":
 		return accessdomain.ErrAPIKeyManageDenied
+	case permission == "webhook.manage":
+		return webhooksdomain.ErrManageDenied
+	case permission == "webhook.delivery.read":
+		return webhooksdomain.ErrDeliveryReadDenied
+	case permission == "webhook.delivery.retry":
+		return webhooksdomain.ErrDeliveryRetryDenied
 	default:
 		return senderdomain.ErrManageDenied
 	}

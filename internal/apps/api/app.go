@@ -42,6 +42,9 @@ import (
 	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/unsubscribetoken"
 	trackingpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/infrastructure/postgres"
+	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
+	webhookshttp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/infrastructure/http"
+	webhookspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/infrastructure/postgres"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
@@ -338,7 +341,32 @@ func Run(ctx context.Context) error {
 		Logger:         log,
 	})
 
-	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
+	webhooksConfigRead := webhookspostgres.NewConfigReadRepository(pgClient.ReadPool())
+	webhooksConfigWrite := webhookspostgres.NewConfigWriteRepository(pgClient.WritePool())
+	webhooksDeliveryRead := webhookspostgres.NewDeliveryReadRepository(pgClient.ReadPool())
+	webhooksDeliveryWrite := webhookspostgres.NewDeliveryWriteRepository(pgClient.WritePool())
+	webhooksAttemptRead := webhookspostgres.NewAttemptReadRepository(pgClient.ReadPool())
+	webhooksAttemptWrite := webhookspostgres.NewAttemptWriteRepository(pgClient.WritePool())
+	webhooksTxManager := webhookspostgres.NewTransactionManager(pgClient.WritePool())
+	webhooksOutbox := webhookspostgres.NewOutboxRepository(pgClient.WritePool())
+	webhooksDeliverer := webhookshttp.NewDeliverer()
+
+	webhooksSvc := webhooksapp.NewService(webhooksapp.Options{
+		ConfigRead:    webhooksConfigRead,
+		ConfigWrite:   webhooksConfigWrite,
+		DeliveryRead:  webhooksDeliveryRead,
+		DeliveryWrite: webhooksDeliveryWrite,
+		AttemptRead:   webhooksAttemptRead,
+		AttemptWrite:  webhooksAttemptWrite,
+		TxManager:     webhooksTxManager,
+		OutboxWriter:  webhooksOutbox,
+		Deliverer:     webhooksDeliverer,
+		AccessChecker: newWorkspaceAccessAdapter(authSvc),
+		IDGen:         id.NewUUIDGenerator().New,
+		Logger:        log,
+	})
+
+	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -369,7 +397,7 @@ func Run(ctx context.Context) error {
 	return server.Shutdown(shutdownCtx)
 }
 
-func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
+func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware(corsOptions{
 		AllowedOrigins: []string{frontendBaseURL},
@@ -418,7 +446,7 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 		})
 	})
 	humaAPI := humachi.New(r, openAPIConfig())
-	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc)
+	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {

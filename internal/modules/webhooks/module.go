@@ -25,6 +25,9 @@ var Queries = []string{
 
 var Events = []string{
 	"webhooks.config.created.v1",
+	"webhooks.config.updated.v1",
+	"webhooks.config.disabled.v1",
+	"webhooks.secret.rotated.v1",
 	"webhooks.delivery.succeeded.v1",
 	"webhooks.delivery.failed.v1",
 }

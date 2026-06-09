@@ -32,7 +32,7 @@ func setupFullAPIRouter(t *testing.T) http.Handler {
 	suppressionSvc := suppressionapp.NewService(suppressionapp.Options{
 		Logger: slog.Default(),
 	})
-	return newRouter(healthSvc, nil, nil, audienceSvc, contentSvc, suppressionSvc, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", observability.NewHTTPMetrics(nil), slog.Default())
+	return newRouter(healthSvc, nil, nil, audienceSvc, contentSvc, suppressionSvc, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", observability.NewHTTPMetrics(nil), slog.Default())
 }
 
 func TestOpenAPIDocumentsContactRoutes(t *testing.T) {
