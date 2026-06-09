@@ -54,6 +54,7 @@ type DeadLetterRepository struct {
 
 type DeadLetterRecord struct {
 	ID           string
+	WorkspaceID  string
 	Source       string
 	EventID      string
 	Payload      any
@@ -69,15 +70,50 @@ func NewDeadLetterRepositoryWithExecer(db execer) *DeadLetterRepository {
 	return &DeadLetterRepository{db: db}
 }
 
+func workspaceIDFromEventPayload(payload []byte) string {
+	var env struct {
+		WorkspaceID string `json:"workspace_id"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return ""
+	}
+	return env.WorkspaceID
+}
+
+func workspaceIDFromMessage(headers map[string]string, payload []byte) string {
+	if ws := headers["workspace_id"]; ws != "" {
+		return ws
+	}
+	return workspaceIDFromEventPayload(payload)
+}
+
+func marshalPayload(v any) ([]byte, error) {
+	switch p := v.(type) {
+	case []byte:
+		if json.Valid(p) {
+			return p, nil
+		}
+		return json.Marshal(v)
+	case json.RawMessage:
+		if json.Valid(p) {
+			return []byte(p), nil
+		}
+		return json.Marshal(v)
+	default:
+		return json.Marshal(v)
+	}
+}
+
 func (r *DeadLetterRepository) Save(ctx context.Context, record DeadLetterRecord) error {
-	payload, err := json.Marshal(record.Payload)
+	payload, err := marshalPayload(record.Payload)
 	if err != nil {
 		return err
 	}
 	_, err = r.db.Exec(
 		ctx,
-		"INSERT INTO dead_letter_records (id, source, event_id, payload, error_message, retryable) VALUES ($1, $2, NULLIF($3, '')::uuid, $4::jsonb, $5, $6)",
+		"INSERT INTO dead_letter_records (id, workspace_id, source, event_id, payload, error_message, retryable) VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, '')::uuid, $5::jsonb, $6, $7)",
 		record.ID,
+		record.WorkspaceID,
 		record.Source,
 		record.EventID,
 		payload,

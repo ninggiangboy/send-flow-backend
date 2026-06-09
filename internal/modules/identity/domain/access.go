@@ -50,6 +50,9 @@ const (
 	PermissionWebhookManage          = "webhook.manage"
 	PermissionWebhookDeliveryRead    = "webhook.delivery.read"
 	PermissionWebhookDeliveryRetry   = "webhook.delivery.retry"
+	PermissionOperationsQueueRead    = "operations.queue.read"
+	PermissionOperationsDLQRead      = "operations.dlq.read"
+	PermissionOperationsReplayManage = "operations.replay.manage"
 )
 
 var permissionRegistry = []Permission{
@@ -75,6 +78,9 @@ var permissionRegistry = []Permission{
 	{Bit: 1 << 19, Name: PermissionWebhookManage},
 	{Bit: 1 << 20, Name: PermissionWebhookDeliveryRead},
 	{Bit: 1 << 21, Name: PermissionWebhookDeliveryRetry},
+	{Bit: 1 << 22, Name: PermissionOperationsQueueRead},
+	{Bit: 1 << 23, Name: PermissionOperationsDLQRead},
+	{Bit: 1 << 24, Name: PermissionOperationsReplayManage},
 }
 
 type Role struct {

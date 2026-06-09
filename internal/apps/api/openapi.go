@@ -24,6 +24,7 @@ import (
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	ingestionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/app"
+	operationsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
 	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
@@ -63,7 +64,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, operationsSvc *operationsapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -132,6 +133,10 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 		registerWebhookConfigOperations(api, webhookConfig, authMiddleware)
 		webhookDelivery := newWebhookDeliveryHTTP(webhooksSvc)
 		registerWebhookDeliveryOperations(api, webhookDelivery, authMiddleware)
+	}
+	if operationsSvc != nil {
+		operations := newOperationsHTTP(operationsSvc)
+		registerOperationsRoutes(api, operations, authMiddleware)
 	}
 	documentApplicationErrors(api.OpenAPI())
 }
@@ -273,6 +278,8 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 		return trackingErrorCodes()
 	case hasTag(op, "Analytics"):
 		return analyticsErrorCodes()
+	case hasTag(op, "Operations"):
+		return operationsErrorCodes()
 	default:
 		return map[int][]string{
 			http.StatusInternalServerError: {"health.runtime_not_ready"},
@@ -2465,4 +2472,126 @@ func analyticsErrorCodes() map[int][]string {
 			"health.runtime_not_ready",
 		},
 	}
+}
+
+func operationsErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+			"operations.filter_invalid",
+			"operations.replay_target_invalid",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"operations.queue_read_denied",
+			"operations.dlq_read_denied",
+			"operations.replay_manage_denied",
+		},
+		http.StatusNotFound: {
+			"operations.outbox_record_not_found",
+			"operations.dead_letter_record_not_found",
+			"operations.replay_job_not_found",
+		},
+		http.StatusConflict: {
+			"operations.replay_conflict",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
+}
+
+func registerOperationsRoutes(api huma.API, ops *operationsHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	tag := []string{"Operations"}
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-outbox-summary",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/operations/outbox/summary",
+		Tags:        tag,
+		Summary:     "Get outbox summary for a workspace",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, nil, ops.getOutboxSummary)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-outbox-events",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/operations/outbox",
+		Tags:        tag,
+		Summary:     "List outbox events for a workspace",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, nil, ops.listOutboxRecords)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-outbox-event",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/operations/outbox/{outbox_id}",
+		Tags:        tag,
+		Summary:     "Get outbox event details",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, nil, ops.getOutboxRecord)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-dead-letter-records",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/operations/dead-letter-records",
+		Tags:        tag,
+		Summary:     "List dead letter records for a workspace",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, nil, ops.listDeadLetterRecords)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-dead-letter-record",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/operations/dead-letter-records/{dead_letter_id}",
+		Tags:        tag,
+		Summary:     "Get dead letter record details",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, nil, ops.getDeadLetterRecord)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID:   "create-replay-job",
+		Method:        http.MethodPost,
+		Path:          "/api/v1/workspaces/{workspace_id}/operations/replay-jobs",
+		Tags:          tag,
+		Summary:       "Create a replay job",
+		DefaultStatus: http.StatusCreated,
+		Errors:        documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, nil, ops.createReplayJob)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-replay-jobs",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/operations/replay-jobs",
+		Tags:        tag,
+		Summary:     "List replay jobs for a workspace",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, nil, ops.listReplayJobs)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-replay-job",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/operations/replay-jobs/{replay_job_id}",
+		Tags:        tag,
+		Summary:     "Get replay job details",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, nil, ops.getReplayJob)
+	})
 }

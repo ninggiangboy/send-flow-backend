@@ -91,7 +91,7 @@ func TestDeadLetterRepository_Save(t *testing.T) {
 	if len(execer.args) != 1 {
 		t.Fatalf("expected one insert, got %d", len(execer.args))
 	}
-	if retryable, ok := execer.args[0][5].(bool); !ok || !retryable {
+	if retryable, ok := execer.args[0][6].(bool); !ok || !retryable {
 		t.Fatalf("expected retryable flag in args, got %#v", execer.args[0])
 	}
 }
@@ -110,7 +110,7 @@ func TestDeadLetterRepository_SaveNonRetryable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if retryable, ok := execer.args[0][5].(bool); !ok || retryable {
+	if retryable, ok := execer.args[0][6].(bool); !ok || retryable {
 		t.Fatalf("expected non-retryable flag in args, got %#v", execer.args[0])
 	}
 }

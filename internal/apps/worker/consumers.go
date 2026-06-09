@@ -100,6 +100,7 @@ func (c *CampaignScheduledConsumer) Run(ctx context.Context) error {
 				if c.deadLetter != nil {
 					if dlErr := c.deadLetter.Save(ctx, DeadLetterRecord{
 						ID:           mustNewID(c.idGen),
+						WorkspaceID:  workspaceIDFromMessage(msg.Headers, msg.Value),
 						Source:       c.name,
 						EventID:      eventID,
 						Payload:      msg.Value,

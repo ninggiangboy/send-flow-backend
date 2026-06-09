@@ -12,6 +12,7 @@ import (
 	deliverydomain "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	identitydomain "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	operationsdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/operations/domain"
 	senderdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
 	suppressiondomain "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/domain"
 	webhooksdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
@@ -80,6 +81,12 @@ func mapPermissionErr(permission string, workspaceDenied bool) error {
 			return webhooksdomain.ErrDeliveryReadDenied
 		case permission == "webhook.delivery.retry":
 			return webhooksdomain.ErrDeliveryRetryDenied
+		case permission == "operations.queue.read":
+			return operationsdomain.ErrQueueReadDenied
+		case permission == "operations.dlq.read":
+			return operationsdomain.ErrDLQReadDenied
+		case permission == "operations.replay.manage":
+			return operationsdomain.ErrReplayManageDenied
 		default:
 			return senderdomain.ErrManageDenied
 		}
@@ -121,6 +128,12 @@ func mapPermissionErr(permission string, workspaceDenied bool) error {
 		return webhooksdomain.ErrDeliveryReadDenied
 	case permission == "webhook.delivery.retry":
 		return webhooksdomain.ErrDeliveryRetryDenied
+	case permission == "operations.queue.read":
+		return operationsdomain.ErrQueueReadDenied
+	case permission == "operations.dlq.read":
+		return operationsdomain.ErrDLQReadDenied
+	case permission == "operations.replay.manage":
+		return operationsdomain.ErrReplayManageDenied
 	default:
 		return senderdomain.ErrManageDenied
 	}
