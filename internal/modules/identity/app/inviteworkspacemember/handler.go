@@ -11,7 +11,6 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
 
 type Command struct {
@@ -95,11 +94,20 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 			return nil, err
 		}
 	}
-	token := id.Must(id.NewUUIDGenerator())
+	token, err := h.deps.IDGen.New()
+	if err != nil {
+		h.log.Error("failed to generate invitation token", "workspace_id", cmd.WorkspaceID, "error", err)
+		return nil, err
+	}
 	expiresAt := cmd.Now.Add(7 * 24 * time.Hour)
 	legacyRole := domain.LegacyMembershipRole(assignedRoles)
 	roleIDs := domain.RoleIDs(assignedRoles)
-	invitation := domain.NewInvitation(id.Must(id.NewUUIDGenerator()), cmd.WorkspaceID, email, token, legacyRole, expiresAt, cmd.Now)
+	invitationID, err := h.deps.IDGen.New()
+	if err != nil {
+		h.log.Error("failed to generate invitation ID", "workspace_id", cmd.WorkspaceID, "error", err)
+		return nil, err
+	}
+	invitation := domain.NewInvitation(invitationID, cmd.WorkspaceID, email, token, legacyRole, expiresAt, cmd.Now)
 	invitation.Role = legacyRole
 	invitation.RoleIDs = roleIDs
 	persistInvitation := func(txCtx context.Context) error {
@@ -120,7 +128,11 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 			"invited_by_email": inviter.Email,
 			"at":               cmd.Now.Format(time.RFC3339),
 		}
-		eventID := id.Must(id.NewUUIDGenerator())
+		eventID, err := h.deps.IDGen.New()
+		if err != nil {
+			h.log.Error("failed to generate event ID", "error", err)
+			return err
+		}
 		envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
 			EventID:       eventID,
 			EventType:     "identity.workspace.member_invited.v1",

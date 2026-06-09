@@ -10,9 +10,10 @@ import (
 )
 
 type HandleCampaignScheduledInput struct {
-	EventID    string
-	RawPayload []byte
-	Now        time.Time
+	EventID   string
+	EventType string
+	Payload   []byte
+	Now       time.Time
 }
 
 type NonRetryableError struct {
@@ -32,7 +33,7 @@ func (s *Service) HandleCampaignScheduled(ctx context.Context, input HandleCampa
 		return &NonRetryableError{Err: domain.ErrPayloadInvalid}
 	}
 
-	payload, err := contracts.ParseCampaignScheduledPayload(input.RawPayload)
+	payload, err := contracts.ParseCampaignScheduledPayload(input.EventType, input.Payload)
 	if err != nil {
 		return &NonRetryableError{Err: err}
 	}

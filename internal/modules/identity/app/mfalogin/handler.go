@@ -8,7 +8,6 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
 )
 
 type Handler struct {
@@ -51,7 +50,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 			h.log.Error("failed to list recovery codes", "user_id", user.ID, "error", err)
 			return nil, err
 		}
-		rawHash := security.HashToken(cmd.RecoveryCode)
+		rawHash := h.deps.TokenHasher.HashToken(cmd.RecoveryCode)
 		for _, code := range codes {
 			if code.ConsumedAt == nil && code.CodeHash == rawHash {
 				if err := h.deps.TOTP.ConsumeRecoveryCode(ctx, code.ID, cmd.Now); err != nil {
@@ -66,7 +65,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 		return nil, domain.ErrMFAInvalidCode
 	}
 	secret, err := h.deps.TOTP.FindSecretByUser(ctx, user.ID)
-	if err != nil || !security.VerifyTOTPCode(secret.Secret, cmd.Code, cmd.Now) {
+	if err != nil || !h.deps.TOTPVerifier.VerifyTOTPCode(secret.Secret, cmd.Code, cmd.Now) {
 		h.log.Warn("invalid MFA TOTP code", "user_id", user.ID)
 		return nil, domain.ErrMFAInvalidCode
 	}

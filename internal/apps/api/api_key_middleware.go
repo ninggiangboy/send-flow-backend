@@ -8,6 +8,7 @@ import (
 
 	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
 	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/httputil"
 )
 
 const (
@@ -28,7 +29,7 @@ func newAPIKeyAuthMiddleware(svc *accessapp.Service) *apiKeyAuthMiddleware {
 func (m *apiKeyAuthMiddleware) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
-		token, ok := accessdomain.ExtractBearerToken(authHeader)
+		token, ok := httputil.ExtractBearerToken(authHeader)
 		if !ok {
 			writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "missing or malformed bearer token", nil)
 			return

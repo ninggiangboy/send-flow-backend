@@ -8,7 +8,6 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
 
 type Handler struct {
@@ -39,7 +38,11 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.OAuthStart
 		h.log.Warn("disabled OAuth provider requested", "provider", cmd.Provider)
 		return nil, domain.ErrProviderDisabled
 	}
-	state := id.Must(id.NewUUIDGenerator())
+	state, err := h.deps.IDGen.New()
+	if err != nil {
+		h.log.Error("failed to generate OAuth state", "provider", cmd.Provider, "error", err)
+		return nil, err
+	}
 	if err := h.deps.OAuthState.Save(ctx, state, ports.OAuthState{Provider: cmd.Provider, RedirectURI: cmd.RedirectURI, Intent: cmd.Intent, CodeVerifier: cmd.CodeVerifier, CreatedAt: cmd.Now}, h.deps.OAuthStateTTL); err != nil {
 		h.log.Error("failed to save OAuth state", "provider", cmd.Provider, "error", err)
 		return nil, err

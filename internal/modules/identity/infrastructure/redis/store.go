@@ -2,17 +2,19 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	goredis "github.com/redis/go-redis/v9"
+
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
-	platformredis "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
-	redispkg "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
 )
 
-type OAuthStateStore struct{ client *platformredis.Client }
+type OAuthStateStore struct{ client *redis.Client }
 
-func NewOAuthStateStore(client *platformredis.Client) *OAuthStateStore {
+func NewOAuthStateStore(client *redis.Client) *OAuthStateStore {
 	return &OAuthStateStore{client: client}
 }
 
@@ -30,9 +32,9 @@ func (s *OAuthStateStore) GetAndDelete(ctx context.Context, state string) (*port
 	return &v, nil
 }
 
-type RefreshStore struct{ client *platformredis.Client }
+type RefreshStore struct{ client *redis.Client }
 
-func NewRefreshStore(client *platformredis.Client) *RefreshStore {
+func NewRefreshStore(client *redis.Client) *RefreshStore {
 	return &RefreshStore{client: client}
 }
 
@@ -43,8 +45,8 @@ func (s *RefreshStore) Save(ctx context.Context, refreshJTI, sessionID string, t
 func (s *RefreshStore) Find(ctx context.Context, refreshJTI string) (string, error) {
 	value, err := s.client.Raw().Get(ctx, fmt.Sprintf("identity:refresh:%s", refreshJTI)).Result()
 	if err != nil {
-		if err.Error() == "redis: nil" {
-			return "", redispkg.ErrCacheMiss
+		if errors.Is(err, goredis.Nil) {
+			return "", redis.ErrCacheMiss
 		}
 		return "", err
 	}

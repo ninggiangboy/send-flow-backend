@@ -1,12 +1,12 @@
 package contracts
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 )
 
 func TestParseValidCampaignScheduledPayload(t *testing.T) {
@@ -22,23 +22,12 @@ func TestParseValidCampaignScheduledPayload(t *testing.T) {
 		PlannedRecipients: 1000,
 	}
 
-	envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-		EventID:       uuid.NewString(),
-		EventType:     EventCampaignScheduledV1,
-		AggregateType: "campaign",
-		AggregateID:   payload.CampaignID,
-		WorkspaceID:   payload.WorkspaceID,
-	}, payload)
+	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	data, err := events.Marshal(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := ParseCampaignScheduledPayload(data)
+	result, err := ParseCampaignScheduledPayload(EventCampaignScheduledV1, data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,23 +64,12 @@ func TestParseWrongEventType(t *testing.T) {
 		WorkspaceID: uuid.NewString(),
 	}
 
-	envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-		EventID:       uuid.NewString(),
-		EventType:     "some.other.event",
-		AggregateType: "campaign",
-		AggregateID:   payload.CampaignID,
-		WorkspaceID:   payload.WorkspaceID,
-	}, payload)
+	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	data, err := events.Marshal(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = ParseCampaignScheduledPayload(data)
+	_, err = ParseCampaignScheduledPayload("some.other.event", data)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -105,23 +83,12 @@ func TestParseMissingCampaignID(t *testing.T) {
 		WorkspaceID: uuid.NewString(),
 	}
 
-	envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-		EventID:       uuid.NewString(),
-		EventType:     EventCampaignScheduledV1,
-		AggregateType: "campaign",
-		AggregateID:   uuid.NewString(),
-		WorkspaceID:   payload.WorkspaceID,
-	}, payload)
+	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	data, err := events.Marshal(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = ParseCampaignScheduledPayload(data)
+	_, err = ParseCampaignScheduledPayload(EventCampaignScheduledV1, data)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -135,23 +102,12 @@ func TestParseMissingWorkspaceID(t *testing.T) {
 		CampaignID: uuid.NewString(),
 	}
 
-	envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-		EventID:       uuid.NewString(),
-		EventType:     EventCampaignScheduledV1,
-		AggregateType: "campaign",
-		AggregateID:   payload.CampaignID,
-		WorkspaceID:   payload.WorkspaceID,
-	}, payload)
+	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	data, err := events.Marshal(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = ParseCampaignScheduledPayload(data)
+	_, err = ParseCampaignScheduledPayload(EventCampaignScheduledV1, data)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -171,23 +127,12 @@ func TestParseInvalidScheduledAt(t *testing.T) {
 		ScheduledAt:       "not-a-timestamp",
 	}
 
-	envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-		EventID:       uuid.NewString(),
-		EventType:     EventCampaignScheduledV1,
-		AggregateType: "campaign",
-		AggregateID:   payload.CampaignID,
-		WorkspaceID:   payload.WorkspaceID,
-	}, payload)
+	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	data, err := events.Marshal(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = ParseCampaignScheduledPayload(data)
+	_, err = ParseCampaignScheduledPayload(EventCampaignScheduledV1, data)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

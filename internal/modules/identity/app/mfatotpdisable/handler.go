@@ -7,7 +7,6 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
 )
 
 type Handler struct {
@@ -38,7 +37,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 	}
 	if !authorized && cmd.Code != "" {
 		secret, err := h.deps.TOTP.FindSecretByUser(ctx, cmd.UserID)
-		if err == nil && security.VerifyTOTPCode(secret.Secret, cmd.Code, cmd.Now) {
+		if err == nil && h.deps.TOTPVerifier.VerifyTOTPCode(secret.Secret, cmd.Code, cmd.Now) {
 			authorized = true
 		}
 	}

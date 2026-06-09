@@ -8,7 +8,6 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
 )
 
 type Handler struct {
@@ -28,7 +27,7 @@ func New(deps usecase.Deps) *Handler {
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) error {
-	if err := security.ValidatePasswordPolicy(cmd.NewPassword); err != nil {
+	if err := h.deps.PasswordValidator.Validate(cmd.NewPassword); err != nil {
 		return domain.ErrPasswordPolicy
 	}
 	record, err := usecase.ConsumeAuthToken(ctx, h.deps, cmd.Token, domain.AuthTokenPurposePasswordReset, cmd.Now)

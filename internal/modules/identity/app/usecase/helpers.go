@@ -8,9 +8,6 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/email"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
 )
 
 func CreateAuthToken(ctx context.Context, deps Deps, userID, purpose string, ttl time.Duration, now time.Time) (string, error) {
@@ -20,15 +17,19 @@ func CreateAuthToken(ctx context.Context, deps Deps, userID, purpose string, ttl
 	if err := deps.AuthTokens.DeleteByUserAndPurpose(ctx, userID, purpose); err != nil {
 		return "", err
 	}
-	raw, err := security.RandomToken(32)
+	raw, err := deps.TokenGen.RandomToken(32)
+	if err != nil {
+		return "", err
+	}
+	id, err := deps.IDGen.New()
 	if err != nil {
 		return "", err
 	}
 	token := domain.AuthToken{
-		ID:        id.Must(id.NewUUIDGenerator()),
+		ID:        id,
 		UserID:    userID,
 		Purpose:   purpose,
-		TokenHash: security.HashToken(raw),
+		TokenHash: deps.TokenHasher.HashToken(raw),
 		ExpiresAt: now.Add(ttl),
 		CreatedAt: now,
 	}
@@ -42,7 +43,7 @@ func ConsumeAuthToken(ctx context.Context, deps Deps, raw, purpose string, now t
 	if deps.AuthTokens == nil || strings.TrimSpace(raw) == "" {
 		return nil, domain.ErrUnauthorized
 	}
-	token, err := deps.AuthTokens.FindByHash(ctx, purpose, security.HashToken(raw))
+	token, err := deps.AuthTokens.FindByHash(ctx, purpose, deps.TokenHasher.HashToken(raw))
 	if err != nil {
 		return nil, err
 	}
@@ -74,12 +75,7 @@ func SendBasicEmail(ctx context.Context, deps Deps, to, subject, body string) er
 	if deps.MailSender == nil {
 		return nil
 	}
-	return deps.MailSender.Send(ctx, email.Message{
-		To:      []string{to},
-		Subject: subject,
-		Text:    body,
-		HTML:    body,
-	})
+	return deps.MailSender.Send(ctx, []string{to}, subject, body, body)
 }
 
 func VerificationEmailBody(link string) string {

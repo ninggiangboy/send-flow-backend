@@ -5,12 +5,15 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
 
 func BuildNewSession(deps Deps) NewSession {
 	return func(ctx context.Context, in NewSessionInput) (*SessionContext, error) {
-		sessionID := id.Must(id.NewUUIDGenerator())
+		sessionID, err := deps.IDGen.New()
+		if err != nil {
+			deps.Logger.Error("failed to generate session ID", "usecase", "session", "error", err)
+			return nil, err
+		}
 		tokens, accessJTI, refreshJTI, err := deps.Tokens.Issue(in.User.ID, sessionID, in.Now)
 		if err != nil {
 			deps.Logger.Error("failed to issue tokens", "usecase", "session", "user_id", in.User.ID, "error", err)

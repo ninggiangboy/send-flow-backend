@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -9,7 +10,6 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 )
 
 type mockCampaignCandidateReader struct {
@@ -81,7 +81,7 @@ func (m *mockTxManager) RunInTransaction(ctx context.Context, fn func(ctx contex
 	return m.runInTransactionFunc(ctx, fn)
 }
 
-func validCampaignScheduledPayload(t *testing.T, scheduledAt string) []byte {
+func validCampaignScheduledPayload(t *testing.T, scheduledAt string) (string, []byte) {
 	t.Helper()
 	payload := contracts.CampaignScheduledPayload{
 		CampaignID:        "cmp_1",
@@ -93,23 +93,11 @@ func validCampaignScheduledPayload(t *testing.T, scheduledAt string) []byte {
 		ScheduledAt:       scheduledAt,
 		PlannedRecipients: 10,
 	}
-	envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-		EventID:       "evt_1",
-		EventType:     contracts.EventCampaignScheduledV1,
-		EventVersion:  1,
-		AggregateType: "campaign",
-		AggregateID:   "cmp_1",
-		WorkspaceID:   "ws_1",
-		OccurredAt:    time.Now().UTC(),
-	}, payload)
+	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := events.Marshal(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return data
+	return contracts.EventCampaignScheduledV1, data
 }
 
 func TestHandleCampaignScheduled_ValidEvent(t *testing.T) {
@@ -150,11 +138,12 @@ func TestHandleCampaignScheduled_ValidEvent(t *testing.T) {
 		TxManager:      txManager,
 	})
 
-	payload := validCampaignScheduledPayload(t, time.Now().UTC().Format(time.RFC3339))
+	eventType, payload := validCampaignScheduledPayload(t, time.Now().UTC().Format(time.RFC3339))
 	err := svc.HandleCampaignScheduled(context.Background(), HandleCampaignScheduledInput{
-		EventID:    "evt_1",
-		RawPayload: payload,
-		Now:        time.Now().UTC(),
+		EventID:   "evt_1",
+		EventType: eventType,
+		Payload:   payload,
+		Now:       time.Now().UTC(),
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -195,11 +184,12 @@ func TestHandleCampaignScheduled_DuplicateEvent(t *testing.T) {
 		TxManager:      txManager,
 	})
 
-	payload := validCampaignScheduledPayload(t, time.Now().UTC().Format(time.RFC3339))
+	eventType, payload := validCampaignScheduledPayload(t, time.Now().UTC().Format(time.RFC3339))
 	err := svc.HandleCampaignScheduled(context.Background(), HandleCampaignScheduledInput{
-		EventID:    "evt_1",
-		RawPayload: payload,
-		Now:        time.Now().UTC(),
+		EventID:   "evt_1",
+		EventType: eventType,
+		Payload:   payload,
+		Now:       time.Now().UTC(),
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -210,9 +200,10 @@ func TestHandleCampaignScheduled_InvalidPayload(t *testing.T) {
 	svc := NewService(Options{})
 
 	err := svc.HandleCampaignScheduled(context.Background(), HandleCampaignScheduledInput{
-		EventID:    "evt_1",
-		RawPayload: []byte(`garbage`),
-		Now:        time.Now().UTC(),
+		EventID:   "evt_1",
+		EventType: contracts.EventCampaignScheduledV1,
+		Payload:   []byte(`garbage`),
+		Now:       time.Now().UTC(),
 	})
 	var nonRetryable *NonRetryableError
 	if !errors.As(err, &nonRetryable) {
@@ -231,11 +222,12 @@ func TestHandleCampaignScheduled_NoCandidates(t *testing.T) {
 		CampaignReader: campaignReader,
 	})
 
-	payload := validCampaignScheduledPayload(t, time.Now().UTC().Format(time.RFC3339))
+	eventType, payload := validCampaignScheduledPayload(t, time.Now().UTC().Format(time.RFC3339))
 	err := svc.HandleCampaignScheduled(context.Background(), HandleCampaignScheduledInput{
-		EventID:    "evt_1",
-		RawPayload: payload,
-		Now:        time.Now().UTC(),
+		EventID:   "evt_1",
+		EventType: eventType,
+		Payload:   payload,
+		Now:       time.Now().UTC(),
 	})
 	if !errors.Is(err, domain.ErrCampaignCandidatesNotFound) {
 		t.Fatalf("expected ErrCampaignCandidatesNotFound, got %v", err)
@@ -245,11 +237,12 @@ func TestHandleCampaignScheduled_NoCandidates(t *testing.T) {
 func TestHandleCampaignScheduled_EmptyEventID(t *testing.T) {
 	svc := NewService(Options{})
 
-	payload := validCampaignScheduledPayload(t, time.Now().UTC().Format(time.RFC3339))
+	eventType, payload := validCampaignScheduledPayload(t, time.Now().UTC().Format(time.RFC3339))
 	err := svc.HandleCampaignScheduled(context.Background(), HandleCampaignScheduledInput{
-		EventID:    "",
-		RawPayload: payload,
-		Now:        time.Now().UTC(),
+		EventID:   "",
+		EventType: eventType,
+		Payload:   payload,
+		Now:       time.Now().UTC(),
 	})
 	var nonRetryable *NonRetryableError
 	if !errors.As(err, &nonRetryable) {

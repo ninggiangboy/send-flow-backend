@@ -8,7 +8,6 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
 
 type Command struct {
@@ -31,12 +30,27 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Workspace, 
 	if name == "" {
 		return nil, domain.ErrInvalidWorkspaceName
 	}
-	ws := domain.NewWorkspace(id.Must(id.NewUUIDGenerator()), name, cmd.Now)
-	membership := domain.NewMembership(id.Must(id.NewUUIDGenerator()), ws.ID, cmd.UserID, domain.MembershipRoleOwner, cmd.Now)
+	wsID, err := h.deps.IDGen.New()
+	if err != nil {
+		h.log.Error("failed to generate workspace ID", "error", err)
+		return nil, err
+	}
+	ws := domain.NewWorkspace(wsID, name, cmd.Now)
+	membershipID, err := h.deps.IDGen.New()
+	if err != nil {
+		h.log.Error("failed to generate membership ID", "error", err)
+		return nil, err
+	}
+	membership := domain.NewMembership(membershipID, ws.ID, cmd.UserID, domain.MembershipRoleOwner, cmd.Now)
 	defaultRoles := domain.DefaultRoleDefinitions(cmd.Now)
 	var ownerRoleID string
 	for i := range defaultRoles {
-		defaultRoles[i].ID = id.Must(id.NewUUIDGenerator())
+		roleID, err := h.deps.IDGen.New()
+		if err != nil {
+			h.log.Error("failed to generate role ID", "error", err)
+			return nil, err
+		}
+		defaultRoles[i].ID = roleID
 		defaultRoles[i].WorkspaceID = ws.ID
 		if defaultRoles[i].Type == domain.RoleTypeOwner {
 			ownerRoleID = defaultRoles[i].ID

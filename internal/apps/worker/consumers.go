@@ -143,10 +143,16 @@ func (c *CampaignScheduledConsumer) Run(ctx context.Context) error {
 }
 
 func (c *CampaignScheduledConsumer) HandleEvent(ctx context.Context, eventID string, rawPayload []byte) error {
+	env, err := events.Unmarshal(rawPayload)
+	if err != nil {
+		c.log.Warn("failed to unmarshal campaign scheduled envelope", "event_id", eventID, "error", err)
+		return &deliveryapp.NonRetryableError{Err: err}
+	}
 	err := c.svc.HandleCampaignScheduled(ctx, deliveryapp.HandleCampaignScheduledInput{
-		EventID:    eventID,
-		RawPayload: rawPayload,
-		Now:        time.Now().UTC(),
+		EventID:   eventID,
+		EventType: env.EventType,
+		Payload:   env.Payload,
+		Now:       time.Now().UTC(),
 	})
 	if err != nil {
 		var nonRetryable *deliveryapp.NonRetryableError

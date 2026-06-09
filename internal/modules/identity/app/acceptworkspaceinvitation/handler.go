@@ -8,7 +8,6 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
 
 type Command struct {
@@ -70,7 +69,12 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership,
 	if len(invitationRoles) == 0 {
 		return nil, domain.ErrInvalidRole
 	}
-	membership := domain.NewMembership(id.Must(id.NewUUIDGenerator()), invitation.WorkspaceID, cmd.UserID, domain.LegacyMembershipRole(invitationRoles), cmd.Now)
+	membershipID, err := h.deps.IDGen.New()
+	if err != nil {
+		h.log.Error("failed to generate membership ID", "error", err)
+		return nil, err
+	}
+	membership := domain.NewMembership(membershipID, invitation.WorkspaceID, cmd.UserID, domain.LegacyMembershipRole(invitationRoles), cmd.Now)
 	roleIDs := domain.RoleIDs(invitationRoles)
 	persistAcceptance := func(ctx context.Context) error {
 		if err := h.deps.MembershipsWrite.Create(ctx, membership); err != nil {

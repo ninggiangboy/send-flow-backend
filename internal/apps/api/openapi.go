@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
 	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/httputil"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
 	auditapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audit/app"
@@ -1976,7 +1977,7 @@ func humaAPIKeyAuthMiddleware(svc *accessapp.Service) func(huma.Context, func(hu
 		req, w := humachi.Unwrap(ctx)
 
 		authHeader := strings.TrimSpace(req.Header.Get("Authorization"))
-		token, ok := accessdomain.ExtractBearerToken(authHeader)
+		token, ok := httputil.ExtractBearerToken(authHeader)
 		if !ok {
 			writeError(w, req, http.StatusUnauthorized, "api_key.invalid", "missing or malformed bearer token", nil)
 			return

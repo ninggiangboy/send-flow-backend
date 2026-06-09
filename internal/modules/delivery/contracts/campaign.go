@@ -1,11 +1,10 @@
 package contracts
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 )
 
 var (
@@ -25,43 +24,38 @@ type CampaignScheduledPayload struct {
 	PlannedRecipients int64  `json:"planned_recipients"`
 }
 
-func ParseCampaignScheduledPayload(data []byte) (*CampaignScheduledPayload, error) {
-	envelope, err := events.Unmarshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal envelope: %w", err)
+func ParseCampaignScheduledPayload(eventType string, payload []byte) (*CampaignScheduledPayload, error) {
+	if eventType != EventCampaignScheduledV1 {
+		return nil, fmt.Errorf("expected %q, got %q: %w", EventCampaignScheduledV1, eventType, ErrUnsupportedEventType)
 	}
 
-	if envelope.EventType != EventCampaignScheduledV1 {
-		return nil, fmt.Errorf("expected %q, got %q: %w", EventCampaignScheduledV1, envelope.EventType, ErrUnsupportedEventType)
-	}
-
-	var payload CampaignScheduledPayload
-	if err := envelope.DecodePayload(&payload); err != nil {
+	var p CampaignScheduledPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
 		return nil, fmt.Errorf("decode payload: %w", err)
 	}
 
-	if payload.CampaignID == "" {
+	if p.CampaignID == "" {
 		return nil, fmt.Errorf("campaign_id: %w", ErrInvalidPayload)
 	}
-	if payload.WorkspaceID == "" {
+	if p.WorkspaceID == "" {
 		return nil, fmt.Errorf("workspace_id: %w", ErrInvalidPayload)
 	}
-	if payload.TemplateID == "" {
+	if p.TemplateID == "" {
 		return nil, fmt.Errorf("template_id: %w", ErrInvalidPayload)
 	}
-	if payload.TemplateVersionID == "" {
+	if p.TemplateVersionID == "" {
 		return nil, fmt.Errorf("template_version_id: %w", ErrInvalidPayload)
 	}
-	if payload.SenderDomainID == "" {
+	if p.SenderDomainID == "" {
 		return nil, fmt.Errorf("sender_domain_id: %w", ErrInvalidPayload)
 	}
-	if payload.MessageType == "" {
+	if p.MessageType == "" {
 		return nil, fmt.Errorf("message_type: %w", ErrInvalidPayload)
 	}
 
-	if _, err := time.Parse(time.RFC3339, payload.ScheduledAt); err != nil {
-		return nil, fmt.Errorf("%q: %w", payload.ScheduledAt, ErrInvalidScheduledAt)
+	if _, err := time.Parse(time.RFC3339, p.ScheduledAt); err != nil {
+		return nil, fmt.Errorf("%q: %w", p.ScheduledAt, ErrInvalidScheduledAt)
 	}
 
-	return &payload, nil
+	return &p, nil
 }

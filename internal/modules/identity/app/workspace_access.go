@@ -9,7 +9,6 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/inviteworkspacemember"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/updateworkspacememberrole"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
 
 // ListWorkspaces returns all workspaces the user belongs to, enriched with the user's
@@ -150,8 +149,12 @@ func (s *Service) CreateWorkspaceRole(ctx context.Context, workspaceID, actorID,
 	if err != nil {
 		return nil, err
 	}
+	roleID, err := s.deps.IDGen.New()
+	if err != nil {
+		return nil, err
+	}
 	role := &domain.Role{
-		ID:              id.Must(id.NewUUIDGenerator()),
+		ID:              roleID,
 		WorkspaceID:     workspaceID,
 		Name:            roleName,
 		Type:            domain.RoleTypeCustom,

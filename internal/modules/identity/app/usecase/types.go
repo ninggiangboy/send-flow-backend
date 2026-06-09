@@ -7,8 +7,6 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/email"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
 )
 
 type Deps struct {
@@ -26,8 +24,15 @@ type Deps struct {
 	TOTP             ports.TOTPRepository
 	Providers        map[string]ports.OAuthProvider
 	OAuthStateTTL    time.Duration
-	MailSender       email.Sender
-	RateLimiter      ratelimit.Service
+	MailSender         ports.Mailer
+	RateLimiter        ports.RateLimiter
+	IDGen              ports.IDGenerator
+	TokenGen           ports.TokenGenerator
+	TokenHasher        ports.TokenHasher
+	PasswordValidator  ports.PasswordValidator
+	TOTPVerifier       ports.TOTPCodeVerifier
+	TOTPSecretGen      ports.TOTPSecretGenerator
+	RecoveryCodeGen    ports.RecoveryCodeGenerator
 	FrontendBaseURL  string
 	VerificationTTL  time.Duration
 	PasswordResetTTL time.Duration

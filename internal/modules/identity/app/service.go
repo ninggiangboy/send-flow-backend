@@ -37,8 +37,6 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/verifyemail"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/email"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
 )
 
 type AuditRecorder interface {
@@ -71,8 +69,15 @@ type Options struct {
 	TOTP             ports.TOTPRepository
 	Providers        []ports.OAuthProvider
 	OAuthStateTTL    time.Duration
-	MailSender       email.Sender
-	RateLimiter      ratelimit.Service
+	MailSender         ports.Mailer
+	RateLimiter        ports.RateLimiter
+	IDGen              ports.IDGenerator
+	TokenGen           ports.TokenGenerator
+	TokenHasher        ports.TokenHasher
+	PasswordValidator  ports.PasswordValidator
+	TOTPVerifier       ports.TOTPCodeVerifier
+	TOTPSecretGen      ports.TOTPSecretGenerator
+	RecoveryCodeGen    ports.RecoveryCodeGenerator
 	FrontendBaseURL  string
 	VerificationTTL  time.Duration
 	PasswordResetTTL time.Duration
@@ -130,8 +135,15 @@ func NewService(opts Options) *Service {
 		TOTP:             opts.TOTP,
 		Providers:        providerMap,
 		OAuthStateTTL:    opts.OAuthStateTTL,
-		MailSender:       opts.MailSender,
-		RateLimiter:      opts.RateLimiter,
+		MailSender:         opts.MailSender,
+		RateLimiter:        opts.RateLimiter,
+		IDGen:              opts.IDGen,
+		TokenGen:           opts.TokenGen,
+		TokenHasher:        opts.TokenHasher,
+		PasswordValidator:  opts.PasswordValidator,
+		TOTPVerifier:       opts.TOTPVerifier,
+		TOTPSecretGen:      opts.TOTPSecretGen,
+		RecoveryCodeGen:    opts.RecoveryCodeGen,
 		FrontendBaseURL:  opts.FrontendBaseURL,
 		VerificationTTL:  opts.VerificationTTL,
 		PasswordResetTTL: opts.PasswordResetTTL,

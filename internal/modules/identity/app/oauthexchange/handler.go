@@ -9,7 +9,6 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
 
 type Handler struct {
@@ -79,7 +78,12 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 			return nil, nil, err
 		}
 		if user == nil {
-			u := domain.NewOAuthUser(id.Must(id.NewUUIDGenerator()), email, "oauth_"+cmd.Provider, cmd.Now)
+			uID, err := h.deps.IDGen.New()
+			if err != nil {
+				h.log.Error("failed to generate user ID for OAuth user", "provider", cmd.Provider, "error", err)
+				return nil, nil, err
+			}
+			u := domain.NewOAuthUser(uID, email, "oauth_"+cmd.Provider, cmd.Now)
 			if err := h.deps.UsersWrite.Create(ctx, u); err != nil {
 				h.log.Error("failed to create OAuth user", "provider", cmd.Provider, "error", err)
 				return nil, nil, err
@@ -87,7 +91,12 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 			user = &u
 			h.log.Info("OAuth exchange: new user created", "provider", cmd.Provider, "user_id", user.ID)
 		}
-		acc := domain.NewExternalAuthAccount(id.Must(id.NewUUIDGenerator()), user.ID, cmd.Provider, identity.ProviderUserID, identity.Email, identity.EmailVerified, cmd.Now)
+		accID, err := h.deps.IDGen.New()
+		if err != nil {
+			h.log.Error("failed to generate external account ID", "provider", cmd.Provider, "error", err)
+			return nil, nil, err
+		}
+		acc := domain.NewExternalAuthAccount(accID, user.ID, cmd.Provider, identity.ProviderUserID, identity.Email, identity.EmailVerified, cmd.Now)
 		if err := h.deps.ExternalsWrite.Create(ctx, acc); err != nil {
 			h.log.Error("failed to create external account", "provider", cmd.Provider, "user_id", user.ID, "error", err)
 			return nil, nil, err

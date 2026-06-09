@@ -10,7 +10,6 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
 )
 
 type Handler struct {
@@ -33,7 +32,7 @@ func (h *Handler) Execute(ctx context.Context, userID string, now time.Time) (*R
 		h.log.Error("failed to find user for MFA setup", "user_id", userID, "error", err)
 		return nil, err
 	}
-	secret, err := security.GenerateTOTPSecret()
+	secret, err := h.deps.TOTPSecretGen.GenerateTOTPSecret()
 	if err != nil {
 		h.log.Error("failed to generate TOTP secret", "user_id", userID, "error", err)
 		return nil, err

@@ -11,8 +11,6 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
 )
 
 type Handler struct {
@@ -48,7 +46,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 	if cmd.Password == "" {
 		return nil, domain.ErrInvalidCredentials
 	}
-	if err := security.ValidatePasswordPolicy(cmd.Password); err != nil {
+	if err := h.deps.PasswordValidator.Validate(cmd.Password); err != nil {
 		return nil, domain.ErrPasswordPolicy
 	}
 	existing, err := h.deps.UsersRead.FindByEmail(ctx, email.String())
@@ -65,7 +63,12 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 		h.log.Error("failed to hash password", "error", err)
 		return nil, err
 	}
-	user := domain.NewUser(id.Must(id.NewUUIDGenerator()), email, hash, "password", cmd.Now)
+	userID, err := h.deps.IDGen.New()
+	if err != nil {
+		h.log.Error("failed to generate user ID", "error", err)
+		return nil, err
+	}
+	user := domain.NewUser(userID, email, hash, "password", cmd.Now)
 
 	createUserWithOutbox := func(txCtx context.Context) error {
 		if err := h.deps.UsersWrite.Create(txCtx, user); err != nil {
@@ -85,7 +88,11 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 			AuthMethod: user.PrimaryAuthMethod,
 			At:         cmd.Now.Format(time.RFC3339),
 		}
-		eventID := id.Must(id.NewUUIDGenerator())
+		eventID, err := h.deps.IDGen.New()
+		if err != nil {
+			h.log.Error("failed to generate event ID", "user_id", user.ID, "error", err)
+			return err
+		}
 		envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
 			EventID:       eventID,
 			EventType:     "identity.user.registered.v1",
