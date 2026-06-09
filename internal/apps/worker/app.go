@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
+	analyticspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/postgres"
 	campaignpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/infrastructure/postgres"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
 	contentpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/postgres"
@@ -222,6 +224,33 @@ func Run(ctx context.Context) error {
 		"marketing",
 	)
 	if err := registry.Register(dueMsgProcessor); err != nil {
+		return err
+	}
+
+	// Wire analytics module
+	analyticsWritePool := pgClient.WritePool()
+	analyticsFactRepo := analyticspostgres.NewEventFactRepository(analyticsWritePool)
+	analyticsProjectionRepo := analyticspostgres.NewProjectionRepository(analyticsWritePool)
+	analyticsTxManager := analyticspostgres.NewTransactionManager(analyticsWritePool)
+	analyticsOutboxRepo := analyticspostgres.NewOutboxRepository(analyticsWritePool)
+
+	analyticsSvc := analyticsapp.NewService(analyticsapp.Options{
+		FactRepo:       analyticsFactRepo,
+		ProjectionRepo: analyticsProjectionRepo,
+		TxManager:      analyticsTxManager,
+		OutboxWriter:   analyticsOutboxRepo,
+		IDGen:          id.NewUUIDGenerator().New,
+		Logger:         log,
+	})
+
+	analyticsConsumer := NewAnalyticsEventConsumer(
+		analyticsSvc,
+		log,
+		kafka.Brokers(cfg.KafkaBrokers),
+		cfg.WorkerConsumerGroupPrefix+".analytics_events",
+		pgClient.WritePool(),
+	)
+	if err := registry.Register(analyticsConsumer); err != nil {
 		return err
 	}
 

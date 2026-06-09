@@ -46,6 +46,7 @@ const (
 	PermissionCampaignWrite          = "campaign.write"
 	PermissionCampaignSend           = "campaign.send"
 	PermissionAPIKeyManage           = "api_key.manage"
+	PermissionAnalyticsRead          = "analytics.read"
 )
 
 var permissionRegistry = []Permission{
@@ -67,6 +68,7 @@ var permissionRegistry = []Permission{
 	{Bit: 1 << 15, Name: PermissionCampaignWrite},
 	{Bit: 1 << 16, Name: PermissionCampaignSend},
 	{Bit: 1 << 17, Name: PermissionAPIKeyManage},
+	{Bit: 1 << 18, Name: PermissionAnalyticsRead},
 }
 
 type Role struct {

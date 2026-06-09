@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
 	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
+	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
 	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
@@ -61,7 +62,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -120,6 +121,10 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 	if trackingSvc != nil {
 		tracking := newTrackingHTTP(trackingSvc)
 		registerTrackingOperations(api, tracking)
+	}
+	if analyticsSvc != nil {
+		analytics := newAnalyticsHTTP(analyticsSvc)
+		registerAnalyticsOperations(api, analytics, authMiddleware)
 	}
 	documentApplicationErrors(api.OpenAPI())
 }
@@ -259,6 +264,8 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 		return webhookErrorCodes()
 	case hasTag(op, "Tracking"):
 		return trackingErrorCodes()
+	case hasTag(op, "Analytics"):
+		return analyticsErrorCodes()
 	default:
 		return map[int][]string{
 			http.StatusInternalServerError: {"health.runtime_not_ready"},
@@ -2233,6 +2240,74 @@ func trackingErrorCodes() map[int][]string {
 		},
 		http.StatusNotFound: {
 			"tracking.invalid_tracking_id",
+		},
+		http.StatusInternalServerError: {
+			"health.runtime_not_ready",
+		},
+	}
+}
+
+type analyticsWorkspacePathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+}
+
+type analyticsCampaignPathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	CampaignID  string `path:"campaign_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Campaign ID."`
+}
+
+func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-analytics-overview",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/overview",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get workspace analytics overview",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDashboardOverview)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-campaign-analytics",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get campaign analytics",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignAnalytics)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-deliverability-analytics",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/deliverability",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get deliverability analytics",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverability)
+	})
+}
+
+func analyticsErrorCodes() map[int][]string {
+	return map[int][]string{
+		http.StatusBadRequest: {
+			"auth.invalid_request_body",
+			"analytics.query_invalid",
+		},
+		http.StatusUnauthorized: {
+			"auth.invalid_token",
+		},
+		http.StatusForbidden: {
+			"analytics.read_denied",
+		},
+		http.StatusNotFound: {
+			"analytics.projection_not_found",
 		},
 		http.StatusInternalServerError: {
 			"health.runtime_not_ready",

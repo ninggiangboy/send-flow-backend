@@ -15,6 +15,8 @@ import (
 	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
 	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
 	accesspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/access/infrastructure/postgres"
+	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
+	analyticspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/postgres"
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
 	audiencepostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/postgres"
 	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
@@ -320,7 +322,23 @@ func Run(ctx context.Context) error {
 		Logger:                log,
 	})
 
-	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
+	analyticsWritePool := pgClient.WritePool()
+	analyticsFactRepo := analyticspostgres.NewEventFactRepository(analyticsWritePool)
+	analyticsProjectionRepo := analyticspostgres.NewProjectionRepository(analyticsWritePool)
+	analyticsTxManager := analyticspostgres.NewTransactionManager(analyticsWritePool)
+	analyticsOutboxRepo := analyticspostgres.NewOutboxRepository(analyticsWritePool)
+
+	analyticsSvc := analyticsapp.NewService(analyticsapp.Options{
+		FactRepo:       analyticsFactRepo,
+		ProjectionRepo: analyticsProjectionRepo,
+		TxManager:      analyticsTxManager,
+		OutboxWriter:   analyticsOutboxRepo,
+		AccessChecker:  newWorkspaceAccessAdapter(authSvc),
+		IDGen:          id.NewUUIDGenerator().New,
+		Logger:         log,
+	})
+
+	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -351,7 +369,7 @@ func Run(ctx context.Context) error {
 	return server.Shutdown(shutdownCtx)
 }
 
-func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
+func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware(corsOptions{
 		AllowedOrigins: []string{frontendBaseURL},
@@ -400,7 +418,7 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 		})
 	})
 	humaAPI := humachi.New(r, openAPIConfig())
-	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc)
+	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {

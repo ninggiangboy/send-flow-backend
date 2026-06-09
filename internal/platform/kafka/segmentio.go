@@ -9,12 +9,13 @@ import (
 )
 
 type ReaderConsumerOptions struct {
-	Brokers  []string
-	Topic    string
-	GroupID  string
-	MinBytes int
-	MaxBytes int
-	MaxWait  time.Duration
+	Brokers     []string
+	Topic       string
+	GroupTopics []string
+	GroupID     string
+	MinBytes    int
+	MaxBytes    int
+	MaxWait     time.Duration
 }
 
 type ReaderConsumer struct {
@@ -25,8 +26,8 @@ func NewReaderConsumer(opts ReaderConsumerOptions) (*ReaderConsumer, error) {
 	if len(opts.Brokers) == 0 {
 		return nil, ErrDisabled
 	}
-	if opts.Topic == "" {
-		return nil, errors.New("kafka topic is required")
+	if opts.Topic == "" && len(opts.GroupTopics) == 0 {
+		return nil, errors.New("kafka topic or group topics is required")
 	}
 	if opts.GroupID == "" {
 		return nil, errors.New("kafka consumer group id is required")
@@ -46,12 +47,13 @@ func NewReaderConsumer(opts ReaderConsumerOptions) (*ReaderConsumer, error) {
 
 	return &ReaderConsumer{
 		reader: segmentio.NewReader(segmentio.ReaderConfig{
-			Brokers:  opts.Brokers,
-			Topic:    opts.Topic,
-			GroupID:  opts.GroupID,
-			MinBytes: minBytes,
-			MaxBytes: maxBytes,
-			MaxWait:  maxWait,
+			Brokers:     opts.Brokers,
+			Topic:       opts.Topic,
+			GroupTopics: opts.GroupTopics,
+			GroupID:     opts.GroupID,
+			MinBytes:    minBytes,
+			MaxBytes:    maxBytes,
+			MaxWait:     maxWait,
 		}),
 	}, nil
 }

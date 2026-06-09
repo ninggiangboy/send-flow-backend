@@ -81,6 +81,14 @@ type MessageComplainedPayload struct {
 	ReceivedAt             string `json:"received_at"`
 }
 
+type MessageRetryScheduledPayload struct {
+	MessageID     string `json:"message_id"`
+	WorkspaceID   string `json:"workspace_id"`
+	RetryCount    int    `json:"retry_count"`
+	MaxRetries    int    `json:"max_retries"`
+	NextAttemptAt string `json:"next_attempt_at"`
+}
+
 type SuppressionRecipientSuppressedPayload struct {
 	SuppressionID   string `json:"suppression_id"`
 	WorkspaceID     string `json:"workspace_id"`
