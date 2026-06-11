@@ -531,14 +531,29 @@ func (s *Service) executeDeadLetterReplay(ctx context.Context, job *domain.Repla
 		return err
 	}
 
-	replayHeaders := json.RawMessage(`{"replay_of":"` + job.TargetID + `","replay_job_id":"` + job.ID + `"}`)
+	replayEventType := dlq.SourceEventType
+	if replayEventType == "" {
+		var envelope struct {
+			EventType string `json:"event_type"`
+		}
+		if json.Unmarshal(dlq.Payload, &envelope) == nil && envelope.EventType != "" {
+			replayEventType = envelope.EventType
+		}
+	}
+	if replayEventType == "" {
+		replayEventType = "operations.replay_event.v1"
+	}
+
+	replayHeaders := json.RawMessage(
+		`{"replay_of":"` + job.TargetID + `","replay_job_id":"` + job.ID + `","original_event_type":"` + replayEventType + `"}`,
+	)
 
 	replayEvent := domain.OutboxRecord{
 		ID:            eventID,
 		WorkspaceID:   job.WorkspaceID,
 		AggregateType: "replay",
 		AggregateID:   job.TargetID,
-		EventType:     "operations.replay_event.v1",
+		EventType:     replayEventType,
 		Payload:       dlq.Payload,
 		Headers:       replayHeaders,
 		OccurredAt:    now,
@@ -549,6 +564,12 @@ func (s *Service) executeDeadLetterReplay(ctx context.Context, job *domain.Repla
 		log.Error("failed to create replay outbox event", "error", err)
 		return err
 	}
+
+	log.Info("dead letter record replayed",
+		"replay_job_id", job.ID,
+		"dlq_id", job.TargetID,
+		"original_event_type", replayEventType,
+	)
 
 	return nil
 }

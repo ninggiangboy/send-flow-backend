@@ -721,6 +721,99 @@ func (w *ImportJobWriteRepository) CreateImportJob(ctx context.Context, j domain
 	return err
 }
 
+func (w *ImportJobWriteRepository) UpdateImportJob(ctx context.Context, j domain.AudienceImportJob) error {
+	metadataJSON, err := json.Marshal(j.Metadata)
+	if err != nil {
+		return err
+	}
+	tag, err := w.db.Exec(ctx,
+		`UPDATE audience_import_jobs SET status=$1, processed_count=$2, created_count=$3, updated_count=$4, failed_count=$5, error_summary=$6, metadata=$7, updated_at=$8, completed_at=$9 WHERE id=$10 AND workspace_id=$11`,
+		string(j.Status), j.ProcessedCount, j.CreatedCount, j.UpdatedCount, j.FailedCount, platformpostgres.Nullable(j.ErrorSummary), metadataJSON, j.UpdatedAt, j.CompletedAt, j.ID, j.WorkspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrImportJobNotFound
+	}
+	return nil
+}
+
+func (w *ImportJobWriteRepository) ClaimQueuedImportJobs(ctx context.Context, limit int, now time.Time) ([]domain.AudienceImportJob, error) {
+	rows, err := w.db.Query(ctx,
+		`UPDATE audience_import_jobs SET status='running', updated_at=$1
+		 WHERE id IN (SELECT id FROM audience_import_jobs WHERE status='queued' ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED)
+		 RETURNING id, workspace_id, source_uri, dedupe_mode, status, processed_count, created_count, updated_count, failed_count, COALESCE(error_summary, ''), metadata, created_at, updated_at, completed_at`,
+		now, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []domain.AudienceImportJob
+	for rows.Next() {
+		var j domain.AudienceImportJob
+		var metadataJSON []byte
+		if err := rows.Scan(&j.ID, &j.WorkspaceID, &j.SourceURI, &j.DedupeMode, &j.Status, &j.ProcessedCount, &j.CreatedCount, &j.UpdatedCount, &j.FailedCount, &j.ErrorSummary, &metadataJSON, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(metadataJSON, &j.Metadata); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if jobs == nil {
+		jobs = []domain.AudienceImportJob{}
+	}
+	return jobs, nil
+}
+
+func (w *ImportJobWriteRepository) MarkImportJobRunning(ctx context.Context, workspaceID, jobID string, now time.Time) error {
+	tag, err := w.db.Exec(ctx,
+		`UPDATE audience_import_jobs SET status='running', updated_at=$1 WHERE id=$2 AND workspace_id=$3 AND status='queued'`,
+		now, jobID, workspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrImportJobNotFound
+	}
+	return nil
+}
+
+func (w *ImportJobWriteRepository) MarkImportJobCompleted(ctx context.Context, workspaceID, jobID string, counts ports.ImportCounts, now time.Time) error {
+	tag, err := w.db.Exec(ctx,
+		`UPDATE audience_import_jobs SET status='completed', processed_count=$1, created_count=$2, updated_count=$3, failed_count=$4, completed_at=$5, updated_at=$5 WHERE id=$6 AND workspace_id=$7 AND status='running'`,
+		counts.ProcessedCount, counts.CreatedCount, counts.UpdatedCount, counts.FailedCount, now, jobID, workspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrImportJobNotFound
+	}
+	return nil
+}
+
+func (w *ImportJobWriteRepository) MarkImportJobFailed(ctx context.Context, workspaceID, jobID string, errorSummary string, now time.Time) error {
+	tag, err := w.db.Exec(ctx,
+		`UPDATE audience_import_jobs SET status='failed', error_summary=$1, completed_at=$2, updated_at=$2 WHERE id=$3 AND workspace_id=$4`,
+		errorSummary, now, jobID, workspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrImportJobNotFound
+	}
+	return nil
+}
+
 // --- Export Job Read ---
 
 func (r *ExportJobReadRepository) FindExportJobByID(ctx context.Context, workspaceID, jobID string) (*domain.AudienceExportJob, error) {
@@ -745,6 +838,67 @@ func (r *ExportJobReadRepository) FindExportJobByID(ctx context.Context, workspa
 	return &j, nil
 }
 
+func (r *ExportJobReadRepository) ListExportJobs(ctx context.Context, query ports.ExportJobListQuery) ([]domain.AudienceExportJob, string, error) {
+	args := []any{query.WorkspaceID}
+	where := "WHERE workspace_id = $1"
+	argIdx := 2
+
+	if query.Status != "" {
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Status)
+		argIdx++
+	}
+
+	if query.Cursor != "" {
+		where += " AND (created_at, id) < (SELECT created_at, id FROM audience_export_jobs WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
+		args = append(args, query.Cursor)
+		argIdx++
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = constants.DefaultPageSize
+	}
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
+	args = append(args, limit+1)
+
+	rows, err := r.db.Query(ctx,
+		`SELECT id, workspace_id, filters_json, selected_fields, format, status, COALESCE(artifact_uri, ''), COALESCE(error_summary, ''), created_at, updated_at, completed_at FROM audience_export_jobs `+where, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []domain.AudienceExportJob
+	for rows.Next() {
+		var j domain.AudienceExportJob
+		var filtersJSON, fieldsJSON []byte
+		if err := rows.Scan(&j.ID, &j.WorkspaceID, &filtersJSON, &fieldsJSON, &j.Format, &j.Status, &j.ArtifactURI, &j.ErrorSummary, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt); err != nil {
+			return nil, "", err
+		}
+		if err := json.Unmarshal(filtersJSON, &j.FiltersJSON); err != nil {
+			return nil, "", err
+		}
+		if err := json.Unmarshal(fieldsJSON, &j.SelectedFields); err != nil {
+			return nil, "", err
+		}
+		results = append(results, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID
+		results = results[:limit]
+	}
+	if results == nil {
+		results = []domain.AudienceExportJob{}
+	}
+	return results, nextCursor, nil
+}
+
 // --- Export Job Write ---
 
 func (w *ExportJobWriteRepository) CreateExportJob(ctx context.Context, j domain.AudienceExportJob) error {
@@ -761,6 +915,106 @@ func (w *ExportJobWriteRepository) CreateExportJob(ctx context.Context, j domain
 		j.ID, j.WorkspaceID, filtersJSON, fieldsJSON, string(j.Format), string(j.Status), platformpostgres.Nullable(j.ArtifactURI), platformpostgres.Nullable(j.ErrorSummary), j.CreatedAt, j.UpdatedAt, j.CompletedAt,
 	)
 	return err
+}
+
+func (w *ExportJobWriteRepository) UpdateExportJob(ctx context.Context, j domain.AudienceExportJob) error {
+	filtersJSON, err := json.Marshal(j.FiltersJSON)
+	if err != nil {
+		return err
+	}
+	fieldsJSON, err := json.Marshal(j.SelectedFields)
+	if err != nil {
+		return err
+	}
+	tag, err := w.db.Exec(ctx,
+		`UPDATE audience_export_jobs SET filters_json=$1, selected_fields=$2, format=$3, status=$4, artifact_uri=$5, error_summary=$6, updated_at=$7, completed_at=$8 WHERE id=$9 AND workspace_id=$10`,
+		filtersJSON, fieldsJSON, string(j.Format), string(j.Status), platformpostgres.Nullable(j.ArtifactURI), platformpostgres.Nullable(j.ErrorSummary), j.UpdatedAt, j.CompletedAt, j.ID, j.WorkspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrExportJobNotFound
+	}
+	return nil
+}
+
+func (w *ExportJobWriteRepository) ClaimQueuedExportJobs(ctx context.Context, limit int, now time.Time) ([]domain.AudienceExportJob, error) {
+	rows, err := w.db.Query(ctx,
+		`UPDATE audience_export_jobs SET status='running', updated_at=$1
+		 WHERE id IN (SELECT id FROM audience_export_jobs WHERE status='queued' ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED)
+		 RETURNING id, workspace_id, filters_json, selected_fields, format, status, COALESCE(artifact_uri, ''), COALESCE(error_summary, ''), created_at, updated_at, completed_at`,
+		now, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []domain.AudienceExportJob
+	for rows.Next() {
+		var j domain.AudienceExportJob
+		var filtersJSON, fieldsJSON []byte
+		if err := rows.Scan(&j.ID, &j.WorkspaceID, &filtersJSON, &fieldsJSON, &j.Format, &j.Status, &j.ArtifactURI, &j.ErrorSummary, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(filtersJSON, &j.FiltersJSON); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(fieldsJSON, &j.SelectedFields); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if jobs == nil {
+		jobs = []domain.AudienceExportJob{}
+	}
+	return jobs, nil
+}
+
+func (w *ExportJobWriteRepository) MarkExportJobRunning(ctx context.Context, workspaceID, jobID string, now time.Time) error {
+	tag, err := w.db.Exec(ctx,
+		`UPDATE audience_export_jobs SET status='running', updated_at=$1 WHERE id=$2 AND workspace_id=$3 AND status='queued'`,
+		now, jobID, workspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrExportJobNotFound
+	}
+	return nil
+}
+
+func (w *ExportJobWriteRepository) MarkExportJobCompleted(ctx context.Context, workspaceID, jobID string, artifactURI string, now time.Time) error {
+	tag, err := w.db.Exec(ctx,
+		`UPDATE audience_export_jobs SET status='completed', artifact_uri=$1, completed_at=$2, updated_at=$2 WHERE id=$3 AND workspace_id=$4 AND status='running'`,
+		artifactURI, now, jobID, workspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrExportJobNotFound
+	}
+	return nil
+}
+
+func (w *ExportJobWriteRepository) MarkExportJobFailed(ctx context.Context, workspaceID, jobID string, errorSummary string, now time.Time) error {
+	tag, err := w.db.Exec(ctx,
+		`UPDATE audience_export_jobs SET status='failed', error_summary=$1, completed_at=$2, updated_at=$2 WHERE id=$3 AND workspace_id=$4`,
+		errorSummary, now, jobID, workspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrExportJobNotFound
+	}
+	return nil
 }
 
 // --- Helpers ---

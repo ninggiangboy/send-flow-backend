@@ -14,8 +14,9 @@ import (
 )
 
 type mockNotifMsgWrite struct {
-	create func(ctx context.Context, msg domain.NotificationMessage) error
-	update func(ctx context.Context, msg domain.NotificationMessage) error
+	create                func(ctx context.Context, msg domain.NotificationMessage) error
+	update                func(ctx context.Context, msg domain.NotificationMessage) error
+	claimRetryingMessages func(ctx context.Context, limit int) ([]domain.NotificationMessage, error)
 }
 
 func (m *mockNotifMsgWrite) Create(ctx context.Context, msg domain.NotificationMessage) error {
@@ -30,6 +31,13 @@ func (m *mockNotifMsgWrite) Update(ctx context.Context, msg domain.NotificationM
 		return m.update(ctx, msg)
 	}
 	return nil
+}
+
+func (m *mockNotifMsgWrite) ClaimRetryingMessages(ctx context.Context, limit int) ([]domain.NotificationMessage, error) {
+	if m.claimRetryingMessages != nil {
+		return m.claimRetryingMessages(ctx, limit)
+	}
+	return nil, nil
 }
 
 type mockNotifAttemptWrite struct {

@@ -2,6 +2,15 @@ package sliceutil
 
 import "strings"
 
+func Contains(slice []string, target string) bool {
+	for _, s := range slice {
+		if s == target {
+			return true
+		}
+	}
+	return false
+}
+
 func ParseCSV(s string) []string {
 	if strings.TrimSpace(s) == "" {
 		return nil

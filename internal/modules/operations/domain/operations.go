@@ -20,14 +20,15 @@ type OutboxRecord struct {
 }
 
 type DeadLetterRecord struct {
-	ID           string
-	WorkspaceID  string
-	Source       string
-	EventID      string
-	Payload      json.RawMessage
-	ErrorMessage string
-	Retryable    bool
-	FailedAt     time.Time
+	ID              string
+	WorkspaceID     string
+	Source          string
+	SourceEventType string
+	EventID         string
+	Payload         json.RawMessage
+	ErrorMessage    string
+	Retryable       bool
+	FailedAt        time.Time
 }
 
 type ReplayTargetType string

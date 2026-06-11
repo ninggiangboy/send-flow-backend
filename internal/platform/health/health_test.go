@@ -19,7 +19,6 @@ func TestServiceReadyOK(t *testing.T) {
 			return nil
 		},
 		KafkaEnabled:         true,
-		ClickEnabled:         true,
 		ObjectStorageEnabled: true,
 	})
 

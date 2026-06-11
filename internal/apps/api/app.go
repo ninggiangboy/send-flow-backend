@@ -183,7 +183,6 @@ func Run(ctx context.Context) error {
 		PostgresReadCheck: pgClient.PingRead,
 		RedisCheck:        redisClient.Ping,
 		KafkaEnabled:      cfg.KafkaEnabled(),
-		ClickEnabled:      cfg.ClickHouseEnabled(),
 		ObjectStorageCheck: func(ctx context.Context) error {
 			if objectStorageClient == nil {
 				return nil
@@ -296,10 +295,15 @@ func Run(ctx context.Context) error {
 	ingestionTxManager := transaction.NewManager(pgClient.WritePool())
 	ingestionMsgResolver := deliveryinfrastructure.NewIngestionMessageResolver(deliveryMsgReadRepo)
 
-	ingestionFakeVerifier := &ingestionprovider.FakeVerifier{Secret: cfg.FakeWebhookSecret}
-	ingestionFakeNormalizer := &ingestionprovider.FakeNormalizer{}
 	ingestionReg := ingestionprovider.NewRegistry()
-	ingestionReg.Register("fake", ingestionFakeVerifier, ingestionFakeNormalizer)
+	sesVerifier := ingestionprovider.NewSESVerifier()
+	sesNormalizer := &ingestionprovider.SESNormalizer{}
+	ingestionReg.Register("ses", sesVerifier, sesNormalizer)
+	if cfg.AppEnv == "local" || cfg.AppEnv == "test" {
+		ingestionFakeVerifier := &ingestionprovider.FakeVerifier{Secret: cfg.FakeWebhookSecret}
+		ingestionFakeNormalizer := &ingestionprovider.FakeNormalizer{}
+		ingestionReg.Register("fake", ingestionFakeVerifier, ingestionFakeNormalizer)
+	}
 
 	trackingDeps := shared.NewTrackingRepos(pgClient.ReadPool(), pgClient.WritePool())
 	trackingMessageResolver := shared.NewTrackingMessageResolverAdapter(deliveryinfrastructure.NewMessageResolver(deliveryMsgReadRepo))
@@ -326,15 +330,17 @@ func Run(ctx context.Context) error {
 
 	webhooksSvc := shared.NewWebhooksService(pgClient.ReadPool(), pgClient.WritePool(), newWorkspaceAccessAdapter(authSvc), log)
 
-	operationsOutboxRepo := operationspostgres.NewOutboxRepository(pgClient.ReadPool())
+	operationsOutboxRepo := operationspostgres.NewOutboxRepository(pgClient.WritePool())
 	operationsDeadLetterRepo := operationspostgres.NewDeadLetterRepository(pgClient.ReadPool())
 	operationsReplayJobRepo := operationspostgres.NewReplayJobRepository(pgClient.WritePool())
+	operationsOutboxWriter := operationspostgres.NewOutboxWriterRepo(pgClient.WritePool())
 	operationsTxManager := transaction.NewManager(pgClient.WritePool())
 
 	operationsSvc := operationsapp.NewService(operationsapp.Options{
 		OutboxRepo:     operationsOutboxRepo,
 		DeadLetterRepo: operationsDeadLetterRepo,
 		ReplayJobRepo:  operationsReplayJobRepo,
+		OutboxWriter:   operationsOutboxWriter,
 		TxManager:      operationsTxManager,
 		AccessChecker:  newWorkspaceAccessAdapter(authSvc),
 		IDGen:          id.NewUUIDGenerator().New,

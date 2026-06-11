@@ -49,44 +49,59 @@ func (s *Service) DeliverWebhook(ctx context.Context, input DeliverWebhookInput)
 		EventIDValue:    input.SourceEventID,
 	}
 
-	resp, err := s.deliverer.Deliver(ctx, deliveryReq)
-	if err != nil {
-		return err
-	}
+	resp, deliverErr := s.deliverer.Deliver(ctx, deliveryReq)
 
 	attemptID, err := s.idGen()
 	if err != nil {
 		return err
 	}
 
-	isSuccess := resp.StatusCode >= 200 && resp.StatusCode < 300
+	isSuccess := deliverErr == nil && resp.StatusCode >= 200 && resp.StatusCode < 300
 	status := string(domain.DeliveryStatusFailed)
 	if isSuccess {
 		status = string(domain.DeliveryStatusSucceeded)
 	}
 
-	attempt := domain.WebhookDeliveryAttempt{
-		ID:              attemptID,
-		DeliveryID:      input.DeliveryID,
-		AttemptNumber:   input.AttemptNumber,
-		Status:          status,
-		StatusCode:      &resp.StatusCode,
-		Error:           domain.SanitizeError(resp.Error),
-		DurationMs:      resp.DurationMs,
-		RequestHeaders:  map[string]string{},
-		ResponseHeaders: domain.SanitizeHeaders(resp.Headers),
-		AttemptedAt:     now,
-	}
-	if resp.StatusCode == 0 {
-		attempt.StatusCode = nil
-	}
+	var attempt domain.WebhookDeliveryAttempt
+	var deliveryResult domain.DeliveryResult
 
-	deliveryResult := domain.DeliveryResult{
-		StatusCode:      resp.StatusCode,
-		DurationMs:      resp.DurationMs,
-		Error:           domain.SanitizeError(resp.Error),
-		RequestHeaders:  map[string]string{},
-		ResponseHeaders: domain.SanitizeHeaders(resp.Headers),
+	if deliverErr != nil {
+		attempt = domain.WebhookDeliveryAttempt{
+			ID:             attemptID,
+			DeliveryID:     input.DeliveryID,
+			AttemptNumber:  input.AttemptNumber,
+			Status:         status,
+			Error:          domain.SanitizeError(deliverErr.Error()),
+			RequestHeaders: map[string]string{},
+			AttemptedAt:    now,
+		}
+		deliveryResult = domain.DeliveryResult{
+			Error:          domain.SanitizeError(deliverErr.Error()),
+			RequestHeaders: map[string]string{},
+		}
+	} else {
+		attempt = domain.WebhookDeliveryAttempt{
+			ID:              attemptID,
+			DeliveryID:      input.DeliveryID,
+			AttemptNumber:   input.AttemptNumber,
+			Status:          status,
+			StatusCode:      &resp.StatusCode,
+			Error:           domain.SanitizeError(resp.Error),
+			DurationMs:      resp.DurationMs,
+			RequestHeaders:  map[string]string{},
+			ResponseHeaders: domain.SanitizeHeaders(resp.Headers),
+			AttemptedAt:     now,
+		}
+		if resp.StatusCode == 0 {
+			attempt.StatusCode = nil
+		}
+		deliveryResult = domain.DeliveryResult{
+			StatusCode:      resp.StatusCode,
+			DurationMs:      resp.DurationMs,
+			Error:           domain.SanitizeError(resp.Error),
+			RequestHeaders:  map[string]string{},
+			ResponseHeaders: domain.SanitizeHeaders(resp.Headers),
+		}
 	}
 
 	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
@@ -139,12 +154,11 @@ func (s *Service) DeliverWebhook(ctx context.Context, input DeliverWebhookInput)
 				WebhookID:       input.WebhookID,
 				SourceEventID:   input.SourceEventID,
 				SourceEventType: input.SourceEventType,
-				Error:           domain.SanitizeError(resp.Error),
-				DurationMs:      resp.DurationMs,
+				Error:           attempt.Error,
+				DurationMs:      attempt.DurationMs,
 			}
-			if resp.StatusCode != 0 {
-				sc := resp.StatusCode
-				failedPayload.StatusCode = &sc
+			if attempt.StatusCode != nil {
+				failedPayload.StatusCode = attempt.StatusCode
 			}
 			payload, _ := json.Marshal(failedPayload)
 			if s.outboxWriter != nil {
@@ -166,6 +180,12 @@ func (s *Service) DeliverWebhook(ctx context.Context, input DeliverWebhookInput)
 		return err
 	}
 
+	if !isSuccess {
+		if deliverErr != nil {
+			return fmt.Errorf("webhook delivery failed: %w", deliverErr)
+		}
+		return fmt.Errorf("webhook delivery returned status %d (attempt %d)", resp.StatusCode, input.AttemptNumber)
+	}
 	return nil
 }
 

@@ -44,6 +44,7 @@ type DeliveryWriteRepository interface {
 	MarkSucceeded(ctx context.Context, deliveryID string, result domain.DeliveryResult) error
 	MarkFailed(ctx context.Context, deliveryID string, result domain.DeliveryResult) error
 	ScheduleRetry(ctx context.Context, deliveryID string, nextAttemptAt time.Time) error
+	ClaimPendingDeliveries(ctx context.Context, limit int, now time.Time) ([]domain.WebhookDelivery, error)
 }
 
 type AttemptReadRepository interface {

@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/ninggiangboy/send-flow/backend/internal/apps/shared"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
+	audiencepostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/postgres"
 	campaignpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/infrastructure/postgres"
 	deliveryAppMappers "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/analyticsmappers"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
@@ -26,6 +27,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/kafka"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/logger"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/objectstorage"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/observability"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 	platformredis "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
@@ -61,13 +63,32 @@ func Run(ctx context.Context) error {
 	}
 	defer redisClient.Close()
 
+	var objectStorageClient objectstorage.ObjectStorage
+	if cfg.ObjectStorageEnabled() {
+		objectStorageClient, err = objectstorage.New(ctx, cfg.ObjectStorage)
+		if err != nil {
+			return err
+		}
+		ensureCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := objectStorageClient.EnsureBucket(ensureCtx); err != nil {
+			return err
+		}
+	}
+
 	healthSvc := platformhealth.NewService(platformhealth.Options{
 		AppName:           cfg.AppName,
 		PostgresCheck:     pgClient.Ping,
 		PostgresReadCheck: pgClient.PingRead,
 		RedisCheck:        redisClient.Ping,
 		KafkaEnabled:      cfg.KafkaEnabled(),
-		ClickEnabled:      cfg.ClickHouseEnabled(),
+		ObjectStorageCheck: func(ctx context.Context) error {
+			if objectStorageClient == nil {
+				return nil
+			}
+			return objectStorageClient.Ping(ctx)
+		},
+		ObjectStorageEnabled: cfg.ObjectStorageEnabled(),
 	})
 
 	registry := NewRegistry()
@@ -226,6 +247,16 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
+	dueNotificationProcessor := NewDueNotificationProcessor(
+		notificationSvc,
+		log,
+		10*time.Second,
+		50,
+	)
+	if err := registry.Register(dueNotificationProcessor); err != nil {
+		return err
+	}
+
 	webhooksSvc := shared.NewWebhooksService(pgReadPool, pgWritePool, nil, log)
 
 	webhookConsumer := NewWebhookEventConsumer(
@@ -237,6 +268,54 @@ func Run(ctx context.Context) error {
 	)
 	if err := registry.Register(webhookConsumer); err != nil {
 		return err
+	}
+
+	webhookDeliveryProcessor := NewDueWebhookDeliveryProcessor(
+		webhooksSvc,
+		log,
+		10*time.Second,
+		50,
+	)
+	if err := registry.Register(webhookDeliveryProcessor); err != nil {
+		return err
+	}
+
+	// Wire audience import/export processors
+	if objectStorageClient != nil {
+		audienceContactsRead := audiencepostgres.NewContactReadRepository(pgReadPool)
+		audienceContactsWrite := audiencepostgres.NewContactWriteRepository(pgWritePool)
+		audienceImportJobsWrite := audiencepostgres.NewImportJobWriteRepository(pgWritePool)
+		audienceExportJobsWrite := audiencepostgres.NewExportJobWriteRepository(pgWritePool)
+		audienceOutboxRepo := audiencepostgres.NewOutboxRepository(pgWritePool)
+
+		importProcessor := NewAudienceImportProcessor(
+			audienceImportJobsWrite,
+			audienceContactsWrite,
+			audienceContactsRead,
+			audienceOutboxRepo,
+			transaction.NewManager(pgWritePool),
+			objectStorageClient,
+			log,
+			10*time.Second,
+			10,
+		)
+		if err := registry.Register(importProcessor); err != nil {
+			return err
+		}
+
+		exportProcessor := NewAudienceExportProcessor(
+			audienceExportJobsWrite,
+			audienceContactsRead,
+			audienceOutboxRepo,
+			transaction.NewManager(pgWritePool),
+			objectStorageClient,
+			log,
+			10*time.Second,
+			10,
+		)
+		if err := registry.Register(exportProcessor); err != nil {
+			return err
+		}
 	}
 
 	workerCtx, stopWorkers := context.WithCancel(ctx)

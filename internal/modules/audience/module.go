@@ -37,4 +37,5 @@ var Events = []string{
 	"audience.contact.updated.v1",
 	"audience.segment.changed.v1",
 	"audience.import.completed.v1",
+	"audience.export.completed.v1",
 }

@@ -69,6 +69,10 @@ func (m *mockWebhookDeliveryWrite) ScheduleRetry(ctx context.Context, deliveryID
 	return nil
 }
 
+func (m *mockWebhookDeliveryWrite) ClaimPendingDeliveries(ctx context.Context, limit int, now time.Time) ([]webhooksdomain.WebhookDelivery, error) {
+	return nil, nil
+}
+
 type mockWebhookDeliveryRead struct{}
 
 func (m *mockWebhookDeliveryRead) FindByID(ctx context.Context, workspaceID, deliveryID string) (*webhooksdomain.WebhookDelivery, error) {

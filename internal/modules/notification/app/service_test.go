@@ -32,8 +32,9 @@ func (m *mockMessageReadRepo) FindPendingForRetry(ctx context.Context, limit int
 
 type mockMessageWriteRepo struct {
 	ports.MessageWriteRepository
-	create func(ctx context.Context, msg domain.NotificationMessage) error
-	update func(ctx context.Context, msg domain.NotificationMessage) error
+	create                func(ctx context.Context, msg domain.NotificationMessage) error
+	update                func(ctx context.Context, msg domain.NotificationMessage) error
+	claimRetryingMessages func(ctx context.Context, limit int) ([]domain.NotificationMessage, error)
 }
 
 func (m *mockMessageWriteRepo) Create(ctx context.Context, msg domain.NotificationMessage) error {
@@ -42,6 +43,10 @@ func (m *mockMessageWriteRepo) Create(ctx context.Context, msg domain.Notificati
 
 func (m *mockMessageWriteRepo) Update(ctx context.Context, msg domain.NotificationMessage) error {
 	return m.update(ctx, msg)
+}
+
+func (m *mockMessageWriteRepo) ClaimRetryingMessages(ctx context.Context, limit int) ([]domain.NotificationMessage, error) {
+	return m.claimRetryingMessages(ctx, limit)
 }
 
 type mockAttemptReadRepo struct {

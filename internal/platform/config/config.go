@@ -296,6 +296,9 @@ func (c Config) Validate() error {
 	if c.EmailProvider != "smtp" && c.EmailProvider != "ses" && c.EmailProvider != "fake" {
 		return errors.New("EMAIL_PROVIDER must be one of: smtp, ses, fake")
 	}
+	if c.EmailProvider == "fake" && c.AppEnv != "local" && c.AppEnv != "test" {
+		return errors.New("EMAIL_PROVIDER=fake is not allowed outside local/test environment")
+	}
 	if c.EmailProvider == "smtp" {
 		if c.SMTP.Host == "" {
 			return errors.New("SMTP_HOST is required when EMAIL_PROVIDER=smtp")
@@ -335,6 +338,9 @@ func (c Config) Validate() error {
 	if c.WorkerConsumerGroupPrefix == "" {
 		return errors.New("WORKER_CONSUMER_GROUP_PREFIX is required")
 	}
+	if c.needsObjectStorage() && !c.ObjectStorageEnabled() {
+		return errors.New("OBJECT_STORAGE_ENDPOINT is required when audience import/export processors are enabled")
+	}
 	return nil
 }
 
@@ -348,6 +354,15 @@ func (c Config) ClickHouseEnabled() bool {
 
 func (c Config) ObjectStorageEnabled() bool {
 	return c.ObjectStorage.Endpoint != ""
+}
+
+func (c Config) needsObjectStorage() bool {
+	for _, consumer := range c.WorkerEnabledConsumers {
+		if consumer == "audience.import_processor" || consumer == "audience.export_processor" {
+			return true
+		}
+	}
+	return false
 }
 
 func (c Config) SecureCookies() bool {

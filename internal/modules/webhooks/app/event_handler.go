@@ -84,30 +84,6 @@ func (s *Service) HandleSourceEvent(ctx context.Context, input HandleSourceEvent
 			log.Error("failed to create delivery record", "error", err, "webhook_id", cfg.ID)
 			continue
 		}
-
-		if cfg.Status != domain.ConfigStatusActive {
-			log.Debug("webhook config disabled, skipping delivery", "webhook_id", cfg.ID)
-			continue
-		}
-
-		if err := s.deliveryWrite.MarkDelivering(ctx, deliveryID, now); err != nil {
-			log.Error("failed to mark delivery as delivering", "error", err, "delivery_id", deliveryID)
-			continue
-		}
-
-		if err := s.DeliverWebhook(ctx, DeliverWebhookInput{
-			WorkspaceID:     envelope.WorkspaceID,
-			WebhookID:       cfg.ID,
-			DeliveryID:      deliveryID,
-			TargetURL:       cfg.TargetURL,
-			SecretHash:      cfg.SecretHash,
-			EventPayload:    eventPayload,
-			SourceEventID:   envelope.EventID,
-			SourceEventType: envelope.EventType,
-			AttemptNumber:   1,
-		}); err != nil {
-			log.Error("failed to deliver webhook", "error", err, "delivery_id", deliveryID)
-		}
 	}
 
 	log.Info("source event processed", "matched_configs", len(configs))

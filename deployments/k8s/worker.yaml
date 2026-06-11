@@ -32,7 +32,7 @@ spec:
             - name: WORKER_HTTP_ADDR
               value: ":8082"
             - name: WORKER_ENABLED_CONSUMERS
-              value: ""
+              value: "delivery.queue_campaign_messages,delivery_provider_events,tracking_provider_events,delivery.process_due_messages,analytics_events,notification.identity_events,notification.process_due_retries,webhooks.deliver_events,webhooks.process_due_deliveries"
             - name: WORKER_CONCURRENCY
               value: "1"
             - name: WORKER_SHUTDOWN_TIMEOUT

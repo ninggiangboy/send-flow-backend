@@ -53,13 +53,14 @@ type DeadLetterRepository struct {
 }
 
 type DeadLetterRecord struct {
-	ID           string
-	WorkspaceID  string
-	Source       string
-	EventID      string
-	Payload      any
-	ErrorMessage string
-	Retryable    bool
+	ID              string
+	WorkspaceID     string
+	Source          string
+	SourceEventType string
+	EventID         string
+	Payload         any
+	ErrorMessage    string
+	Retryable       bool
 }
 
 func NewDeadLetterRepository(pool *pgxpool.Pool) *DeadLetterRepository {
@@ -78,6 +79,16 @@ func workspaceIDFromEventPayload(payload []byte) string {
 		return ""
 	}
 	return env.WorkspaceID
+}
+
+func eventTypeFromEnvelope(payload []byte) string {
+	var env struct {
+		EventType string `json:"event_type"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return ""
+	}
+	return env.EventType
 }
 
 func workspaceIDFromMessage(headers map[string]string, payload []byte) string {
@@ -111,7 +122,7 @@ func (r *DeadLetterRepository) Save(ctx context.Context, record DeadLetterRecord
 	}
 	_, err = r.db.Exec(
 		ctx,
-		"INSERT INTO dead_letter_records (id, workspace_id, source, event_id, payload, error_message, retryable) VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, '')::uuid, $5::jsonb, $6, $7)",
+		"INSERT INTO dead_letter_records (id, workspace_id, source, source_event_type, event_id, payload, error_message, retryable) VALUES ($1, NULLIF($2, ''), $3, $8, NULLIF($4, '')::uuid, $5::jsonb, $6, $7)",
 		record.ID,
 		record.WorkspaceID,
 		record.Source,
@@ -119,6 +130,7 @@ func (r *DeadLetterRepository) Save(ctx context.Context, record DeadLetterRecord
 		payload,
 		record.ErrorMessage,
 		record.Retryable,
+		record.SourceEventType,
 	)
 	return err
 }

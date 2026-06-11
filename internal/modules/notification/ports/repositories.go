@@ -18,6 +18,7 @@ type MessageReadRepository interface {
 type MessageWriteRepository interface {
 	Create(ctx context.Context, msg domain.NotificationMessage) error
 	Update(ctx context.Context, msg domain.NotificationMessage) error
+	ClaimRetryingMessages(ctx context.Context, limit int) ([]domain.NotificationMessage, error)
 }
 
 type AttemptReadRepository interface {

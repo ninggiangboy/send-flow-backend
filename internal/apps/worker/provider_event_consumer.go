@@ -99,13 +99,14 @@ func (c *ProviderEventConsumer) Run(ctx context.Context) error {
 				)
 				if c.deadLetter != nil {
 					if dlErr := c.deadLetter.Save(ctx, DeadLetterRecord{
-						ID:           mustNewID(c.idGen),
-						WorkspaceID:  workspaceIDFromMessage(msg.Headers, msg.Value),
-						Source:       c.name,
-						EventID:      eventID,
-						Payload:      msg.Value,
-						ErrorMessage: err.Error(),
-						Retryable:    false,
+						ID:              mustNewID(c.idGen),
+						WorkspaceID:     workspaceIDFromMessage(msg.Headers, msg.Value),
+						Source:          c.name,
+						SourceEventType: eventTypeFromEnvelope(msg.Value),
+						EventID:         eventID,
+						Payload:         msg.Value,
+						ErrorMessage:    err.Error(),
+						Retryable:       false,
 					}); dlErr != nil {
 						c.log.Error("failed to save dead letter record, returning for retry",
 							"event_id", eventID, "error", dlErr,

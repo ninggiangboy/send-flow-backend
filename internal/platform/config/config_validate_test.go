@@ -9,6 +9,8 @@ import (
 
 func validConfig() Config {
 	return Config{
+		AppName:                   "test-app",
+		AppEnv:                    "test",
 		DatabaseURL:               "postgres://localhost:5432/test",
 		RedisAddr:                 "localhost:6379",
 		JWTAccessSecret:           "real-secret-not-dev",
@@ -173,6 +175,66 @@ func TestValidate_WorkerConcurrencyPositive(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("expected error for WORKER_CONCURRENCY <= 0")
+	}
+}
+
+func TestValidate_FakeEmailProviderRejectedOutsideLocal(t *testing.T) {
+	cfg := validConfig()
+	cfg.AppEnv = "production"
+	cfg.EmailProvider = "fake"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for fake email provider in non-local env")
+	}
+}
+
+func TestValidate_FakeEmailProviderAcceptedLocal(t *testing.T) {
+	cfg := validConfig()
+	cfg.AppEnv = "local"
+	cfg.EmailProvider = "fake"
+	err := cfg.Validate()
+	if err != nil {
+		t.Fatalf("expected no error for fake email provider in local env, got: %v", err)
+	}
+}
+
+func TestValidate_FakeEmailProviderAcceptedTest(t *testing.T) {
+	cfg := validConfig()
+	cfg.AppEnv = "test"
+	cfg.EmailProvider = "fake"
+	err := cfg.Validate()
+	if err != nil {
+		t.Fatalf("expected no error for fake email provider in test env, got: %v", err)
+	}
+}
+
+func TestValidate_WorkerEnabledConsumersNotRequiredInProduction(t *testing.T) {
+	cfg := validConfig()
+	cfg.AppEnv = "production"
+	cfg.WorkerEnabledConsumers = nil
+	err := cfg.Validate()
+	if err != nil {
+		t.Fatalf("expected no error for empty WORKER_ENABLED_CONSUMERS in production (API does not set it), got: %v", err)
+	}
+}
+
+func TestValidate_WorkerEnabledConsumersAllowedEmptyLocal(t *testing.T) {
+	cfg := validConfig()
+	cfg.AppEnv = "local"
+	cfg.WorkerEnabledConsumers = nil
+	err := cfg.Validate()
+	if err != nil {
+		t.Fatalf("expected no error for empty WORKER_ENABLED_CONSUMERS in local, got: %v", err)
+	}
+}
+
+func TestValidate_WorkerEnabledConsumersAllowedEmptyTest(t *testing.T) {
+	cfg := validConfig()
+	cfg.AppEnv = "test"
+	cfg.WorkerEnabledConsumers = nil
+	err := cfg.Validate()
+	if err != nil {
+		t.Fatalf("expected no error for empty WORKER_ENABLED_CONSUMERS in test, got: %v", err)
 	}
 }
 

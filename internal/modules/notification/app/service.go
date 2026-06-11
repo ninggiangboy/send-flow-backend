@@ -457,6 +457,44 @@ func (s *Service) SendSystemAlert(ctx context.Context, input domain.SendSystemAl
 	return &msg, nil
 }
 
+func (s *Service) ProcessRetryBatch(ctx context.Context, limit int) (int, error) {
+	log := s.log.With("usecase", "process_retry_batch")
+	messages, err := s.messagesWrite.ClaimRetryingMessages(ctx, limit)
+	if err != nil {
+		log.Error("failed to claim retrying messages", "error", err)
+		return 0, err
+	}
+
+	processed := 0
+	for _, msg := range messages {
+		msgCopy := msg
+		attemptNumber := msg.AttemptCount + 1
+		_, final, sendErr := s.sendEmail(ctx, &msgCopy, attemptNumber, "smtp")
+		if sendErr != nil {
+			log.Error("failed to retry notification",
+				"message_id", msgCopy.ID,
+				"attempt", attemptNumber,
+				"error", sendErr,
+			)
+			continue
+		}
+		if final {
+			log.Info("notification permanently failed after retry",
+				"message_id", msgCopy.ID,
+				"attempts", msgCopy.AttemptCount,
+			)
+		} else {
+			log.Info("notification retry succeeded",
+				"message_id", msgCopy.ID,
+				"attempt", attemptNumber,
+			)
+		}
+		processed++
+	}
+
+	return processed, nil
+}
+
 func (s *Service) GetNotificationStatus(ctx context.Context, workspaceID, messageID, userID string) (*GetNotificationStatusResult, error) {
 	if s.accessChecker != nil {
 		if err := s.accessChecker.RequirePermission(ctx, workspaceID, userID, "notification.read"); err != nil {

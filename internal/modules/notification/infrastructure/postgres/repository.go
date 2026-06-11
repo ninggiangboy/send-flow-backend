@@ -259,6 +259,51 @@ func (w *MessageWriteRepository) Create(ctx context.Context, msg domain.Notifica
 	return err
 }
 
+func (w *MessageWriteRepository) ClaimRetryingMessages(ctx context.Context, limit int) ([]domain.NotificationMessage, error) {
+	db := w.getDB(ctx)
+	rows, err := db.Query(ctx,
+		`UPDATE notification_messages SET status='sending', updated_at=NOW()
+		 WHERE id IN (
+			 SELECT id FROM notification_messages
+			 WHERE status='retrying' AND attempt_count < max_attempts
+			 ORDER BY created_at ASC LIMIT $1
+			 FOR UPDATE SKIP LOCKED
+		 )
+		 RETURNING id, workspace_id, type, status, recipient_email, recipient_user_id, subject, body_text, body_html, max_attempts, attempt_count, last_attempt_at, created_at, updated_at`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []domain.NotificationMessage
+	for rows.Next() {
+		var m domain.NotificationMessage
+		var workspaceID, recipientUserID, bodyHTML *string
+		var lastAttemptAt *time.Time
+		if err := rows.Scan(
+			&m.ID, &workspaceID, &m.Type, &m.Status, &m.RecipientEmail, &recipientUserID,
+			&m.Subject, &m.BodyText, &bodyHTML, &m.MaxAttempts, &m.AttemptCount,
+			&lastAttemptAt, &m.CreatedAt, &m.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		m.WorkspaceID = workspaceID
+		m.RecipientUserID = recipientUserID
+		m.BodyHTML = bodyHTML
+		m.LastAttemptAt = lastAttemptAt
+		results = append(results, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if results == nil {
+		results = []domain.NotificationMessage{}
+	}
+	return results, nil
+}
+
 func (w *MessageWriteRepository) Update(ctx context.Context, msg domain.NotificationMessage) error {
 	db := w.getDB(ctx)
 	tag, err := db.Exec(ctx,

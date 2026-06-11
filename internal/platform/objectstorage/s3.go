@@ -18,6 +18,7 @@ import (
 
 type ObjectStorage interface {
 	PutObject(ctx context.Context, key string, body io.Reader, contentType string) error
+	GetObject(ctx context.Context, key string) (io.ReadCloser, error)
 	PresignGetObject(ctx context.Context, key string, expiry time.Duration) (string, error)
 	EnsureBucket(ctx context.Context) error
 	Ping(ctx context.Context) error
@@ -60,6 +61,18 @@ func (c *Client) PutObject(ctx context.Context, key string, body io.Reader, cont
 		return fmt.Errorf("put object %s: %w", key, err)
 	}
 	return nil
+}
+
+func (c *Client) GetObject(ctx context.Context, key string) (io.ReadCloser, error) {
+	input := &s3.GetObjectInput{
+		Bucket: &c.bucket,
+		Key:    &key,
+	}
+	resp, err := c.s3.GetObject(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("get object %s: %w", key, err)
+	}
+	return resp.Body, nil
 }
 
 func (c *Client) PresignGetObject(ctx context.Context, key string, expiry time.Duration) (string, error) {

@@ -251,6 +251,24 @@ func (r *DeliveryWriteRepository) MarkFailed(ctx context.Context, deliveryID str
 	return nil
 }
 
+func (r *DeliveryWriteRepository) ClaimPendingDeliveries(ctx context.Context, limit int, now time.Time) ([]domain.WebhookDelivery, error) {
+	rows, err := r.db(ctx).Query(ctx, `
+		UPDATE customer_webhook_deliveries SET status='delivering', attempt_count=attempt_count+1, last_attempt_at=$1, updated_at=$1
+		WHERE id IN (
+			SELECT id FROM customer_webhook_deliveries
+			WHERE status IN ('pending', 'retry_scheduled') AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
+			ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED
+		)
+		RETURNING id, workspace_id, webhook_id, source_event_id, source_event_type, status, target_url, attempt_count, next_attempt_at, last_attempt_at, last_status_code, COALESCE(last_error, ''), request_headers_json, response_headers_json, event_payload_json, created_at, updated_at`,
+		now, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanDeliveries(rows)
+}
+
 func (r *DeliveryWriteRepository) ScheduleRetry(ctx context.Context, deliveryID string, nextAttemptAt time.Time) error {
 	tag, err := r.db(ctx).Exec(ctx,
 		`UPDATE customer_webhook_deliveries SET status='retry_scheduled', next_attempt_at=$1, updated_at=NOW() WHERE id=$2 AND status='failed'`,

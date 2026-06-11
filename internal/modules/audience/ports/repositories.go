@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/outbox"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type ContactListQuery struct {
@@ -77,14 +79,47 @@ type ImportJobReadRepository interface {
 	ListImportJobs(ctx context.Context, query ImportJobListQuery) ([]domain.AudienceImportJob, string, error)
 }
 
+type ImportCounts struct {
+	ProcessedCount int64
+	CreatedCount   int64
+	UpdatedCount   int64
+	FailedCount    int64
+}
+
 type ImportJobWriteRepository interface {
 	CreateImportJob(ctx context.Context, job domain.AudienceImportJob) error
+	UpdateImportJob(ctx context.Context, job domain.AudienceImportJob) error
+	ClaimQueuedImportJobs(ctx context.Context, limit int, now time.Time) ([]domain.AudienceImportJob, error)
+	MarkImportJobRunning(ctx context.Context, workspaceID, jobID string, now time.Time) error
+	MarkImportJobCompleted(ctx context.Context, workspaceID, jobID string, counts ImportCounts, now time.Time) error
+	MarkImportJobFailed(ctx context.Context, workspaceID, jobID string, errorSummary string, now time.Time) error
+}
+
+type ExportJobListQuery struct {
+	WorkspaceID string
+	Status      string
+	Limit       int
+	Cursor      string
 }
 
 type ExportJobReadRepository interface {
 	FindExportJobByID(ctx context.Context, workspaceID, jobID string) (*domain.AudienceExportJob, error)
+	ListExportJobs(ctx context.Context, query ExportJobListQuery) ([]domain.AudienceExportJob, string, error)
 }
 
 type ExportJobWriteRepository interface {
 	CreateExportJob(ctx context.Context, job domain.AudienceExportJob) error
+	UpdateExportJob(ctx context.Context, job domain.AudienceExportJob) error
+	ClaimQueuedExportJobs(ctx context.Context, limit int, now time.Time) ([]domain.AudienceExportJob, error)
+	MarkExportJobRunning(ctx context.Context, workspaceID, jobID string, now time.Time) error
+	MarkExportJobCompleted(ctx context.Context, workspaceID, jobID string, artifactURI string, now time.Time) error
+	MarkExportJobFailed(ctx context.Context, workspaceID, jobID string, errorSummary string, now time.Time) error
 }
+
+type OutboxEvent = outbox.Event
+
+type OutboxWriter interface {
+	Save(ctx context.Context, event OutboxEvent) error
+}
+
+type TransactionManager = transaction.UnitOfWork
