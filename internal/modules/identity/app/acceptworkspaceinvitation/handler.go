@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type Command struct {
@@ -85,16 +87,9 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership,
 		}
 		return h.deps.InvitationsWrite.UpdateStatus(ctx, invitation.ID, domain.InvitationStatusAccepted, cmd.Now)
 	}
-	if h.deps.UnitOfWork != nil {
-		if err := h.deps.UnitOfWork.WithinTx(ctx, persistAcceptance); err != nil {
-			h.log.Error("failed to accept invitation", "workspace_id", invitation.WorkspaceID, "error", err)
-			return nil, err
-		}
-	} else {
-		if err := persistAcceptance(ctx); err != nil {
-			h.log.Error("failed to accept invitation", "workspace_id", invitation.WorkspaceID, "error", err)
-			return nil, err
-		}
+	if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, persistAcceptance); err != nil {
+		h.log.Error("failed to accept invitation", "workspace_id", invitation.WorkspaceID, "error", err)
+		return nil, err
 	}
 	membership.RoleIDs = roleIDs
 	membership.RoleNames = domain.RoleNames(invitationRoles)
@@ -104,5 +99,5 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership,
 }
 
 func matchEmail(userEmail, invitationEmail string) bool {
-	return userEmail == invitationEmail
+	return strings.EqualFold(userEmail, invitationEmail)
 }

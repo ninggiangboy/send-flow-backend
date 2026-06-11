@@ -20,3 +20,21 @@ type CampaignScheduledPayload struct {
 	ScheduledAt       string          `json:"scheduled_at"`
 	PlannedRecipients int64           `json:"planned_recipients"`
 }
+
+type CampaignCancelledPayload struct {
+	CampaignID  string `json:"campaign_id"`
+	WorkspaceID string `json:"workspace_id"`
+	CancelledAt string `json:"cancelled_at"`
+}
+
+type CampaignPausedPayload struct {
+	CampaignID  string `json:"campaign_id"`
+	WorkspaceID string `json:"workspace_id"`
+	PausedAt    string `json:"paused_at"`
+}
+
+type CampaignResumedPayload struct {
+	CampaignID  string `json:"campaign_id"`
+	WorkspaceID string `json:"workspace_id"`
+	ResumedAt   string `json:"resumed_at"`
+}

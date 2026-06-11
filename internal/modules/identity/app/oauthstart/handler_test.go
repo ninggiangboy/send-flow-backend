@@ -28,6 +28,12 @@ func (s *oauthProviderStub) Exchange(context.Context, string, string, string) (*
 	return nil, nil
 }
 
+type idGenStub struct {
+	id string
+}
+
+func (s idGenStub) New() (string, error) { return s.id, nil }
+
 type oauthStateStoreStub struct {
 	calls int
 	err   error
@@ -52,6 +58,7 @@ func TestExecuteProviderDisabled(t *testing.T) {
 func TestExecuteSuccess(t *testing.T) {
 	store := &oauthStateStoreStub{}
 	h := New(usecase.Deps{
+		IDGen:         idGenStub{id: "state-1"},
 		Providers:     map[string]ports.OAuthProvider{"google": &oauthProviderStub{enabled: true}},
 		OAuthState:    store,
 		OAuthStateTTL: 5 * time.Minute,

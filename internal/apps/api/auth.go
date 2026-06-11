@@ -38,32 +38,6 @@ func newAuthHTTP(svc *identityapp.Service, rateLimiter ratelimit.Service, secure
 	return &authHTTP{svc: svc, rateLimiter: rateLimiter, secureCookie: secureCookie}
 }
 
-func (a *authHTTP) registerRoutes(r chi.Router) {
-	r.Post("/auth/signup", a.signup)
-	r.Post("/auth/login", a.login)
-	r.Post("/auth/login/mfa", a.loginMFA)
-	r.Post("/auth/refresh", a.refresh)
-	r.Get("/auth/providers", a.providers)
-	r.Post("/auth/oauth/{provider}/start", a.oauthStart)
-	r.Post("/auth/oauth/{provider}/exchange", a.oauthExchange)
-	r.Post("/auth/email/verify", a.verifyEmail)
-	r.Post("/auth/password/forgot", a.forgotPassword)
-	r.Post("/auth/password/reset", a.resetPassword)
-
-	r.Group(func(r chi.Router) {
-		r.Use(a.authz)
-		r.Post("/auth/logout", a.logout)
-		r.Get("/auth/me", a.me)
-		r.Post("/auth/email/verify/request", a.requestVerifyEmail)
-		r.Post("/auth/mfa/totp/setup", a.mfaTOTPSetup)
-		r.Post("/auth/mfa/totp/enable", a.mfaTOTPEnable)
-		r.Post("/auth/mfa/totp/disable", a.mfaTOTPDisable)
-		r.Post("/auth/mfa/recovery/regenerate", a.mfaRecoveryRegenerate)
-		r.Get("/sessions", a.sessions)
-		r.Delete("/sessions/{session_id}", a.revokeSession)
-	})
-}
-
 func (a *authHTTP) signup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -101,10 +75,18 @@ func (a *authHTTP) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if result.MFARequired {
-		writeEnvelope(w, r, http.StatusOK, map[string]any{
-			"mfa_required":        true,
-			"mfa_challenge_token": result.MFAChallengeToken,
-			"user":                map[string]any{"id": result.User.ID, "email": result.User.Email, "email_verified": result.User.EmailVerified()},
+		writeEnvelope(w, r, http.StatusOK, MFARequiredResponse{
+			MFARequired:       true,
+			MFAChallengeToken: result.MFAChallengeToken,
+			User: struct {
+				ID            string `json:"id"`
+				Email         string `json:"email"`
+				EmailVerified bool   `json:"email_verified"`
+			}{
+				ID:            result.User.ID,
+				Email:         result.User.Email,
+				EmailVerified: result.User.EmailVerified(),
+			},
 		})
 		return
 	}
@@ -208,7 +190,7 @@ func (a *authHTTP) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.clearRefreshCookie(w)
-	writeEnvelope(w, r, http.StatusOK, map[string]bool{"revoked": true})
+	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Revoked: ptrBool(true)})
 }
 
 func (a *authHTTP) me(w http.ResponseWriter, r *http.Request) {
@@ -218,7 +200,7 @@ func (a *authHTTP) me(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]any{"id": user.ID, "email": user.Email, "email_verified": user.EmailVerified(), "mfa_enabled": user.MFAEnabled()})
+	writeEnvelope(w, r, http.StatusOK, UserMeResponse{ID: user.ID, Email: user.Email, EmailVerified: user.EmailVerified(), MFAEnabled: user.MFAEnabled()})
 }
 
 func (a *authHTTP) sessions(w http.ResponseWriter, r *http.Request) {
@@ -228,9 +210,9 @@ func (a *authHTTP) sessions(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
-	out := make([]map[string]any, 0, len(sessions))
+	out := make([]SessionResponse, 0, len(sessions))
 	for _, s := range sessions {
-		out = append(out, map[string]any{"id": s.ID, "created_at": s.CreatedAt, "expires_at": s.ExpiresAt, "ip_address": s.IPAddress, "auth_method": s.AuthMethod})
+		out = append(out, SessionResponse{ID: s.ID, CreatedAt: s.CreatedAt, ExpiresAt: s.ExpiresAt, IPAddress: s.IPAddress, AuthMethod: s.AuthMethod})
 	}
 	writeEnvelope(w, r, http.StatusOK, out)
 }
@@ -242,7 +224,7 @@ func (a *authHTTP) revokeSession(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]bool{"revoked": true})
+	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Revoked: ptrBool(true)})
 }
 
 func (a *authHTTP) requestVerifyEmail(w http.ResponseWriter, r *http.Request) {
@@ -251,7 +233,7 @@ func (a *authHTTP) requestVerifyEmail(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]bool{"sent": true})
+	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Sent: ptrBool(true)})
 }
 
 func (a *authHTTP) verifyEmail(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +250,7 @@ func (a *authHTTP) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]bool{"verified": true})
+	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Verified: ptrBool(true)})
 }
 
 func (a *authHTTP) forgotPassword(w http.ResponseWriter, r *http.Request) {
@@ -285,7 +267,7 @@ func (a *authHTTP) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]bool{"sent": true})
+	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Sent: ptrBool(true)})
 }
 
 func (a *authHTTP) resetPassword(w http.ResponseWriter, r *http.Request) {
@@ -303,7 +285,7 @@ func (a *authHTTP) resetPassword(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]bool{"reset": true})
+	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Reset: ptrBool(true)})
 }
 
 func (a *authHTTP) mfaTOTPSetup(w http.ResponseWriter, r *http.Request) {
@@ -345,7 +327,7 @@ func (a *authHTTP) mfaTOTPDisable(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]bool{"disabled": true})
+	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Disabled: ptrBool(true)})
 }
 
 func (a *authHTTP) mfaRecoveryRegenerate(w http.ResponseWriter, r *http.Request) {
@@ -368,15 +350,24 @@ func (a *authHTTP) authz(next http.Handler) http.Handler {
 	return authzMiddleware(a.svc)(next)
 }
 
-func authSessionData(sctx *identityapp.SessionContext) map[string]any {
-	return map[string]any{
-		"user": map[string]any{"id": sctx.User.ID, "email": sctx.User.Email, "email_verified": sctx.User.EmailVerified(), "mfa_enabled": sctx.User.MFAEnabled()},
-		"session": map[string]any{
-			"id": sctx.Session.ID, "created_at": sctx.Session.CreatedAt, "expires_at": sctx.Session.ExpiresAt, "ip_address": sctx.Session.IPAddress, "auth_method": sctx.Session.AuthMethod,
+func authSessionData(sctx *identityapp.SessionContext) AuthSessionResponse {
+	return AuthSessionResponse{
+		User: AuthSessionUser{
+			ID:            sctx.User.ID,
+			Email:         sctx.User.Email,
+			EmailVerified: sctx.User.EmailVerified(),
+			MFAEnabled:    sctx.User.MFAEnabled(),
 		},
-		"access_token": sctx.Tokens.AccessToken,
-		"token_type":   "Bearer",
-		"expires_at":   sctx.Tokens.AccessExpiresAt,
+		Session: AuthSessionSession{
+			ID:         sctx.Session.ID,
+			CreatedAt:  sctx.Session.CreatedAt,
+			ExpiresAt:  sctx.Session.ExpiresAt,
+			IPAddress:  sctx.Session.IPAddress,
+			AuthMethod: sctx.Session.AuthMethod,
+		},
+		AccessToken: sctx.Tokens.AccessToken,
+		TokenType:   "Bearer",
+		ExpiresAt:   sctx.Tokens.AccessExpiresAt,
 	}
 }
 
@@ -415,7 +406,7 @@ func writeAuthErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, domain.ErrSessionNotOwned):
 		writeError(w, r, http.StatusForbidden, "auth.session_not_owned", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }
 
@@ -464,7 +455,7 @@ func (a *authHTTP) allow(w http.ResponseWriter, r *http.Request, scope, email st
 	for _, key := range keys {
 		ok, err := a.rateLimiter.Allow(r.Context(), key, limit, window)
 		if err != nil {
-			writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+			writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 			return false
 		}
 		if !ok {

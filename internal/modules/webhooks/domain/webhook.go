@@ -2,10 +2,13 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/httpheaders"
 )
 
 type ConfigStatus string
@@ -52,6 +55,36 @@ type WebhookConfig struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	DisabledAt      *time.Time
+}
+
+func NewWebhookConfig(id, workspaceID, name, targetURL string, subscriptions []string, createdByUserID string, now time.Time) (*WebhookConfig, error) {
+	if id == "" {
+		return nil, errors.New("webhook config id is required")
+	}
+	if workspaceID == "" {
+		return nil, errors.New("workspace id is required")
+	}
+	if strings.TrimSpace(name) == "" {
+		return nil, errors.New("webhook name is required")
+	}
+	if _, err := url.ParseRequestURI(targetURL); err != nil {
+		return nil, errors.New("valid target URL is required")
+	}
+	if len(subscriptions) == 0 {
+		return nil, errors.New("at least one subscription is required")
+	}
+	return &WebhookConfig{
+		ID:              id,
+		WorkspaceID:     workspaceID,
+		Name:            strings.TrimSpace(name),
+		TargetURL:       targetURL,
+		Status:          ConfigStatusActive,
+		Subscriptions:   subscriptions,
+		Version:         1,
+		CreatedByUserID: createdByUserID,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}, nil
 }
 
 type WebhookDelivery struct {
@@ -183,29 +216,13 @@ func IsTerminalDeliveryStatus(status DeliveryStatus) bool {
 }
 
 func isPrivateHost(hostname string) bool {
-	return strings.HasPrefix(hostname, "10.") ||
-		strings.HasPrefix(hostname, "172.16.") ||
-		strings.HasPrefix(hostname, "172.17.") ||
-		strings.HasPrefix(hostname, "172.18.") ||
-		strings.HasPrefix(hostname, "172.19.") ||
-		strings.HasPrefix(hostname, "172.20.") ||
-		strings.HasPrefix(hostname, "172.21.") ||
-		strings.HasPrefix(hostname, "172.22.") ||
-		strings.HasPrefix(hostname, "172.23.") ||
-		strings.HasPrefix(hostname, "172.24.") ||
-		strings.HasPrefix(hostname, "172.25.") ||
-		strings.HasPrefix(hostname, "172.26.") ||
-		strings.HasPrefix(hostname, "172.27.") ||
-		strings.HasPrefix(hostname, "172.28.") ||
-		strings.HasPrefix(hostname, "172.29.") ||
-		strings.HasPrefix(hostname, "172.30.") ||
-		strings.HasPrefix(hostname, "172.31.") ||
-		strings.HasPrefix(hostname, "192.168.") ||
-		hostname == "127.0.0.1" ||
-		hostname == "::1" ||
-		hostname == "localhost" ||
-		hostname == "0.0.0.0" ||
-		strings.HasPrefix(hostname, "169.254.")
+	if hostname == "localhost" || hostname == "::1" {
+		return true
+	}
+	if ip := net.ParseIP(hostname); ip != nil {
+		return IsPrivateIP(ip)
+	}
+	return false
 }
 
 func IsPrivateIP(ip net.IP) bool {
@@ -226,23 +243,9 @@ func SanitizeError(err string) string {
 }
 
 func SanitizeHeaders(headers map[string]string) map[string]string {
-	sensitive := map[string]bool{
-		"authorization":       true,
-		"cookie":              true,
-		"set-cookie":          true,
-		"x-api-key":           true,
-		"x-auth-token":        true,
-		"proxy-authorization": true,
-	}
-	sanitized := make(map[string]string, len(headers))
+	wrapped := make(map[string][]string, len(headers))
 	for k, v := range headers {
-		if sensitive[strings.ToLower(k)] {
-			continue
-		}
-		if len(v) > 1000 {
-			v = v[:1000]
-		}
-		sanitized[k] = v
+		wrapped[k] = []string{v}
 	}
-	return sanitized
+	return httpheaders.SanitizeHeaders(wrapped)
 }

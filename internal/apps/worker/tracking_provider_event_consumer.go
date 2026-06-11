@@ -12,6 +12,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/kafka"
+	platformerrors "github.com/ninggiangboy/send-flow/backend/internal/platform/retryable"
 )
 
 type TrackingProviderEventConsumer struct {
@@ -91,7 +92,7 @@ func (c *TrackingProviderEventConsumer) Run(ctx context.Context) error {
 		}
 
 		if err := c.HandleEvent(ctx, eventID, msg.Value); err != nil {
-			var nonRetryable *trackingapp.NonRetryableError
+			var nonRetryable *platformerrors.NonRetryableError
 			if errors.As(err, &nonRetryable) {
 				c.log.Warn("non-retryable error handling tracking provider event",
 					"event_id", eventID,
@@ -143,7 +144,7 @@ func (c *TrackingProviderEventConsumer) Run(ctx context.Context) error {
 func (c *TrackingProviderEventConsumer) HandleEvent(ctx context.Context, eventID string, rawPayload []byte) error {
 	envelope, err := events.Unmarshal(rawPayload)
 	if err != nil {
-		return &trackingapp.NonRetryableError{Err: err}
+		return &platformerrors.NonRetryableError{Err: err}
 	}
 
 	if envelope.EventType != ingestioncontracts.EventProviderEventNormalizedV1 {
@@ -157,17 +158,17 @@ func (c *TrackingProviderEventConsumer) HandleEvent(ctx context.Context, eventID
 
 	var payload ingestioncontracts.ProviderEventNormalizedPayload
 	if err := envelope.DecodePayload(&payload); err != nil {
-		return &trackingapp.NonRetryableError{Err: err}
+		return &platformerrors.NonRetryableError{Err: err}
 	}
 
 	occurredAt, err := time.Parse(time.RFC3339, payload.OccurredAt)
 	if err != nil {
-		return &trackingapp.NonRetryableError{Err: err}
+		return &platformerrors.NonRetryableError{Err: err}
 	}
 
 	receivedAt, err := time.Parse(time.RFC3339, payload.ReceivedAt)
 	if err != nil {
-		return &trackingapp.NonRetryableError{Err: err}
+		return &platformerrors.NonRetryableError{Err: err}
 	}
 
 	input := trackingapp.HandleProviderEventInput{

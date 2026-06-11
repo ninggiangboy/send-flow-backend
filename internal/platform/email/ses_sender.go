@@ -39,14 +39,8 @@ func NewSESSender(ctx context.Context, cfg config.SESConfig) (*SESSender, error)
 }
 
 func (s *SESSender) Send(ctx context.Context, msg Message) error {
-	if len(msg.To) == 0 {
-		return fmt.Errorf("email recipient is required")
-	}
-	if msg.Subject == "" {
-		return fmt.Errorf("email subject is required")
-	}
-	if msg.Text == "" && msg.HTML == "" {
-		return fmt.Errorf("email body is required")
+	if err := msg.Validate(); err != nil {
+		return err
 	}
 
 	input := &sesv2.SendEmailInput{

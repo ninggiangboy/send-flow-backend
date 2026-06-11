@@ -2,10 +2,13 @@ package ports
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
+
+var ErrCacheMiss = errors.New("cache miss")
 
 type UserReadRepository interface {
 	FindByEmail(ctx context.Context, email string) (*domain.User, error)

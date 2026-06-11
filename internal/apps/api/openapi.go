@@ -17,23 +17,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
 	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/httputil"
-	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
-	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
-	auditapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audit/app"
-	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
-	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
-	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
-	ingestionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/app"
-	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
-	operationsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app"
-	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
-	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
-	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
-	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/httputil"
 )
 
 type humaContextKey string
@@ -67,7 +53,7 @@ func openAPIConfig() huma.Config {
 	return cfg
 }
 
-func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth.Service, authSvc *identityapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, notificationSvc *notificationapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, operationsSvc *operationsapp.Service, settingsSvc *identityapp.Service, auditSvc *auditapp.Service) {
+func registerOpenAPIRoutes(api huma.API, r chi.Router, deps *RouterDeps) {
 	api.UseMiddleware(captureHTTPContext)
 
 	r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -77,82 +63,82 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, healthSvc *platformhealth
 		}
 	})
 
-	registerHealthOperations(api, healthSvc)
+	registerHealthOperations(api, deps.HealthSvc)
 
 	var authMiddleware func(huma.Context, func(huma.Context))
 	var auditRecorder identityapp.AuditRecorder
-	if auditSvc != nil {
-		auditRecorder = newAuditRecorderAdapter(auditSvc)
+	if deps.AuditSvc != nil {
+		auditRecorder = newAuditRecorderAdapter(deps.AuditSvc)
 	}
 
-	if authSvc != nil {
-		auth := newAuthHTTP(authSvc, authRateLimiter, secureCookies)
-		workspace := newWorkspaceHTTP(authSvc)
-		authMiddleware = humaAuthzMiddleware(authSvc)
+	if deps.AuthSvc != nil {
+		auth := newAuthHTTP(deps.AuthSvc, deps.AuthRateLimiter, deps.SecureCookies)
+		workspace := newWorkspaceHTTP(deps.AuthSvc)
+		authMiddleware = humaAuthzMiddleware(deps.AuthSvc)
 
 		registerAuthOperations(api, auth, authMiddleware)
 		registerWorkspaceOperations(api, workspace, authMiddleware)
-		if senderSvc != nil {
-			sender := newSenderHTTP(senderSvc, auditRecorder)
+		if deps.SenderSvc != nil {
+			sender := newSenderHTTP(deps.SenderSvc, auditRecorder)
 			registerSenderOperations(api, sender, authMiddleware)
 		}
 	}
-	if audienceSvc != nil {
-		audience := newAudienceHTTP(audienceSvc)
+	if deps.AudienceSvc != nil {
+		audience := newAudienceHTTP(deps.AudienceSvc)
 		registerAudienceOperations(api, audience, authMiddleware)
 	}
-	if contentSvc != nil {
-		content := newContentHTTP(contentSvc)
+	if deps.ContentSvc != nil {
+		content := newContentHTTP(deps.ContentSvc)
 		registerContentOperations(api, content, authMiddleware)
 	}
-	if suppressionSvc != nil {
-		suppression := newSuppressionHTTP(suppressionSvc)
+	if deps.SuppressionSvc != nil {
+		suppression := newSuppressionHTTP(deps.SuppressionSvc)
 		registerSuppressionOperations(api, suppression, authMiddleware)
 	}
-	if campaignSvc != nil {
-		campaign := newCampaignHTTP(campaignSvc)
+	if deps.CampaignSvc != nil {
+		campaign := newCampaignHTTP(deps.CampaignSvc)
 		registerCampaignOperations(api, campaign, authMiddleware)
 	}
-	if deliverySvc != nil {
-		delivery := newDeliveryHTTP(deliverySvc)
+	if deps.DeliverySvc != nil {
+		delivery := newDeliveryHTTP(deps.DeliverySvc)
 		registerDeliveryOperations(api, delivery, authMiddleware)
 
-		transactional := newTransactionalHTTP(deliverySvc)
-		registerTransactionalOperations(api, transactional, accessSvc)
+		transactional := newTransactionalHTTP(deps.DeliverySvc)
+		registerTransactionalOperations(api, transactional, deps.AccessSvc)
 	}
-	if ingestionSvc != nil {
-		ingestion := newIngestionHTTP(ingestionSvc)
+	if deps.IngestionSvc != nil {
+		ingestion := newIngestionHTTP(deps.IngestionSvc)
 		registerIngestionWebhookOperations(api, ingestion)
 	}
-	if accessSvc != nil {
-		apiKeyHandler := newAPIKeyHTTP(accessSvc, auditRecorder)
+	if deps.AccessSvc != nil {
+		apiKeyHandler := newAPIKeyHTTP(deps.AccessSvc, auditRecorder)
 		registerAPIKeyOperations(api, apiKeyHandler, authMiddleware)
 	}
-	if trackingSvc != nil {
-		tracking := newTrackingHTTP(trackingSvc)
+	if deps.TrackingSvc != nil {
+		tracking := newTrackingHTTP(deps.TrackingSvc)
 		registerTrackingOperations(api, tracking)
 	}
-	if analyticsSvc != nil {
-		analytics := newAnalyticsHTTP(analyticsSvc)
+	if deps.AnalyticsSvc != nil {
+		analytics := newAnalyticsHTTP(deps.AnalyticsSvc)
 		registerAnalyticsOperations(api, analytics, authMiddleware)
 	}
-	if webhooksSvc != nil {
-		webhookConfig := newWebhookHTTP(webhooksSvc, auditRecorder)
+	if deps.WebhooksSvc != nil {
+		webhookConfig := newWebhookHTTP(deps.WebhooksSvc, auditRecorder)
 		registerWebhookConfigOperations(api, webhookConfig, authMiddleware)
-		webhookDelivery := newWebhookDeliveryHTTP(webhooksSvc)
+		webhookDelivery := newWebhookDeliveryHTTP(deps.WebhooksSvc)
 		registerWebhookDeliveryOperations(api, webhookDelivery, authMiddleware)
 	}
-	if notificationSvc != nil {
-		notification := newNotificationHTTP(notificationSvc)
+	if deps.NotificationSvc != nil {
+		notification := newNotificationHTTP(deps.NotificationSvc)
 		registerNotificationOperations(api, notification, authMiddleware)
 	}
-	if operationsSvc != nil {
-		operations := newOperationsHTTP(operationsSvc)
+	if deps.OperationsSvc != nil {
+		operations := newOperationsHTTP(deps.OperationsSvc)
 		registerOperationsRoutes(api, operations, authMiddleware)
 	}
-	if authSvc != nil && auditSvc != nil {
-		settings := newSettingsHTTP(authSvc)
-		audit := newAuditHTTP(auditSvc)
+	if deps.AuthSvc != nil && deps.AuditSvc != nil {
+		settings := newSettingsHTTP(deps.AuthSvc)
+		audit := newAuditHTTP(deps.AuditSvc)
 		registerSettingsOperations(api, settings, authMiddleware)
 		registerAuditOperations(api, audit, authMiddleware)
 	}
@@ -189,6 +175,15 @@ func humaAuthzMiddleware(svc *identityapp.Service) func(huma.Context, func(huma.
 	}
 }
 
+// The delegateHTTP pattern bridges Huma's typed request/response cycle with existing
+// http.HandlerFunc-style handlers. This provides OpenAPI documentation via Huma while
+// reusing existing handler logic. The pattern is worth keeping for now because it:
+//  1. Preserves backward compatibility with existing handlers
+//  2. Provides automatic OpenAPI spec generation
+//  3. Allows incremental migration to Huma's typed pattern
+//
+// Trade-off: double JSON (de)serialization (Huma decodes, then re-encodes for the handler).
+// Consider migrating to Huma's native typed handlers when refactoring individual endpoints.
 func delegateHTTP[O any](ctx context.Context, rawBody []byte, handler http.HandlerFunc) (*O, error) {
 	req, _ := ctx.Value(ctxHumaRequest).(*http.Request)
 	w, _ := ctx.Value(ctxHumaResponseWriter).(http.ResponseWriter)
@@ -306,7 +301,7 @@ func operationErrorCodes(op *huma.Operation) map[int][]string {
 		return operationsErrorCodes()
 	default:
 		return map[int][]string{
-			http.StatusInternalServerError: {"health.runtime_not_ready"},
+			http.StatusInternalServerError: {"internal.error"},
 		}
 	}
 }
@@ -334,7 +329,7 @@ func senderErrorCodes(_ *huma.Operation) map[int][]string {
 			"sender.provider_config_invalid",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -363,7 +358,7 @@ func authErrorCodes(op *huma.Operation) map[int][]string {
 			"auth.rate_limited",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 	if op.Method == http.MethodPost || op.Method == http.MethodPut || op.Method == http.MethodPatch {
@@ -412,7 +407,7 @@ func workspaceErrorCodes() map[int][]string {
 			"identity.invalid_workspace_name",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -1626,7 +1621,7 @@ func audienceErrorCodes() map[int][]string {
 			"audience.export_format_invalid",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -1659,7 +1654,7 @@ func templateErrorCodes() map[int][]string {
 			"template.render_context_invalid",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -1687,7 +1682,7 @@ func suppressionErrorCodes() map[int][]string {
 			"suppression.reason_invalid",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -1934,7 +1929,7 @@ func campaignErrorCodes() map[int][]string {
 			"template.publish_required",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -1991,7 +1986,7 @@ func humaAPIKeyAuthMiddleware(svc *accessapp.Service) func(huma.Context, func(hu
 				writeError(w, req, http.StatusUnauthorized, "api_key.invalid", "invalid, revoked, or expired api key", nil)
 				return
 			}
-			writeError(w, req, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+			writeError(w, req, http.StatusInternalServerError, "internal.error", "internal error", nil)
 			return
 		}
 
@@ -2091,7 +2086,7 @@ func deliveryErrorCodes() map[int][]string {
 			"delivery.temporarily_unavailable",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -2334,7 +2329,7 @@ func webhookErrorCodes() map[int][]string {
 			"webhook.ingest_temporarily_unavailable",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -2361,7 +2356,7 @@ func apiKeyErrorCodes() map[int][]string {
 			"api_key.config_invalid",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -2425,7 +2420,7 @@ func trackingErrorCodes() map[int][]string {
 			"tracking.invalid_tracking_id",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -2493,7 +2488,7 @@ func analyticsErrorCodes() map[int][]string {
 			"analytics.projection_not_found",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -2522,7 +2517,7 @@ func operationsErrorCodes() map[int][]string {
 			"operations.replay_conflict",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -2645,7 +2640,7 @@ func settingsErrorCodes() map[int][]string {
 			"settings.payload_invalid",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -2663,7 +2658,7 @@ func auditErrorCodes() map[int][]string {
 			"audit.read_denied",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }
@@ -2898,7 +2893,7 @@ func notificationErrorCodes() map[int][]string {
 			"notification.not_found",
 		},
 		http.StatusInternalServerError: {
-			"health.runtime_not_ready",
+			"internal.error",
 		},
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	identitytoken "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/token"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/observability"
 )
@@ -24,9 +25,9 @@ func TestHealthz(t *testing.T) {
 			return nil
 		},
 	})
-	metrics := observability.NewHTTPMetrics(nil)
+	metrics, _ := observability.NewHTTPMetrics(nil)
 	logger := slog.Default()
-	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
+	router := newRouter(&RouterDeps{HealthSvc: svc, SecureCookies: false, FrontendBaseURL: "http://localhost:3000", HTTPMetrics: metrics, Log: logger})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
 	rec := httptest.NewRecorder()
@@ -47,9 +48,9 @@ func TestReadyzDegraded(t *testing.T) {
 			return nil
 		},
 	})
-	metrics := observability.NewHTTPMetrics(nil)
+	metrics, _ := observability.NewHTTPMetrics(nil)
 	logger := slog.Default()
-	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
+	router := newRouter(&RouterDeps{HealthSvc: svc, SecureCookies: false, FrontendBaseURL: "http://localhost:3000", HTTPMetrics: metrics, Log: logger})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/readyz", nil)
 	rec := httptest.NewRecorder()
@@ -61,23 +62,18 @@ func TestReadyzDegraded(t *testing.T) {
 }
 
 func TestEventsStream(t *testing.T) {
-	svc := platformhealth.NewService(platformhealth.Options{
-		AppName: "sendflow",
-		PostgresCheck: func(context.Context) error {
-			return nil
-		},
-		RedisCheck: func(context.Context) error {
-			return nil
-		},
-	})
-	metrics := observability.NewHTTPMetrics(nil)
-	logger := slog.Default()
-	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
+	router, _ := setupAuthRouter(t)
+	tokenManager := identitytoken.NewJWTManager("send-flow-test", "access-secret", "refresh-secret", time.Minute, time.Hour)
+	pair, _, _, err := tokenManager.Issue("user-1", "session-1", time.Now())
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/events/stream", nil).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	rec := httptest.NewRecorder()
 
 	done := make(chan struct{})
@@ -116,9 +112,9 @@ func TestCORSPreflightAllowsFrontendOrigin(t *testing.T) {
 			return nil
 		},
 	})
-	metrics := observability.NewHTTPMetrics(nil)
+	metrics, _ := observability.NewHTTPMetrics(nil)
 	logger := slog.Default()
-	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
+	router := newRouter(&RouterDeps{HealthSvc: svc, SecureCookies: false, FrontendBaseURL: "http://localhost:3000", HTTPMetrics: metrics, Log: logger})
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/providers", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -150,9 +146,9 @@ func TestCORSDoesNotAllowUnknownOrigin(t *testing.T) {
 			return nil
 		},
 	})
-	metrics := observability.NewHTTPMetrics(nil)
+	metrics, _ := observability.NewHTTPMetrics(nil)
 	logger := slog.Default()
-	router := newRouter(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", metrics, logger)
+	router := newRouter(&RouterDeps{HealthSvc: svc, SecureCookies: false, FrontendBaseURL: "http://localhost:3000", HTTPMetrics: metrics, Log: logger})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
 	req.Header.Set("Origin", "http://example.com")

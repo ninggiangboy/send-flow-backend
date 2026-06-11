@@ -7,6 +7,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type Handler struct {
@@ -45,16 +46,17 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		h.log.Warn("MFA disable authorization failed", "user_id", cmd.UserID)
 		return domain.ErrMFAInvalidCode
 	}
-	if err := h.deps.UsersWrite.SetMFAEnabledAt(ctx, cmd.UserID, nil, cmd.Now); err != nil {
+	doDisable := func(txCtx context.Context) error {
+		if err := h.deps.UsersWrite.SetMFAEnabledAt(txCtx, cmd.UserID, nil, cmd.Now); err != nil {
+			return err
+		}
+		if err := h.deps.TOTP.DeleteSecret(txCtx, cmd.UserID); err != nil {
+			return err
+		}
+		return h.deps.TOTP.ReplaceRecoveryCodes(txCtx, cmd.UserID, nil)
+	}
+	if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, doDisable); err != nil {
 		h.log.Error("failed to disable MFA", "user_id", cmd.UserID, "error", err)
-		return err
-	}
-	if err := h.deps.TOTP.DeleteSecret(ctx, cmd.UserID); err != nil {
-		h.log.Error("failed to delete TOTP secret", "user_id", cmd.UserID, "error", err)
-		return err
-	}
-	if err := h.deps.TOTP.ReplaceRecoveryCodes(ctx, cmd.UserID, nil); err != nil {
-		h.log.Error("failed to remove recovery codes", "user_id", cmd.UserID, "error", err)
 		return err
 	}
 	h.log.Info("MFA disabled", "user_id", cmd.UserID)

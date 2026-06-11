@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -14,7 +15,7 @@ type HTTPMetrics struct {
 	latency  *prometheus.HistogramVec
 }
 
-func NewHTTPMetrics(reg prometheus.Registerer) *HTTPMetrics {
+func NewHTTPMetrics(reg prometheus.Registerer) (*HTTPMetrics, error) {
 	m := &HTTPMetrics{
 		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "sendflow_http_requests_total",
@@ -30,16 +31,22 @@ func NewHTTPMetrics(reg prometheus.Registerer) *HTTPMetrics {
 		reg = prometheus.DefaultRegisterer
 	}
 	if err := reg.Register(m.requests); err != nil {
-		if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
-			panic(err)
+		var are prometheus.AlreadyRegisteredError
+		if errors.As(err, &are) {
+			m.requests = are.ExistingCollector.(*prometheus.CounterVec)
+		} else {
+			return nil, err
 		}
 	}
 	if err := reg.Register(m.latency); err != nil {
-		if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
-			panic(err)
+		var are prometheus.AlreadyRegisteredError
+		if errors.As(err, &are) {
+			m.latency = are.ExistingCollector.(*prometheus.HistogramVec)
+		} else {
+			return nil, err
 		}
 	}
-	return m
+	return m, nil
 }
 
 func (m *HTTPMetrics) Record(method, route, status string, duration float64) {

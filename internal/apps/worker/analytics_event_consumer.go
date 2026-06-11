@@ -11,11 +11,13 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/kafka"
+	platformerrors "github.com/ninggiangboy/send-flow/backend/internal/platform/retryable"
 )
 
 type AnalyticsEventConsumer struct {
 	name       string
 	svc        *analyticsapp.Service
+	registry   *analyticsapp.MapperRegistry
 	log        *slog.Logger
 	brokers    []string
 	groupID    string
@@ -24,14 +26,15 @@ type AnalyticsEventConsumer struct {
 	idGen      func() (string, error)
 }
 
-func NewAnalyticsEventConsumer(svc *analyticsapp.Service, log *slog.Logger, brokers []string, groupID string, pool *pgxpool.Pool) *AnalyticsEventConsumer {
+func NewAnalyticsEventConsumer(svc *analyticsapp.Service, registry *analyticsapp.MapperRegistry, log *slog.Logger, brokers []string, groupID string, pool *pgxpool.Pool) *AnalyticsEventConsumer {
 	c := &AnalyticsEventConsumer{
-		name:    "analytics_events",
-		svc:     svc,
-		log:     log.With("consumer", "analytics_events"),
-		brokers: brokers,
-		groupID: groupID,
-		idGen:   id.NewUUIDGenerator().New,
+		name:     "analytics_events",
+		svc:      svc,
+		registry: registry,
+		log:      log.With("consumer", "analytics_events"),
+		brokers:  brokers,
+		groupID:  groupID,
+		idGen:    id.NewUUIDGenerator().New,
 	}
 	if pool != nil {
 		c.markers = NewProcessedEventMarkers(pool)
@@ -51,16 +54,10 @@ func (c *AnalyticsEventConsumer) Run(ctx context.Context) error {
 		return nil
 	}
 
-	topics := []string{
-		events.TopicFromEventType("delivery.message.queued.v1"),
-		events.TopicFromEventType("delivery.message.accepted.v1"),
-		events.TopicFromEventType("delivery.message.delivered.v1"),
-		events.TopicFromEventType("delivery.message.bounced.v1"),
-		events.TopicFromEventType("delivery.message.complained.v1"),
-		events.TopicFromEventType("delivery.message.retry_scheduled.v1"),
-		events.TopicFromEventType("tracking.email_opened.v1"),
-		events.TopicFromEventType("tracking.link_clicked.v1"),
-		events.TopicFromEventType("tracking.recipient_unsubscribed.v1"),
+	eventTypes := c.registry.EventTypes()
+	topics := make([]string, len(eventTypes))
+	for i, et := range eventTypes {
+		topics[i] = events.TopicFromEventType(et)
 	}
 
 	consumer, err := kafka.NewReaderConsumer(kafka.ReaderConsumerOptions{
@@ -100,7 +97,7 @@ func (c *AnalyticsEventConsumer) Run(ctx context.Context) error {
 		}
 
 		if err := c.HandleEvent(ctx, eventID, msg.Value); err != nil {
-			var nonRetryable *NonRetryableError
+			var nonRetryable *platformerrors.NonRetryableError
 			if errors.As(err, &nonRetryable) {
 				c.log.Warn("non-retryable error handling analytics event",
 					"event_id", eventID,
@@ -152,10 +149,10 @@ func (c *AnalyticsEventConsumer) Run(ctx context.Context) error {
 func (c *AnalyticsEventConsumer) HandleEvent(ctx context.Context, eventID string, rawPayload []byte) error {
 	envelope, err := events.Unmarshal(rawPayload)
 	if err != nil {
-		return &NonRetryableError{Err: err}
+		return &platformerrors.NonRetryableError{Err: err}
 	}
 
-	mapped, err := analyticsapp.MapEnvelopeToEvent(envelope)
+	mapped, err := c.registry.MapEvent(envelope)
 	if err != nil {
 		if errors.Is(err, analyticsapp.ErrUnsupportedEventType) {
 			c.log.Info("unsupported event type, ignoring",
@@ -164,7 +161,7 @@ func (c *AnalyticsEventConsumer) HandleEvent(ctx context.Context, eventID string
 			)
 			return nil
 		}
-		return &NonRetryableError{Err: err}
+		return &platformerrors.NonRetryableError{Err: err}
 	}
 
 	if mapped.Input.WorkspaceID == "" {
@@ -185,22 +182,10 @@ func (c *AnalyticsEventConsumer) HandleEvent(ctx context.Context, eventID string
 
 	if err := c.svc.IngestEmailEventFact(ctx, mapped.Input); err != nil {
 		if errors.Is(err, domain.ErrAnalyticsEventInvalid) {
-			return &NonRetryableError{Err: err}
+			return &platformerrors.NonRetryableError{Err: err}
 		}
 		return err
 	}
 
 	return nil
-}
-
-type NonRetryableError struct {
-	Err error
-}
-
-func (e *NonRetryableError) Error() string {
-	return "non-retryable: " + e.Err.Error()
-}
-
-func (e *NonRetryableError) Unwrap() error {
-	return e.Err
 }

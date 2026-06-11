@@ -45,7 +45,7 @@ type EmailEventFact struct {
 	RecipientDomain   string
 	OccurredAt        time.Time
 	ReceivedAt        time.Time
-	MetadataJSON      map[string]any
+	Metadata          map[string]any
 	CreatedAt         time.Time
 }
 

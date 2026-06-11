@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
 type Manager struct {
@@ -16,11 +17,13 @@ func NewManager(pool *pgxpool.Pool) *Manager {
 	return &Manager{pool: pool}
 }
 
-func (m *Manager) WithinTx(ctx context.Context, fn func(context.Context, pgx.Tx) error) error {
+func (m *Manager) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error {
 	if m == nil || m.pool == nil {
 		return fmt.Errorf("transaction manager is not configured")
 	}
 	return pgx.BeginFunc(ctx, m.pool, func(tx pgx.Tx) error {
-		return fn(ctx, tx)
+		return fn(postgres.ContextWithTx(ctx, tx))
 	})
 }
+
+var _ UnitOfWork = (*Manager)(nil)

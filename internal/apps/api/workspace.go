@@ -18,31 +18,6 @@ func newWorkspaceHTTP(svc *identityapp.Service) *workspaceHTTP {
 	return &workspaceHTTP{svc: svc}
 }
 
-func (h *workspaceHTTP) registerRoutes(r chi.Router) {
-	r.Group(func(r chi.Router) {
-		r.Use(authzMiddleware(h.svc))
-		r.Post("/workspaces", h.createWorkspace)
-		r.Get("/workspaces", h.listWorkspaces)
-		r.Get("/permissions", h.listPermissions)
-
-		r.Route("/workspaces/{workspace_id}", func(r chi.Router) {
-			r.Get("/", h.getWorkspace)
-			r.Get("/access", h.getWorkspaceAccess)
-			r.Get("/members", h.listWorkspaceMembers)
-			r.Get("/invitations", h.listWorkspaceInvitations)
-			r.Get("/roles", h.listWorkspaceRoles)
-			r.Post("/roles", h.createWorkspaceRole)
-			r.Post("/invitations", h.inviteWorkspaceMember)
-			r.Delete("/members/{membership_id}", h.removeWorkspaceMember)
-			r.Put("/members/{membership_id}/role", h.updateWorkspaceMemberRole)
-			r.Put("/members/{membership_id}/roles", h.assignWorkspaceMemberRoles)
-			r.Patch("/roles/{role_id}", h.updateWorkspaceRole)
-		})
-
-		r.Post("/invitations/{token}/accept", h.acceptWorkspaceInvitation)
-	})
-}
-
 func (h *workspaceHTTP) createWorkspace(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
@@ -66,7 +41,7 @@ func (h *workspaceHTTP) listWorkspaces(w http.ResponseWriter, r *http.Request) {
 		writeWorkspaceErr(w, r, err)
 		return
 	}
-	out := make([]map[string]any, 0, len(workspaces))
+	out := make([]workspaceResponseData, 0, len(workspaces))
 	for _, ws := range workspaces {
 		out = append(out, workspaceResponse(&ws, ""))
 	}
@@ -92,13 +67,13 @@ func (h *workspaceHTTP) getWorkspaceAccess(w http.ResponseWriter, r *http.Reques
 		writeWorkspaceErr(w, r, err)
 		return
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]any{
-		"workspace_id":          membership.WorkspaceID,
-		"membership_id":         membership.ID,
-		"status":                string(membership.Status),
-		"role_ids":              membership.RoleIDs,
-		"role_names":            membership.RoleNames,
-		"effective_permissions": membership.EffectivePermissions,
+	writeEnvelope(w, r, http.StatusOK, WorkspaceAccessResponse{
+		WorkspaceID:          membership.WorkspaceID,
+		MembershipID:         membership.ID,
+		Status:               string(membership.Status),
+		RoleIDs:              membership.RoleIDs,
+		RoleNames:            membership.RoleNames,
+		EffectivePermissions: membership.EffectivePermissions,
 	})
 }
 
@@ -110,7 +85,7 @@ func (h *workspaceHTTP) listWorkspaceMembers(w http.ResponseWriter, r *http.Requ
 		writeWorkspaceErr(w, r, err)
 		return
 	}
-	out := make([]map[string]any, 0, len(members))
+	out := make([]membershipResponseData, 0, len(members))
 	for _, m := range members {
 		out = append(out, membershipResponse(m))
 	}
@@ -125,7 +100,7 @@ func (h *workspaceHTTP) listWorkspaceInvitations(w http.ResponseWriter, r *http.
 		writeWorkspaceErr(w, r, err)
 		return
 	}
-	out := make([]map[string]any, 0, len(invitations))
+	out := make([]invitationResponseData, 0, len(invitations))
 	for _, inv := range invitations {
 		out = append(out, invitationResponse(inv))
 	}
@@ -150,7 +125,7 @@ func (h *workspaceHTTP) inviteWorkspaceMember(w http.ResponseWriter, r *http.Req
 	if result.Invitation != nil {
 		writeEnvelope(w, r, http.StatusOK, invitationResponse(*result.Invitation))
 	} else {
-		writeEnvelope(w, r, http.StatusOK, map[string]string{"status": "invited"})
+		writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Status: "invited"})
 	}
 }
 
@@ -190,7 +165,7 @@ func (h *workspaceHTTP) updateWorkspaceMemberRole(w http.ResponseWriter, r *http
 		writeWorkspaceErr(w, r, err)
 		return
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]bool{"updated": true})
+	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Updated: ptrBool(true)})
 }
 
 func (h *workspaceHTTP) assignWorkspaceMemberRoles(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +194,7 @@ func (h *workspaceHTTP) listWorkspaceRoles(w http.ResponseWriter, r *http.Reques
 		writeWorkspaceErr(w, r, err)
 		return
 	}
-	out := make([]map[string]any, 0, len(roles))
+	out := make([]roleResponseData, 0, len(roles))
 	for _, role := range roles {
 		out = append(out, roleResponse(role))
 	}
@@ -273,12 +248,9 @@ func (h *workspaceHTTP) listPermissions(w http.ResponseWriter, r *http.Request) 
 		writeWorkspaceErr(w, r, err)
 		return
 	}
-	out := make([]map[string]any, 0, len(permissions))
+	out := make([]PermissionResponse, 0, len(permissions))
 	for _, permission := range permissions {
-		out = append(out, map[string]any{
-			"bit":  permission.Bit,
-			"name": permission.Name,
-		})
+		out = append(out, PermissionResponse{Bit: int(permission.Bit), Name: permission.Name})
 	}
 	writeEnvelope(w, r, http.StatusOK, out)
 }
@@ -324,72 +296,123 @@ func writeWorkspaceErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, domain.ErrWorkspaceNameConflict):
 		writeError(w, r, http.StatusConflict, "identity.workspace_name_conflict", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }
 
-func workspaceResponse(ws *domain.Workspace, role string) map[string]any {
-	out := map[string]any{
-		"id":            ws.ID,
-		"name":          ws.Name,
-		"membership_id": ws.MembershipID,
-		"role_names":    ws.RoleNames,
-		"created_at":    ws.CreatedAt,
-		"updated_at":    ws.UpdatedAt,
+type workspaceResponseData struct {
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	MembershipID string    `json:"membership_id"`
+	RoleNames    []string  `json:"role_names"`
+	Plan         *string   `json:"plan,omitempty"`
+	LogoIcon     *string   `json:"logo_icon,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+func workspaceResponse(ws *domain.Workspace, role string) workspaceResponseData {
+	out := workspaceResponseData{
+		ID:           ws.ID,
+		Name:         ws.Name,
+		MembershipID: ws.MembershipID,
+		RoleNames:    ws.RoleNames,
+		CreatedAt:    ws.CreatedAt,
+		UpdatedAt:    ws.UpdatedAt,
 	}
 	if ws.Plan != nil {
-		out["plan"] = *ws.Plan
+		out.Plan = ws.Plan
 	}
 	if ws.LogoIcon != nil {
-		out["logo_icon"] = *ws.LogoIcon
+		out.LogoIcon = ws.LogoIcon
 	}
 	return out
 }
 
-func membershipResponse(m domain.Membership) map[string]any {
-	return map[string]any{
-		"membership_id": m.ID,
-		"workspace_id":  m.WorkspaceID,
-		"user_email":    m.UserEmail,
-		"status":        string(m.Status),
-		"role_names":    m.RoleNames,
+type membershipResponseData struct {
+	MembershipID string   `json:"membership_id"`
+	WorkspaceID  string   `json:"workspace_id"`
+	UserEmail    string   `json:"user_email"`
+	Status       string   `json:"status"`
+	RoleNames    []string `json:"role_names"`
+}
+
+func membershipResponse(m domain.Membership) membershipResponseData {
+	userEmail := ""
+	if m.UserEmail != nil {
+		userEmail = *m.UserEmail
+	}
+	return membershipResponseData{
+		MembershipID: m.ID,
+		WorkspaceID:  m.WorkspaceID,
+		UserEmail:    userEmail,
+		Status:       string(m.Status),
+		RoleNames:    m.RoleNames,
 	}
 }
 
-func invitationResponse(inv domain.Invitation) map[string]any {
-	expiresAt := any(nil)
+type invitationResponseData struct {
+	Token       string     `json:"token"`
+	WorkspaceID string     `json:"workspace_id"`
+	Email       string     `json:"email"`
+	RoleIDs     []string   `json:"role_ids"`
+	Status      string     `json:"status"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+func invitationResponse(inv domain.Invitation) invitationResponseData {
+	var expiresAt *time.Time
 	if !inv.ExpiresAt.IsZero() {
-		expiresAt = inv.ExpiresAt
+		expiresAt = &inv.ExpiresAt
 	}
-	return map[string]any{
-		"token":        inv.Token,
-		"workspace_id": inv.WorkspaceID,
-		"email":        inv.Email,
-		"role_ids":     inv.RoleIDs,
-		"status":       string(inv.Status),
-		"expires_at":   expiresAt,
-		"created_at":   inv.CreatedAt,
-	}
-}
-
-func membershipRoleAssignmentResponse(m domain.Membership) map[string]any {
-	return map[string]any{
-		"workspace_id":          m.WorkspaceID,
-		"membership_id":         m.ID,
-		"role_ids":              m.RoleIDs,
-		"effective_permissions": m.EffectivePermissions,
+	return invitationResponseData{
+		Token:       inv.Token,
+		WorkspaceID: inv.WorkspaceID,
+		Email:       inv.Email,
+		RoleIDs:     inv.RoleIDs,
+		Status:      string(inv.Status),
+		ExpiresAt:   expiresAt,
+		CreatedAt:   inv.CreatedAt,
 	}
 }
 
-func roleResponse(role domain.Role) map[string]any {
-	return map[string]any{
-		"id":               role.ID,
-		"name":             role.Name,
-		"type":             string(role.Type),
-		"permissions_mask": role.PermissionsMask,
-		"permission_names": role.PermissionNames(),
-		"builtin":          role.Builtin,
-		"status":           string(role.Status),
-		"version":          role.Version,
+type membershipRoleAssignmentResponseData struct {
+	WorkspaceID          string   `json:"workspace_id"`
+	MembershipID         string   `json:"membership_id"`
+	RoleIDs              []string `json:"role_ids"`
+	EffectivePermissions []string `json:"effective_permissions"`
+}
+
+func membershipRoleAssignmentResponse(m domain.Membership) membershipRoleAssignmentResponseData {
+	return membershipRoleAssignmentResponseData{
+		WorkspaceID:          m.WorkspaceID,
+		MembershipID:         m.ID,
+		RoleIDs:              m.RoleIDs,
+		EffectivePermissions: m.EffectivePermissions,
+	}
+}
+
+type roleResponseData struct {
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Type            string   `json:"type"`
+	PermissionsMask int64    `json:"permissions_mask"`
+	PermissionNames []string `json:"permission_names"`
+	Builtin         bool     `json:"builtin"`
+	Status          string   `json:"status"`
+	Version         int      `json:"version"`
+}
+
+func roleResponse(role domain.Role) roleResponseData {
+	return roleResponseData{
+		ID:              role.ID,
+		Name:            role.Name,
+		Type:            string(role.Type),
+		PermissionsMask: role.PermissionsMask,
+		PermissionNames: role.PermissionNames(),
+		Builtin:         role.Builtin,
+		Status:          string(role.Status),
+		Version:         role.Version,
 	}
 }

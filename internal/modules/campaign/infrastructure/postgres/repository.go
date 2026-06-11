@@ -8,42 +8,37 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
 type CampaignReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type CampaignWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewCampaignReadRepository(db DBTX) *CampaignReadRepository {
+func NewCampaignReadRepository(db platformpostgres.DBTX) *CampaignReadRepository {
 	return &CampaignReadRepository{db: db}
 }
 
-func NewCampaignWriteRepository(db DBTX) *CampaignWriteRepository {
+func NewCampaignWriteRepository(db platformpostgres.DBTX) *CampaignWriteRepository {
 	return &CampaignWriteRepository{db: db}
 }
 
-func (r *CampaignReadRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *CampaignReadRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
 
-func (w *CampaignWriteRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (w *CampaignWriteRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return w.db
@@ -81,7 +76,9 @@ func (r *CampaignReadRepository) FindByID(ctx context.Context, workspaceID, camp
 		ID:   stringOrZero(audienceID),
 	}
 	if audienceContactIDsJSON != nil {
-		json.Unmarshal(audienceContactIDsJSON, &c.AudienceRef.ContactIDs)
+		if err := json.Unmarshal(audienceContactIDsJSON, &c.AudienceRef.ContactIDs); err != nil {
+			return nil, err
+		}
 	}
 	if templateID != nil {
 		c.TemplateRef.TemplateID = *templateID
@@ -104,31 +101,31 @@ func (r *CampaignReadRepository) List(ctx context.Context, query ports.CampaignL
 	argIdx := 2
 
 	if query.Status != "" {
-		where += " AND status = $" + itoa(argIdx)
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.Status)
 		argIdx++
 	}
 	if query.SenderDomainID != "" {
-		where += " AND sender_domain_id = $" + itoa(argIdx)
+		where += " AND sender_domain_id = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.SenderDomainID)
 		argIdx++
 	}
 	if query.TemplateID != "" {
-		where += " AND template_id = $" + itoa(argIdx)
+		where += " AND template_id = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.TemplateID)
 		argIdx++
 	}
 	if query.Cursor != "" {
-		where += " AND (created_at, id) < (SELECT created_at, id FROM campaigns WHERE id = $" + itoa(argIdx) + ")"
+		where += " AND (created_at, id) < (SELECT created_at, id FROM campaigns WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
 		args = append(args, query.Cursor)
 		argIdx++
 	}
 
 	limit := query.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
-	where += " ORDER BY created_at DESC, id DESC LIMIT $" + itoa(argIdx)
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
 	args = append(args, limit+1)
 
 	rows, err := db.Query(ctx,
@@ -163,7 +160,9 @@ func (r *CampaignReadRepository) List(ctx context.Context, query ports.CampaignL
 			ID:   audienceID,
 		}
 		if audienceContactIDsJSON != nil {
-			json.Unmarshal(audienceContactIDsJSON, &c.AudienceRef.ContactIDs)
+			if err := json.Unmarshal(audienceContactIDsJSON, &c.AudienceRef.ContactIDs); err != nil {
+				return nil, "", err
+			}
 		}
 		c.TemplateRef = domain.TemplateRef{TemplateID: templateID}
 		if templateVersionID != nil {
@@ -199,21 +198,21 @@ func (r *CampaignReadRepository) ListCandidates(ctx context.Context, query ports
 	argIdx := 3
 
 	if query.Status != "" {
-		where += " AND status = $" + itoa(argIdx)
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.Status)
 		argIdx++
 	}
 	if query.Cursor != "" {
-		where += " AND (created_at, id) < (SELECT created_at, id FROM campaign_message_candidates WHERE id = $" + itoa(argIdx) + ")"
+		where += " AND (created_at, id) < (SELECT created_at, id FROM campaign_message_candidates WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
 		args = append(args, query.Cursor)
 		argIdx++
 	}
 
 	limit := query.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
-	where += " ORDER BY created_at DESC, id DESC LIMIT $" + itoa(argIdx)
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
 	args = append(args, limit+1)
 
 	rows, err := db.Query(ctx,
@@ -235,7 +234,9 @@ func (r *CampaignReadRepository) ListCandidates(ctx context.Context, query ports
 			return nil, "", err
 		}
 		if snapshotJSON != nil {
-			json.Unmarshal(snapshotJSON, &cand.RecipientSnapshot)
+			if err := json.Unmarshal(snapshotJSON, &cand.RecipientSnapshot); err != nil {
+				return nil, "", err
+			}
 		}
 		results = append(results, cand)
 	}
@@ -287,7 +288,7 @@ func (w *CampaignWriteRepository) Create(ctx context.Context, c domain.Campaign)
 		                        cancelled_at, paused_at, completed_at)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 		c.ID, c.WorkspaceID, c.Name, string(c.Status), string(c.AudienceRef.Type),
-		nullable(c.AudienceRef.ID), audienceContactIDsJSON,
+		platformpostgres.Nullable(c.AudienceRef.ID), audienceContactIDsJSON,
 		c.TemplateRef.TemplateID, templateVersionID, c.SenderDomainID, string(c.MessageType),
 		c.ScheduledAt, c.PlannedRecipients, c.CreatedAt, c.UpdatedAt,
 		c.CancelledAt, c.PausedAt, c.CompletedAt,
@@ -313,7 +314,7 @@ func (w *CampaignWriteRepository) Update(ctx context.Context, c domain.Campaign)
 		                      scheduled_at=$10, planned_recipients=$11, updated_at=$12,
 		                      cancelled_at=$13, paused_at=$14, completed_at=$15
 		 WHERE id=$16 AND workspace_id=$17`,
-		c.Name, string(c.Status), string(c.AudienceRef.Type), nullable(c.AudienceRef.ID),
+		c.Name, string(c.Status), string(c.AudienceRef.Type), platformpostgres.Nullable(c.AudienceRef.ID),
 		audienceContactIDsJSON, c.TemplateRef.TemplateID, templateVersionID,
 		c.SenderDomainID, string(c.MessageType),
 		c.ScheduledAt, c.PlannedRecipients, c.UpdatedAt,
@@ -351,7 +352,7 @@ func (w *CampaignWriteRepository) ReplaceCandidates(ctx context.Context, workspa
 			return err
 		}
 		values = append(values, "($"+
-			itoa(idx)+",$"+itoa(idx+1)+",$"+itoa(idx+2)+",$"+itoa(idx+3)+",$"+itoa(idx+4)+",$"+itoa(idx+5)+",$"+itoa(idx+6)+",$"+itoa(idx+7)+",$"+itoa(idx+8)+")")
+			platformpostgres.Itoa(idx)+",$"+platformpostgres.Itoa(idx+1)+",$"+platformpostgres.Itoa(idx+2)+",$"+platformpostgres.Itoa(idx+3)+",$"+platformpostgres.Itoa(idx+4)+",$"+platformpostgres.Itoa(idx+5)+",$"+platformpostgres.Itoa(idx+6)+",$"+platformpostgres.Itoa(idx+7)+",$"+platformpostgres.Itoa(idx+8)+")")
 		args = append(args, cand.ID, cand.WorkspaceID, cand.CampaignID, cand.ContactID,
 			cand.EmailNormalized, snapshotJSON, string(cand.Status), cand.CreatedAt, cand.UpdatedAt)
 		idx += 9
@@ -364,15 +365,15 @@ func (w *CampaignWriteRepository) ReplaceCandidates(ctx context.Context, workspa
 }
 
 type OutboxRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewOutboxRepository(db DBTX) *OutboxRepository {
+func NewOutboxRepository(db platformpostgres.DBTX) *OutboxRepository {
 	return &OutboxRepository{db: db}
 }
 
-func (r *OutboxRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *OutboxRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
@@ -393,66 +394,6 @@ func (r *OutboxRepository) Save(ctx context.Context, event ports.OutboxEvent) er
 	return err
 }
 
-type TransactionManager struct {
-	pool DBTX
-}
-
-func NewTransactionManager(pool DBTX) *TransactionManager {
-	return &TransactionManager{pool: pool}
-}
-
-func (tm *TransactionManager) RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	conn, ok := tm.pool.(interface {
-		Begin(ctx context.Context) (pgx.Tx, error)
-	})
-	if !ok {
-		return errors.New("transaction manager requires a pool or conn that supports Begin")
-	}
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	if err := fn(context.WithValue(ctx, txKey{}, tx)); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
-}
-
-type txKey struct{}
-
-func nullable(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
-}
-
 func stringOrZero(s string) string {
 	return s
-}
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var buf [12]byte
-	pos := len(buf)
-	neg := false
-	if i < 0 {
-		neg = true
-		i = -i
-	}
-	for i > 0 {
-		pos--
-		buf[pos] = byte('0' + i%10)
-		i /= 10
-	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
 }

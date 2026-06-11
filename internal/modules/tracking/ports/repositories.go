@@ -2,9 +2,10 @@ package ports
 
 import (
 	"context"
-	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/outbox"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type TrackingLinkReadRepository interface {
@@ -30,20 +31,10 @@ type DeliveryMessageResolver interface {
 	FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (messageIDOut string, workspaceIDOut string, campaignID string, err error)
 }
 
+type OutboxEvent = outbox.Event
+
 type OutboxWriter interface {
 	Save(ctx context.Context, event OutboxEvent) error
 }
 
-type OutboxEvent struct {
-	ID            string
-	AggregateType string
-	AggregateID   string
-	EventType     string
-	Payload       []byte
-	WorkspaceID   string
-	OccurredAt    time.Time
-}
-
-type TransactionManager interface {
-	RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error
-}
+type TransactionManager = transaction.UnitOfWork

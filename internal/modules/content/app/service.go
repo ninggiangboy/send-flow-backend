@@ -16,6 +16,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type Options struct {
@@ -144,26 +145,26 @@ func (s *Service) CreateTemplate(ctx context.Context, input CreateTemplateInput)
 	return &TemplateResult{Template: tmpl}, nil
 }
 
-func (s *Service) ListTemplates(ctx context.Context, query ports.TemplateListQuery, userID string) (*TemplateListResult, error) {
-	log := s.log.With("usecase", "list_templates", "workspace_id", query.WorkspaceID)
-	if err := s.accessChecker.RequirePermission(ctx, query.WorkspaceID, userID, "template.read"); err != nil {
+func (s *Service) ListTemplates(ctx context.Context, workspaceID, status, q, cursor string, limit int, userID string) (*TemplateListResult, error) {
+	log := s.log.With("usecase", "list_templates", "workspace_id", workspaceID)
+	if err := s.accessChecker.RequirePermission(ctx, workspaceID, userID, "template.read"); err != nil {
 		if errors.Is(err, domain.ErrReadDenied) {
 			return nil, err
 		}
 		return nil, err
 	}
 
-	if query.Limit <= 0 || query.Limit > 100 {
-		query.Limit = 50
+	if limit <= 0 || limit > 100 {
+		limit = constants.DefaultPageSize
 	}
 
-	templates, cursor, err := s.templatesRead.ListTemplates(ctx, query)
+	templates, nextCursor, err := s.templatesRead.ListTemplates(ctx, workspaceID, status, q, cursor, limit)
 	if err != nil {
 		log.Error("failed to list templates", "error", err)
 		return nil, err
 	}
 
-	return &TemplateListResult{Templates: templates, NextCursor: cursor}, nil
+	return &TemplateListResult{Templates: templates, NextCursor: nextCursor}, nil
 }
 
 func (s *Service) GetTemplate(ctx context.Context, workspaceID, templateID, userID string) (*TemplateResult, error) {
@@ -280,11 +281,7 @@ func (s *Service) PublishTemplate(ctx context.Context, workspaceID, templateID, 
 		return nil, err
 	}
 
-	versions, _, err := s.templatesRead.ListTemplateVersions(ctx, ports.VersionListQuery{
-		WorkspaceID: workspaceID,
-		TemplateID:  templateID,
-		Limit:       1,
-	})
+	versions, _, err := s.templatesRead.ListTemplateVersions(ctx, workspaceID, templateID, "", 1)
 	if err != nil {
 		log.Error("failed to list versions for version number", "error", err)
 		return nil, err
@@ -337,11 +334,10 @@ func (s *Service) ListTemplateVersions(ctx context.Context, workspaceID, templat
 	}
 
 	if limit <= 0 || limit > 100 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
-	query := ports.VersionListQuery{WorkspaceID: workspaceID, TemplateID: templateID, Limit: limit, Cursor: cursor}
-	versions, nextCursor, err := s.templatesRead.ListTemplateVersions(ctx, query)
+	versions, nextCursor, err := s.templatesRead.ListTemplateVersions(ctx, workspaceID, templateID, cursor, limit)
 	if err != nil {
 		log.Error("failed to list template versions", "error", err)
 		return nil, err

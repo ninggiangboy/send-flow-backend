@@ -4,24 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
+	platformerrors "github.com/ninggiangboy/send-flow/backend/internal/platform/retryable"
 )
 
 var ErrUnsupportedEventType = errors.New("unsupported event type")
 var ErrMalformedPayload = errors.New("malformed event payload")
-
-var supportedSourceEventTypes = map[string]bool{
-	"delivery.message.queued.v1":          true,
-	"delivery.message.accepted.v1":        true,
-	"delivery.message.delivered.v1":       true,
-	"delivery.message.bounced.v1":         true,
-	"delivery.message.complained.v1":      true,
-	"delivery.message.retry_scheduled.v1": true,
-	"tracking.email_opened.v1":            true,
-	"tracking.link_clicked.v1":            true,
-	"tracking.recipient_unsubscribed.v1":  true,
-	"suppression.recipient_suppressed.v1": true,
-}
 
 type MappedSourceEvent struct {
 	EventID     string
@@ -32,11 +21,11 @@ type MappedSourceEvent struct {
 }
 
 func MapEnvelopeToSourceEvent(envelope events.Envelope) (*MappedSourceEvent, error) {
-	if !supportedSourceEventTypes[envelope.EventType] {
+	if !domain.AllowedSubscriptionEvents[envelope.EventType] {
 		return nil, ErrUnsupportedEventType
 	}
 	if envelope.WorkspaceID == "" {
-		return nil, &NonRetryableError{Err: ErrMalformedPayload}
+		return nil, &platformerrors.NonRetryableError{Err: ErrMalformedPayload}
 	}
 	return &MappedSourceEvent{
 		EventID:     envelope.EventID,

@@ -437,7 +437,7 @@ func TestResolveAudienceSelection(t *testing.T) {
 	}
 
 	svc := NewService(opts)
-	ids, err := svc.ResolveAudienceSelection(context.Background(), "ws_1", AudienceSelectionRef{
+	ids, err := svc.ResolveAudienceSelection(context.Background(), "ws_1", "user_1", AudienceSelectionRef{
 		ListID: "list_1",
 	})
 	if err != nil {
@@ -465,7 +465,7 @@ func TestEstimateAudienceSize(t *testing.T) {
 	}
 
 	svc := NewService(opts)
-	size, err := svc.EstimateAudienceSize(context.Background(), "ws_1", AudienceSelectionRef{
+	size, err := svc.EstimateAudienceSize(context.Background(), "ws_1", "user_1", AudienceSelectionRef{
 		ContactIDs: []string{"ct_1", "ct_2", "ct_3"},
 	})
 	if err != nil {

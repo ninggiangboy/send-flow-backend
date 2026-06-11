@@ -11,6 +11,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
@@ -31,7 +32,7 @@ type Options struct {
 	RecipientSuppressor RecipientSuppressor
 	EmailProvider       ports.EmailProvider
 	OutboxWriter        ports.OutboxWriter
-	TxManager           ports.TransactionManager
+	TxManager           ports.UnitOfWork
 	AccessChecker       ports.WorkspaceAccessChecker
 	IDGen               func() (string, error)
 	Logger              *slog.Logger
@@ -53,7 +54,7 @@ type Service struct {
 	recipientSuppressor RecipientSuppressor
 	emailProvider       ports.EmailProvider
 	outboxWriter        ports.OutboxWriter
-	txManager           ports.TransactionManager
+	txManager           ports.UnitOfWork
 	accessChecker       ports.WorkspaceAccessChecker
 	idGen               func() (string, error)
 	log                 *slog.Logger
@@ -87,14 +88,6 @@ func NewService(opts Options) *Service {
 		idGen:               opts.IDGen,
 		log:                 opts.Logger.With("module", "delivery"),
 	}
-}
-
-func mustNewID(gen func() (string, error)) string {
-	id, err := gen()
-	if err != nil {
-		panic(err)
-	}
-	return id
 }
 
 type QueueCampaignMessagesInput struct {
@@ -155,8 +148,14 @@ func (s *Service) QueueCampaignMessages(ctx context.Context, input QueueCampaign
 				}
 			}
 
+			msgID, err := s.idGen()
+			if err != nil {
+				log.Error("failed to generate message ID", "error", err)
+				return nil, err
+			}
+
 			messages = append(messages, domain.Message{
-				ID:                       mustNewID(s.idGen),
+				ID:                       msgID,
 				WorkspaceID:              input.WorkspaceID,
 				CampaignID:               input.CampaignID,
 				CampaignCandidateID:      c.ID,
@@ -177,7 +176,7 @@ func (s *Service) QueueCampaignMessages(ctx context.Context, input QueueCampaign
 		}
 
 		var pageQueued int
-		if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 			insertedIDs, err := s.messagesWrite.CreateMany(txCtx, messages)
 			if err != nil {
 				return err
@@ -194,7 +193,10 @@ func (s *Service) QueueCampaignMessages(ctx context.Context, input QueueCampaign
 					continue
 				}
 
-				eventID := mustNewID(s.idGen)
+				eventID, err := s.idGen()
+				if err != nil {
+					return err
+				}
 
 				var scheduledAt string
 				if msg.ScheduledAt != nil {
@@ -297,7 +299,7 @@ func (s *Service) ListMessages(ctx context.Context, input ListMessagesInput) (*L
 
 	limit := input.Limit
 	if limit <= 0 || limit > 100 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
 	emailNormalized := strings.TrimSpace(strings.ToLower(input.RecipientEmailNormalized))

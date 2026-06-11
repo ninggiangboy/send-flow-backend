@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -39,9 +40,13 @@ func requestID(r *http.Request) string {
 }
 
 func writeEnvelope(w http.ResponseWriter, r *http.Request, status int, data any) {
-	httpjson.Write(w, status, envelope{Data: data, Meta: meta{RequestID: requestID(r)}})
+	if err := httpjson.Write(w, status, envelope{Data: data, Meta: meta{RequestID: requestID(r)}}); err != nil {
+		slog.Error("failed to write envelope response", "error", err)
+	}
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, status int, code, message string, details map[string]any) {
-	httpjson.Write(w, status, errorEnvelope{Error: errorBody{Code: code, Message: message, Details: details}, Meta: meta{RequestID: requestID(r)}})
+	if err := httpjson.Write(w, status, errorEnvelope{Error: errorBody{Code: code, Message: message, Details: details}, Meta: meta{RequestID: requestID(r)}}); err != nil {
+		slog.Error("failed to write error response", "error", err)
+	}
 }

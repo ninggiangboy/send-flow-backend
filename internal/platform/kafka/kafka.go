@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"strconv"
-	"strings"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/sliceutil"
 )
 
 var ErrDisabled = errors.New("kafka is disabled")
@@ -31,19 +31,7 @@ type Consumer interface {
 type Handler func(context.Context, Message) error
 
 func Brokers(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-
-	parts := strings.Split(raw, ",")
-	brokers := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			brokers = append(brokers, part)
-		}
-	}
-	return brokers
+	return sliceutil.ParseCSV(raw)
 }
 
 func NewMessageFromEnvelope(env events.Envelope) (Message, error) {

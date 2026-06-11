@@ -10,6 +10,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
@@ -21,7 +22,7 @@ type Options struct {
 	ContentService   ports.ContentService
 	SenderService    ports.SenderService
 	OutboxWriter     ports.OutboxWriter
-	TxManager        ports.TransactionManager
+	TxManager        ports.UnitOfWork
 	AccessChecker    ports.WorkspaceAccessChecker
 	IDGen            func() (string, error)
 	Logger           *slog.Logger
@@ -34,7 +35,7 @@ type Service struct {
 	contentService   ports.ContentService
 	senderService    ports.SenderService
 	outboxWriter     ports.OutboxWriter
-	txManager        ports.TransactionManager
+	txManager        ports.UnitOfWork
 	accessChecker    ports.WorkspaceAccessChecker
 	idGen            func() (string, error)
 	log              *slog.Logger
@@ -196,7 +197,7 @@ func (s *Service) ListCampaigns(ctx context.Context, input ListInput, userID str
 
 	limit := input.Limit
 	if limit <= 0 || limit > 100 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
 	query := ports.CampaignListQuery{
@@ -369,7 +370,7 @@ func (s *Service) ScheduleCampaign(ctx context.Context, input ScheduleCampaignIn
 		audienceRef.ListID = campaign.AudienceRef.ID
 	}
 
-	recipients, err := s.audienceResolver.ResolveAudienceRecipients(ctx, input.WorkspaceID, audienceRef)
+	recipients, err := s.audienceResolver.ResolveAudienceRecipients(ctx, input.WorkspaceID, input.UserID, audienceRef)
 	if err != nil {
 		log.Error("failed to resolve audience recipients", "error", err)
 		return nil, err
@@ -417,7 +418,11 @@ func (s *Service) ScheduleCampaign(ctx context.Context, input ScheduleCampaignIn
 		})
 	}
 
-	audienceRefJSON, _ := json.Marshal(campaign.AudienceRef)
+	audienceRefJSON, err := json.Marshal(campaign.AudienceRef)
+	if err != nil {
+		log.Error("failed to marshal audience ref", "error", err)
+		return nil, err
+	}
 
 	eventID, err := s.idGen()
 	if err != nil {
@@ -454,7 +459,7 @@ func (s *Service) ScheduleCampaign(ctx context.Context, input ScheduleCampaignIn
 		return nil, err
 	}
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		if err := s.campaignsWrite.Update(txCtx, *campaign); err != nil {
 			return err
 		}
@@ -614,7 +619,7 @@ func (s *Service) ListCampaignCandidates(ctx context.Context, input CandidateLis
 
 	limit := input.Limit
 	if limit <= 0 || limit > 100 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
 	query := ports.CandidateListQuery{

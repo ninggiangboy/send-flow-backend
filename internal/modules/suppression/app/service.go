@@ -111,7 +111,7 @@ func (s *Service) CreateEntry(ctx context.Context, input CreateEntryInput) (*dom
 	}
 
 	if input.Email == "" {
-		return nil, domain.ErrScopeInvalid
+		return nil, domain.ErrEmailInvalid
 	}
 
 	normalized := domain.NormalizeEmail(input.Email)

@@ -70,6 +70,6 @@ func writeIngestionErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, domain.ErrTemporarilyUnavailable):
 		writeError(w, r, http.StatusServiceUnavailable, "webhook.ingest_temporarily_unavailable", "service temporarily unavailable", nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }

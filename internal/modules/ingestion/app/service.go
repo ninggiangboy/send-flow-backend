@@ -65,14 +65,6 @@ func NewService(opts Options) *Service {
 	}
 }
 
-func mustNewID(gen func() (string, error)) string {
-	id, err := gen()
-	if err != nil {
-		panic(err)
-	}
-	return id
-}
-
 type IngestProviderWebhookInput struct {
 	Provider   string
 	Headers    map[string][]string
@@ -84,7 +76,6 @@ type IngestProviderWebhookResult struct {
 	Accepted          bool
 	RawEventID        string
 	NormalizedEventID string
-	Duplicate         bool
 }
 
 func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProviderWebhookInput) (*IngestProviderWebhookResult, error) {
@@ -139,13 +130,17 @@ func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProvide
 	var normalizedEventID string
 	var workspaceID, messageID string
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		now := input.ReceivedAt
 		if now.IsZero() {
 			now = time.Now().UTC()
 		}
 
-		rawEventID = mustNewID(s.idGen)
+		var idErr error
+		rawEventID, idErr = s.idGen()
+		if idErr != nil {
+			return idErr
+		}
 		if normErr == nil && normalized.ProviderMessageID != "" {
 			ref, resolveErr := s.messageResolver.FindByProviderMessageID(txCtx, provider, normalized.ProviderMessageID)
 			if resolveErr == nil && ref != nil {
@@ -153,6 +148,19 @@ func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProvide
 				messageID = ref.MessageID
 			}
 		}
+
+		headersSafe := make(map[string][]string, len(input.Headers))
+		for k, v := range input.Headers {
+			kl := strings.ToLower(k)
+			switch kl {
+			case "content-type", "user-agent", "x-sendflow-fake-signature",
+				"x-amz-sns-message-type", "x-amz-sns-message-id",
+				"x-amz-sns-topic-arn", "x-amz-sns-subscription-arn",
+				"x-forwarded-for", "x-forwarded-proto", "x-real-ip":
+				headersSafe[k] = v
+			}
+		}
+		headersJSON, _ := json.Marshal(headersSafe)
 
 		rawEvent := domain.ProviderWebhookEvent{
 			ID:                rawEventID,
@@ -163,10 +171,11 @@ func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProvide
 			MessageID:         messageID,
 			EventType:         "",
 			PayloadJSON:       input.RawBody,
-			HeadersJSON:       sanitizeHeadersJSON(input.Headers),
-			SignatureValid:    true,
-			ReceivedAt:        now,
-			CreatedAt:         now,
+			HeadersJSON:       headersJSON,
+
+			SignatureValid: true,
+			ReceivedAt:     now,
+			CreatedAt:      now,
 		}
 		if normErr == nil && normalized != nil {
 			rawEvent.ProviderEventID = normalized.ProviderEventID
@@ -196,8 +205,12 @@ func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProvide
 			MessageID:         messageID,
 			ReceivedAt:        now.Format(time.RFC3339),
 		}
+		envelopeEventID, err := s.idGen()
+		if err != nil {
+			return err
+		}
 		envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-			EventID:       mustNewID(s.idGen),
+			EventID:       envelopeEventID,
 			EventType:     contracts.EventProviderWebhookReceivedV1,
 			EventVersion:  1,
 			AggregateType: "provider_webhook_event",
@@ -228,7 +241,11 @@ func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProvide
 		}
 
 		if normErr == nil && normalized != nil {
-			normalizedEventID = mustNewID(s.idGen)
+			var nidErr error
+			normalizedEventID, nidErr = s.idGen()
+			if nidErr != nil {
+				return nidErr
+			}
 
 			normEvent := domain.NormalizedProviderEvent{
 				ID:                normalizedEventID,
@@ -269,8 +286,12 @@ func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProvide
 				OccurredAt:        normalized.OccurredAt.Format(time.RFC3339),
 				ReceivedAt:        now.Format(time.RFC3339),
 			}
+			normEnvelopeEventID, err := s.idGen()
+			if err != nil {
+				return err
+			}
 			normEnvelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-				EventID:       mustNewID(s.idGen),
+				EventID:       normEnvelopeEventID,
 				EventType:     contracts.EventProviderEventNormalizedV1,
 				EventVersion:  1,
 				AggregateType: "normalized_provider_event",
@@ -323,22 +344,5 @@ func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProvide
 		Accepted:          true,
 		RawEventID:        rawEventID,
 		NormalizedEventID: normalizedEventID,
-		Duplicate:         false,
 	}, nil
-}
-
-func sanitizeHeadersJSON(headers map[string][]string) []byte {
-	safe := make(map[string][]string, len(headers))
-	for k, v := range headers {
-		kl := strings.ToLower(k)
-		switch kl {
-		case "content-type", "user-agent", "x-sendflow-fake-signature",
-			"x-amz-sns-message-type", "x-amz-sns-message-id",
-			"x-amz-sns-topic-arn", "x-amz-sns-subscription-arn",
-			"x-forwarded-for", "x-forwarded-proto", "x-real-ip":
-			safe[k] = v
-		}
-	}
-	data, _ := json.Marshal(safe)
-	return data
 }

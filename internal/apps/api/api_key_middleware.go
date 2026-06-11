@@ -43,7 +43,7 @@ func (m *apiKeyAuthMiddleware) authenticate(next http.Handler) http.Handler {
 				writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "invalid, revoked, or expired api key", nil)
 				return
 			}
-			writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+			writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 			return
 		}
 

@@ -7,30 +7,25 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
 type ReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type WriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewReadRepository(db DBTX) *ReadRepository {
+func NewReadRepository(db platformpostgres.DBTX) *ReadRepository {
 	return &ReadRepository{db: db}
 }
 
-func NewWriteRepository(db DBTX) *WriteRepository {
+func NewWriteRepository(db platformpostgres.DBTX) *WriteRepository {
 	return &WriteRepository{db: db}
 }
 
@@ -55,41 +50,41 @@ func (r *ReadRepository) List(ctx context.Context, query ports.SuppressionListQu
 	argIdx := 2
 
 	if query.Email != "" {
-		where += " AND email_normalized = $" + itoa(argIdx)
+		where += " AND email_normalized = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.Email)
 		argIdx++
 	}
 	if query.Scope != "" {
-		where += " AND scope = $" + itoa(argIdx)
+		where += " AND scope = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.Scope)
 		argIdx++
 	}
 	if query.Reason != "" {
-		where += " AND reason = $" + itoa(argIdx)
+		where += " AND reason = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.Reason)
 		argIdx++
 	}
 	if query.From != nil {
-		where += " AND created_at >= $" + itoa(argIdx)
+		where += " AND created_at >= $" + platformpostgres.Itoa(argIdx)
 		args = append(args, *query.From)
 		argIdx++
 	}
 	if query.To != nil {
-		where += " AND created_at <= $" + itoa(argIdx)
+		where += " AND created_at <= $" + platformpostgres.Itoa(argIdx)
 		args = append(args, *query.To)
 		argIdx++
 	}
 	if query.Cursor != "" {
-		where += " AND (created_at, id) < (SELECT created_at, id FROM suppression_entries WHERE id = $" + itoa(argIdx) + ")"
+		where += " AND (created_at, id) < (SELECT created_at, id FROM suppression_entries WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
 		args = append(args, query.Cursor)
 		argIdx++
 	}
 
 	limit := query.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
-	where += " ORDER BY created_at DESC, id DESC LIMIT $" + itoa(argIdx)
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
 	args = append(args, limit+1)
 
 	rows, err := r.db.Query(ctx,
@@ -125,7 +120,7 @@ func (r *ReadRepository) List(ctx context.Context, query ports.SuppressionListQu
 func (w *WriteRepository) Create(ctx context.Context, e domain.SuppressionEntry) error {
 	_, err := w.db.Exec(ctx,
 		`INSERT INTO suppression_entries (id, workspace_id, email, email_normalized, scope, reason, status, note, created_at, updated_at, removed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		e.ID, e.WorkspaceID, e.Email, e.EmailNormalized, string(e.Scope), string(e.Reason), string(e.Status), nullable(e.Note), e.CreatedAt, e.UpdatedAt, e.RemovedAt,
+		e.ID, e.WorkspaceID, e.Email, e.EmailNormalized, string(e.Scope), string(e.Reason), string(e.Status), platformpostgres.Nullable(e.Note), e.CreatedAt, e.UpdatedAt, e.RemovedAt,
 	)
 	return err
 }
@@ -138,7 +133,7 @@ func (r *ReadRepository) FindActiveByEmail(ctx context.Context, query ports.Supp
 	if len(query.Scopes) > 0 {
 		placeholders := make([]string, len(query.Scopes))
 		for i, s := range query.Scopes {
-			placeholders[i] = "$" + itoa(argIdx)
+			placeholders[i] = "$" + platformpostgres.Itoa(argIdx)
 			args = append(args, s)
 			argIdx++
 		}
@@ -147,7 +142,7 @@ func (r *ReadRepository) FindActiveByEmail(ctx context.Context, query ports.Supp
 	if len(query.Reasons) > 0 {
 		placeholders := make([]string, len(query.Reasons))
 		for i, r := range query.Reasons {
-			placeholders[i] = "$" + itoa(argIdx)
+			placeholders[i] = "$" + platformpostgres.Itoa(argIdx)
 			args = append(args, r)
 			argIdx++
 		}
@@ -181,25 +176,4 @@ func (w *WriteRepository) Remove(ctx context.Context, workspaceID, entryID strin
 		return domain.ErrEntryNotFound
 	}
 	return nil
-}
-
-func nullable(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
-}
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var buf [12]byte
-	pos := len(buf)
-	for i > 0 {
-		pos--
-		buf[pos] = byte('0' + i%10)
-		i /= 10
-	}
-	return string(buf[pos:])
 }

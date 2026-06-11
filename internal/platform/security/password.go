@@ -114,6 +114,8 @@ func GenerateRecoveryCode() (string, error) {
 	return strings.ToUpper(raw[:4] + "-" + raw[4:8] + "-" + raw[8:12]), nil
 }
 
+// TOTPCode computes a time-based one-time password per RFC 6238.
+// SHA-1 is specified by RFC 6238 and is the most widely compatible TOTP hash function.
 func TOTPCode(secret string, at time.Time, period uint) (string, error) {
 	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(strings.TrimSpace(secret)))
 	if err != nil {

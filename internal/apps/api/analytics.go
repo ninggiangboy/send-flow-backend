@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
 )
 
 type analyticsHTTP struct {
@@ -215,7 +216,9 @@ func writeAnalyticsErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusNotFound, "analytics.projection_not_found", err.Error(), nil)
 	case errors.Is(err, domain.ErrAnalyticsReadDenied):
 		writeError(w, r, http.StatusForbidden, "analytics.read_denied", err.Error(), nil)
+	case errors.Is(err, auth.ErrPermissionDenied):
+		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }

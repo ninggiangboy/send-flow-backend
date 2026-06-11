@@ -262,7 +262,7 @@ func newTestOpts() Options {
 			saveFunc: func(_ context.Context, _ ports.OutboxEvent) error { return nil },
 		},
 		TxManager: &mockTxManager{
-			runInTransactionFunc: func(ctx context.Context, fn func(ctx context.Context) error) error {
+			withinTxFunc: func(ctx context.Context, fn func(ctx context.Context) error) error {
 				return fn(ctx)
 			},
 		},

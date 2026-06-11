@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
 )
 
 type APIKeyListQuery struct {
@@ -23,9 +24,7 @@ type APIKeyRepository interface {
 	TouchLastUsed(ctx context.Context, workspaceID, keyID string, usedAt time.Time) error
 }
 
-type WorkspaceAccessChecker interface {
-	RequirePermission(ctx context.Context, workspaceID, userID, permission string) error
-}
+type WorkspaceAccessChecker = auth.WorkspaceAccessChecker
 
 type IDGenerator func() (string, error)
 

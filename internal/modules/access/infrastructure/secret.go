@@ -2,7 +2,6 @@ package infrastructure
 
 import (
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -45,10 +44,6 @@ func (g CryptoSecretGenerator) Generate() (plaintext, keyPrefix string, err erro
 	plaintext = domain.SecretStablePrefix + encoded
 	keyPrefix = domain.DerivePrefix(plaintext)
 	return plaintext, keyPrefix, nil
-}
-
-func ConstantTimeCompare(a, b string) bool {
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 var _ ports.SecretHasher = (*BcryptSecretHasher)(nil)

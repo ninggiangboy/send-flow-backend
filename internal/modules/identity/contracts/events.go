@@ -1,11 +1,11 @@
 package contracts
 
 const (
-	EventUserRegisteredV1          = "identity.user.registered.v1"
-	EventExternalAccountLinkedV1   = "identity.user.external_account_linked.v1"
-	EventWorkspaceCreatedV1        = "identity.workspace.created.v1"
-	EventWorkspaceMemberInvitedV1  = "identity.workspace.member_invited.v1"
-	EventWorkspaceMemberJoinedV1   = "identity.workspace.member_joined.v1"
+	EventUserRegisteredV1         = "identity.user.registered.v1"
+	EventExternalAccountLinkedV1  = "identity.user.external_account_linked.v1"
+	EventWorkspaceCreatedV1       = "identity.workspace.created.v1"
+	EventWorkspaceMemberInvitedV1 = "identity.workspace.member_invited.v1"
+	EventWorkspaceMemberJoinedV1  = "identity.workspace.member_joined.v1"
 )
 
 type UserRegisteredPayload struct {

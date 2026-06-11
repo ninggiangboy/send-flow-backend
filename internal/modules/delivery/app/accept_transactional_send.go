@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
@@ -121,9 +120,17 @@ func (s *Service) AcceptTransactionalSend(ctx context.Context, input AcceptTrans
 
 	errUniqueViolation := errors.New("unique violation recovery needed")
 	var result *AcceptTransactionalSendResult
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
-		requestID := mustNewID(s.idGen)
-		messageID := mustNewID(s.idGen)
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
+		requestID, err := s.idGen()
+		if err != nil {
+			log.Error("failed to generate request ID", "error", err)
+			return err
+		}
+		messageID, err := s.idGen()
+		if err != nil {
+			log.Error("failed to generate message ID", "error", err)
+			return err
+		}
 		now := input.Now
 
 		var idempotencyKey *string
@@ -167,7 +174,7 @@ func (s *Service) AcceptTransactionalSend(ctx context.Context, input AcceptTrans
 		}
 
 		if err := s.txRequestsWrite.Create(txCtx, txReq); err != nil {
-			if isUniqueViolation(err) {
+			if errors.Is(err, domain.ErrIdempotencyKeyConflict) {
 				return errUniqueViolation
 			}
 			return err
@@ -181,7 +188,11 @@ func (s *Service) AcceptTransactionalSend(ctx context.Context, input AcceptTrans
 			return domain.ErrTemporarilyUnavailable
 		}
 
-		eventID := mustNewID(s.idGen)
+		eventID, err := s.idGen()
+		if err != nil {
+			log.Error("failed to generate event ID", "error", err)
+			return err
+		}
 		payload := contracts.MessageQueuedPayload{
 			MessageID:              messageID,
 			WorkspaceID:            input.WorkspaceID,
@@ -220,7 +231,11 @@ func (s *Service) AcceptTransactionalSend(ctx context.Context, input AcceptTrans
 			return err
 		}
 
-		acceptedEventID := mustNewID(s.idGen)
+		acceptedEventID, err := s.idGen()
+		if err != nil {
+			log.Error("failed to generate accepted event ID", "error", err)
+			return err
+		}
 		acceptedPayload := contracts.MessageQueuedPayload{
 			MessageID:              messageID,
 			WorkspaceID:            input.WorkspaceID,
@@ -512,12 +527,4 @@ func cleanTags(tags []string) []string {
 		return nil
 	}
 	return cleaned
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
-	}
-	return false
 }

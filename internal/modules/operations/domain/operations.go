@@ -74,6 +74,16 @@ type OutboxFilter struct {
 	Cursor        string
 }
 
+func (f OutboxFilter) Validate() error {
+	if f.Limit < 0 || f.Limit > 100 {
+		return ErrFilterInvalid
+	}
+	if f.From != nil && f.To != nil && f.From.After(*f.To) {
+		return ErrFilterInvalid
+	}
+	return nil
+}
+
 type DeadLetterFilter struct {
 	Source    string
 	Retryable *bool
@@ -83,17 +93,34 @@ type DeadLetterFilter struct {
 	Cursor    string
 }
 
+func (f DeadLetterFilter) Validate() error {
+	if f.Limit < 0 || f.Limit > 100 {
+		return ErrFilterInvalid
+	}
+	if f.From != nil && f.To != nil && f.From.After(*f.To) {
+		return ErrFilterInvalid
+	}
+	return nil
+}
+
 type ReplayJobFilter struct {
 	Status string
 	Limit  int
 	Cursor string
 }
 
+func (f ReplayJobFilter) Validate() error {
+	if f.Limit < 0 || f.Limit > 100 {
+		return ErrFilterInvalid
+	}
+	return nil
+}
+
 type OutboxSummary struct {
-	TotalCount   int            `json:"total_count"`
-	OldestAgeSec int64          `json:"oldest_age_seconds"`
-	OldestAt     *time.Time     `json:"oldest_at,omitempty"`
-	ByEventType  map[string]int `json:"by_event_type,omitempty"`
+	TotalCount   int
+	OldestAgeSec int64
+	OldestAt     *time.Time
+	ByEventType  map[string]int
 }
 
 var supportedTargetTypes = []ReplayTargetType{
@@ -130,7 +157,11 @@ func SanitizePayloadPreview(raw json.RawMessage, maxBytes int) json.RawMessage {
 	if len(raw) <= maxBytes {
 		return raw
 	}
-	return raw[:maxBytes]
+	truncated := raw[:maxBytes]
+	if json.Valid(truncated) {
+		return truncated
+	}
+	return json.RawMessage("{}")
 }
 
 var sensitiveKeys = []string{

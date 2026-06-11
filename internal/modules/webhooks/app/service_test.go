@@ -102,7 +102,7 @@ type mockTxManager struct {
 	runInTxFn func(ctx context.Context, fn func(context.Context) error) error
 }
 
-func (m *mockTxManager) RunInTransaction(ctx context.Context, fn func(context.Context) error) error {
+func (m *mockTxManager) WithinTx(ctx context.Context, fn func(context.Context) error) error {
 	return m.runInTxFn(ctx, fn)
 }
 
@@ -163,8 +163,8 @@ func TestCreateWebhookConfig_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Config.Name != "Test Webhook" {
-		t.Errorf("expected name 'Test Webhook', got %q", result.Config.Name)
+	if result.Name != "Test Webhook" {
+		t.Errorf("expected name 'Test Webhook', got %q", result.Name)
 	}
 	if result.RawSecret == "" {
 		t.Error("expected raw secret to be non-empty")
@@ -221,6 +221,12 @@ func TestCreateWebhookConfig_InvalidTargetURL(t *testing.T) {
 	}
 }
 
+type noopTxManager struct{}
+
+func (m *noopTxManager) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
 func TestDisableWebhookConfig(t *testing.T) {
 	svc := &Service{
 		configRead: &mockConfigRead{
@@ -242,9 +248,10 @@ func TestDisableWebhookConfig(t *testing.T) {
 				return nil
 			},
 		},
-		idGen: fixedIDGen,
-		clock: fixedClock,
-		log:   slog.Default(),
+		idGen:     fixedIDGen,
+		clock:     fixedClock,
+		log:       slog.Default(),
+		txManager: &noopTxManager{},
 	}
 
 	err := svc.DisableWebhookConfig(context.Background(), DisableConfigInput{

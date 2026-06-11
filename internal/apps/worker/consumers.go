@@ -148,7 +148,7 @@ func (c *CampaignScheduledConsumer) HandleEvent(ctx context.Context, eventID str
 		c.log.Warn("failed to unmarshal campaign scheduled envelope", "event_id", eventID, "error", err)
 		return &deliveryapp.NonRetryableError{Err: err}
 	}
-	err := c.svc.HandleCampaignScheduled(ctx, deliveryapp.HandleCampaignScheduledInput{
+	err = c.svc.HandleCampaignScheduled(ctx, deliveryapp.HandleCampaignScheduledInput{
 		EventID:   eventID,
 		EventType: env.EventType,
 		Payload:   env.Payload,

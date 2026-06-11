@@ -7,6 +7,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"log/slog"
+
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/sliceutil"
 )
 
 type Config struct {
@@ -52,6 +56,27 @@ type Config struct {
 	UnsubscribeTokenSecret string
 }
 
+type DatabaseConfig struct {
+	URL     string
+	ReadURL string
+}
+
+type JWTConfig struct {
+	Issuer        string
+	AccessSecret  string
+	RefreshSecret string
+	AccessTTL     time.Duration
+	RefreshTTL    time.Duration
+}
+
+type OAuthConfig struct {
+	StateTTL       time.Duration
+	GoogleClientID string
+	GoogleSecret   string
+	GithubClientID string
+	GithubSecret   string
+}
+
 type ObjectStorageConfig struct {
 	Endpoint        string
 	Region          string
@@ -86,7 +111,6 @@ func LoadFromEnv() (Config, error) {
 		AppEnv:          getenv("APP_ENV", "local"),
 		HTTPAddr:        getenv("HTTP_ADDR", ":8081"),
 		LogLevel:        getenv("LOG_LEVEL", "info"),
-		AutoMigrate:     parseBool("AUTO_MIGRATE", false),
 		DatabaseURL:     os.Getenv("DATABASE_URL"),
 		DatabaseReadURL: os.Getenv("DATABASE_READ_URL"),
 		RedisAddr:       getenv("REDIS_ADDR", "localhost:6379"),
@@ -97,7 +121,6 @@ func LoadFromEnv() (Config, error) {
 		FrontendBaseURL: os.Getenv("FRONTEND_BASE_URL"),
 		SMTP: SMTPConfig{
 			Host:     getenv("SMTP_HOST", "localhost"),
-			Port:     parseInt("SMTP_PORT", 1025),
 			Username: os.Getenv("SMTP_USERNAME"),
 			Password: os.Getenv("SMTP_PASSWORD"),
 			From:     getenv("SMTP_FROM", "noreply@sendflow.local"),
@@ -117,44 +140,133 @@ func LoadFromEnv() (Config, error) {
 			AccessKeyID:     os.Getenv("OBJECT_STORAGE_ACCESS_KEY_ID"),
 			SecretAccessKey: os.Getenv("OBJECT_STORAGE_SECRET_ACCESS_KEY"),
 			Bucket:          getenv("OBJECT_STORAGE_BUCKET", "sendflow-local"),
-			ForcePathStyle:  parseBool("OBJECT_STORAGE_FORCE_PATH_STYLE", true),
-			UseSSL:          parseBool("OBJECT_STORAGE_USE_SSL", false),
 		},
-		ShutdownTimeout: parseDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
-
 		WorkerHTTPAddr:            getenv("WORKER_HTTP_ADDR", ":8082"),
 		WorkerEnabledConsumers:    parseCSV("WORKER_ENABLED_CONSUMERS"),
-		WorkerConcurrency:         parseInt("WORKER_CONCURRENCY", 1),
-		WorkerShutdownTimeout:     parseDuration("WORKER_SHUTDOWN_TIMEOUT", 10*time.Second),
 		WorkerConsumerGroupPrefix: getenv("WORKER_CONSUMER_GROUP_PREFIX", "send-flow"),
 
 		JWTIssuer:              getenv("JWT_ISSUER", "send-flow"),
-		JWTAccessSecret:        getenv("JWT_ACCESS_SECRET", "dev-access-secret-change-me"),
-		JWTRefreshSecret:       getenv("JWT_REFRESH_SECRET", "dev-refresh-secret-change-me"),
-		JWTAccessTTL:           parseDuration("JWT_ACCESS_TTL", 15*time.Minute),
-		JWTRefreshTTL:          parseDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
-		OAuthStateTTL:          parseDuration("OAUTH_STATE_TTL", 10*time.Minute),
+		JWTAccessSecret:        os.Getenv("JWT_ACCESS_SECRET"),
+		JWTRefreshSecret:       os.Getenv("JWT_REFRESH_SECRET"),
 		OAuthGoogleClientID:    os.Getenv("OAUTH_GOOGLE_CLIENT_ID"),
 		OAuthGoogleSecret:      os.Getenv("OAUTH_GOOGLE_CLIENT_SECRET"),
 		OAuthGithubClientID:    os.Getenv("OAUTH_GITHUB_CLIENT_ID"),
 		OAuthGithubSecret:      os.Getenv("OAUTH_GITHUB_CLIENT_SECRET"),
-		EmailVerificationTTL:   parseDuration("AUTH_EMAIL_VERIFICATION_TTL", 24*time.Hour),
-		PasswordResetTTL:       parseDuration("AUTH_PASSWORD_RESET_TTL", time.Hour),
-		MFAChallengeTTL:        parseDuration("AUTH_MFA_CHALLENGE_TTL", 10*time.Minute),
 		FakeWebhookSecret:      os.Getenv("FAKE_WEBHOOK_SECRET"),
-		UnsubscribeTokenSecret: getenv("UNSUBSCRIBE_TOKEN_SECRET", "dev-unsubscribe-secret-change-me"),
+		UnsubscribeTokenSecret: os.Getenv("UNSUBSCRIBE_TOKEN_SECRET"),
+	}
+
+	var errs []error
+
+	if v, err := parseBool("AUTO_MIGRATE", false); err != nil {
+		errs = append(errs, fmt.Errorf("AUTO_MIGRATE: %w", err))
+	} else {
+		cfg.AutoMigrate = v
+	}
+	if v, err := parseInt("SMTP_PORT", 1025); err != nil {
+		errs = append(errs, fmt.Errorf("SMTP_PORT: %w", err))
+	} else {
+		cfg.SMTP.Port = v
+	}
+	if v, err := parseBool("OBJECT_STORAGE_FORCE_PATH_STYLE", true); err != nil {
+		errs = append(errs, fmt.Errorf("OBJECT_STORAGE_FORCE_PATH_STYLE: %w", err))
+	} else {
+		cfg.ObjectStorage.ForcePathStyle = v
+	}
+	if v, err := parseBool("OBJECT_STORAGE_USE_SSL", false); err != nil {
+		errs = append(errs, fmt.Errorf("OBJECT_STORAGE_USE_SSL: %w", err))
+	} else {
+		cfg.ObjectStorage.UseSSL = v
+	}
+	if v, err := parseDuration("SHUTDOWN_TIMEOUT", 10*time.Second); err != nil {
+		errs = append(errs, fmt.Errorf("SHUTDOWN_TIMEOUT: %w", err))
+	} else {
+		cfg.ShutdownTimeout = v
+	}
+	if v, err := parseInt("WORKER_CONCURRENCY", 1); err != nil {
+		errs = append(errs, fmt.Errorf("WORKER_CONCURRENCY: %w", err))
+	} else {
+		cfg.WorkerConcurrency = v
+	}
+	if v, err := parseDuration("WORKER_SHUTDOWN_TIMEOUT", 10*time.Second); err != nil {
+		errs = append(errs, fmt.Errorf("WORKER_SHUTDOWN_TIMEOUT: %w", err))
+	} else {
+		cfg.WorkerShutdownTimeout = v
+	}
+	if v, err := parseDuration("JWT_ACCESS_TTL", 15*time.Minute); err != nil {
+		errs = append(errs, fmt.Errorf("JWT_ACCESS_TTL: %w", err))
+	} else {
+		cfg.JWTAccessTTL = v
+	}
+	if v, err := parseDuration("JWT_REFRESH_TTL", 7*24*time.Hour); err != nil {
+		errs = append(errs, fmt.Errorf("JWT_REFRESH_TTL: %w", err))
+	} else {
+		cfg.JWTRefreshTTL = v
+	}
+	if v, err := parseDuration("OAUTH_STATE_TTL", 10*time.Minute); err != nil {
+		errs = append(errs, fmt.Errorf("OAUTH_STATE_TTL: %w", err))
+	} else {
+		cfg.OAuthStateTTL = v
+	}
+	if v, err := parseDuration("AUTH_EMAIL_VERIFICATION_TTL", 24*time.Hour); err != nil {
+		errs = append(errs, fmt.Errorf("AUTH_EMAIL_VERIFICATION_TTL: %w", err))
+	} else {
+		cfg.EmailVerificationTTL = v
+	}
+	if v, err := parseDuration("AUTH_PASSWORD_RESET_TTL", time.Hour); err != nil {
+		errs = append(errs, fmt.Errorf("AUTH_PASSWORD_RESET_TTL: %w", err))
+	} else {
+		cfg.PasswordResetTTL = v
+	}
+	if v, err := parseDuration("AUTH_MFA_CHALLENGE_TTL", 10*time.Minute); err != nil {
+		errs = append(errs, fmt.Errorf("AUTH_MFA_CHALLENGE_TTL: %w", err))
+	} else {
+		cfg.MFAChallengeTTL = v
 	}
 
 	redisDB, err := strconv.Atoi(getenv("REDIS_DB", "0"))
 	if err != nil {
-		return Config{}, fmt.Errorf("invalid REDIS_DB: %w", err)
+		errs = append(errs, fmt.Errorf("invalid REDIS_DB: %w", err))
+	} else {
+		cfg.RedisDB = redisDB
 	}
-	cfg.RedisDB = redisDB
+
+	if len(errs) > 0 {
+		return Config{}, errors.Join(errs...)
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+var devSecrets = []string{
+	"dev-access-secret-change-me",
+	"dev-refresh-secret-change-me",
+	"dev-unsubscribe-secret-change-me",
+}
+
+func isDevSecret(s string) bool {
+	for _, d := range devSecrets {
+		if s == d {
+			return true
+		}
+	}
+	return false
+}
+
+// WarnDevSecrets logs a warning if any known dev secrets are detected.
+func WarnDevSecrets(log *slog.Logger, cfg Config) {
+	if isDevSecret(cfg.JWTAccessSecret) {
+		log.Warn("JWT_ACCESS_SECRET is set to a known dev default, change it for non-local environments")
+	}
+	if isDevSecret(cfg.JWTRefreshSecret) {
+		log.Warn("JWT_REFRESH_SECRET is set to a known dev default, change it for non-local environments")
+	}
+	if isDevSecret(cfg.UnsubscribeTokenSecret) {
+		log.Warn("UNSUBSCRIBE_TOKEN_SECRET is set to a known dev default, change it for non-local environments")
+	}
 }
 
 func (c Config) Validate() error {
@@ -169,6 +281,17 @@ func (c Config) Validate() error {
 	}
 	if c.JWTRefreshSecret == "" {
 		return errors.New("JWT_REFRESH_SECRET is required")
+	}
+	if c.AppEnv != "local" {
+		if isDevSecret(c.JWTAccessSecret) {
+			return errors.New("JWT_ACCESS_SECRET must not be a dev default in non-local environment")
+		}
+		if isDevSecret(c.JWTRefreshSecret) {
+			return errors.New("JWT_REFRESH_SECRET must not be a dev default in non-local environment")
+		}
+		if isDevSecret(c.UnsubscribeTokenSecret) {
+			return errors.New("UNSUBSCRIBE_TOKEN_SECRET must not be a dev default in non-local environment")
+		}
 	}
 	if c.EmailProvider != "smtp" && c.EmailProvider != "ses" && c.EmailProvider != "fake" {
 		return errors.New("EMAIL_PROVIDER must be one of: smtp, ses, fake")
@@ -231,6 +354,30 @@ func (c Config) SecureCookies() bool {
 	return strings.ToLower(strings.TrimSpace(c.AppEnv)) != "local"
 }
 
+func (c Config) DatabaseConfig() DatabaseConfig {
+	return DatabaseConfig{URL: c.DatabaseURL, ReadURL: c.DatabaseReadURL}
+}
+
+func (c Config) JWTConfig() JWTConfig {
+	return JWTConfig{
+		Issuer:        c.JWTIssuer,
+		AccessSecret:  c.JWTAccessSecret,
+		RefreshSecret: c.JWTRefreshSecret,
+		AccessTTL:     c.JWTAccessTTL,
+		RefreshTTL:    c.JWTRefreshTTL,
+	}
+}
+
+func (c Config) OAuthConfig() OAuthConfig {
+	return OAuthConfig{
+		StateTTL:       c.OAuthStateTTL,
+		GoogleClientID: c.OAuthGoogleClientID,
+		GoogleSecret:   c.OAuthGoogleSecret,
+		GithubClientID: c.OAuthGithubClientID,
+		GithubSecret:   c.OAuthGithubSecret,
+	}
+}
+
 func getenv(key, fallback string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
@@ -238,54 +385,42 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
-func parseDuration(key string, fallback time.Duration) time.Duration {
+func parseDuration(key string, fallback time.Duration) (time.Duration, error) {
 	raw := os.Getenv(key)
 	if raw == "" {
-		return fallback
+		return fallback, nil
 	}
 	d, err := time.ParseDuration(raw)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("failed to parse %s=%q: %w", key, raw, err)
 	}
-	return d
+	return d, nil
 }
 
-func parseBool(key string, fallback bool) bool {
+func parseBool(key string, fallback bool) (bool, error) {
 	raw := os.Getenv(key)
 	if raw == "" {
-		return fallback
+		return fallback, nil
 	}
 	v, err := strconv.ParseBool(raw)
 	if err != nil {
-		return fallback
+		return false, fmt.Errorf("failed to parse %s=%q: %w", key, raw, err)
 	}
-	return v
+	return v, nil
 }
 
-func parseInt(key string, fallback int) int {
+func parseInt(key string, fallback int) (int, error) {
 	raw := os.Getenv(key)
 	if raw == "" {
-		return fallback
+		return fallback, nil
 	}
 	v, err := strconv.Atoi(raw)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("failed to parse %s=%q: %w", key, raw, err)
 	}
-	return v
+	return v, nil
 }
 
 func parseCSV(key string) []string {
-	raw := os.Getenv(key)
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-	parts := strings.Split(raw, ",")
-	values := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			values = append(values, part)
-		}
-	}
-	return values
+	return sliceutil.ParseCSV(os.Getenv(key))
 }

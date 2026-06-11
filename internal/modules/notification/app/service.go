@@ -324,7 +324,7 @@ func (s *Service) SendWelcomeEmail(ctx context.Context, input domain.SendWelcome
 		UpdatedAt:       now,
 	}
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		if err := s.messagesWrite.Create(txCtx, msg); err != nil {
 			return err
 		}
@@ -380,7 +380,7 @@ func (s *Service) SendWorkspaceInvitationEmail(ctx context.Context, input domain
 		UpdatedAt:      now,
 	}
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		if err := s.messagesWrite.Create(txCtx, msg); err != nil {
 			return err
 		}
@@ -433,7 +433,7 @@ func (s *Service) SendSystemAlert(ctx context.Context, input domain.SendSystemAl
 		UpdatedAt:      now,
 	}
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		if err := s.messagesWrite.Create(txCtx, msg); err != nil {
 			return err
 		}

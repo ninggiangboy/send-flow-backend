@@ -6,25 +6,14 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/domain"
+	suppressioncontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/unsubscribetoken"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/contracts"
 	trackingdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
+	platformerrors "github.com/ninggiangboy/send-flow/backend/internal/platform/retryable"
 )
-
-type NonRetryableError struct {
-	Err error
-}
-
-func (e *NonRetryableError) Error() string {
-	return e.Err.Error()
-}
-
-func (e *NonRetryableError) Unwrap() error {
-	return e.Err
-}
 
 type RecipientSuppressor interface {
 	SuppressFromSignal(ctx context.Context, input SuppressFromSignalInput) (*SuppressFromSignalResult, error)
@@ -102,7 +91,7 @@ type CreateTrackingLinkInput struct {
 	MessageID      string
 	DestinationURL string
 	LinkType       string
-	MetadataJSON   map[string]any
+	Metadata       map[string]any
 	Now            time.Time
 	ExpiresAt      *time.Time
 }
@@ -111,11 +100,11 @@ func (s *Service) CreateTrackingLink(ctx context.Context, input CreateTrackingLi
 	log := s.log.With("usecase", "create_tracking_link", "workspace_id", input.WorkspaceID)
 
 	if !trackingdomain.ValidLinkType(input.LinkType) {
-		return nil, &NonRetryableError{Err: trackingdomain.ErrTrackingEventInvalid}
+		return nil, &platformerrors.NonRetryableError{Err: trackingdomain.ErrTrackingEventInvalid}
 	}
 	if input.DestinationURL != "" {
 		if err := trackingdomain.ValidateDestinationURL(input.DestinationURL); err != nil {
-			return nil, &NonRetryableError{Err: err}
+			return nil, &platformerrors.NonRetryableError{Err: err}
 		}
 	}
 
@@ -131,13 +120,13 @@ func (s *Service) CreateTrackingLink(ctx context.Context, input CreateTrackingLi
 		MessageID:      input.MessageID,
 		DestinationURL: input.DestinationURL,
 		LinkType:       input.LinkType,
-		MetadataJSON:   input.MetadataJSON,
+		Metadata:       input.Metadata,
 		CreatedAt:      input.Now,
 		ExpiresAt:      input.ExpiresAt,
 	}
 
-	if link.MetadataJSON == nil {
-		link.MetadataJSON = map[string]any{}
+	if link.Metadata == nil {
+		link.Metadata = map[string]any{}
 	}
 
 	if err := s.linkWriteRepo.Create(ctx, link); err != nil {
@@ -243,7 +232,7 @@ func (s *Service) RecordOpen(ctx context.Context, input RecordOpenInput) (*Recor
 
 	var trackingEventResult *RecordOpenResult
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		if input.SourceEventID != "" {
 			existing, err := s.eventReadRepo.FindBySourceEvent(txCtx, source, input.SourceEventID, trackingdomain.EventTypeOpen)
 			if err != nil {
@@ -276,7 +265,7 @@ func (s *Service) RecordOpen(ctx context.Context, input RecordOpenInput) (*Recor
 			ProviderMessageID: resolvedProviderMessageID,
 			OccurredAt:        input.OccurredAt,
 			ReceivedAt:        input.ReceivedAt,
-			MetadataJSON:      map[string]any{},
+			Metadata:          map[string]any{},
 			CreatedAt:         now,
 		}
 
@@ -452,7 +441,7 @@ func (s *Service) RecordClick(ctx context.Context, input RecordClickInput) (*Rec
 
 	var trackingEventResult *RecordClickResult
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		if input.SourceEventID != "" {
 			existing, err := s.eventReadRepo.FindBySourceEvent(txCtx, source, input.SourceEventID, trackingdomain.EventTypeClick)
 			if err != nil {
@@ -485,7 +474,7 @@ func (s *Service) RecordClick(ctx context.Context, input RecordClickInput) (*Rec
 			ProviderMessageID: resolvedProviderMessageID,
 			OccurredAt:        input.OccurredAt,
 			ReceivedAt:        input.ReceivedAt,
-			MetadataJSON:      map[string]any{},
+			Metadata:          map[string]any{},
 			CreatedAt:         now,
 		}
 
@@ -607,7 +596,7 @@ func (s *Service) RecordUnsubscribe(ctx context.Context, input RecordUnsubscribe
 	if input.Token != "" {
 		if s.tokenSigner == nil {
 			log.Warn("token signer not configured, cannot verify unsubscribe token")
-			return nil, &NonRetryableError{Err: trackingdomain.ErrUnsubscribeTokenInvalid}
+			return nil, &platformerrors.NonRetryableError{Err: trackingdomain.ErrUnsubscribeTokenInvalid}
 		}
 		payload, err := s.tokenSigner.Verify(input.Token)
 		if err != nil {
@@ -660,7 +649,7 @@ func (s *Service) RecordUnsubscribe(ctx context.Context, input RecordUnsubscribe
 
 	var result *RecordUnsubscribeResult
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		var trackingEventID string
 		if source == trackingdomain.SourceHTTP || input.SourceEventID != "" {
 			if input.SourceEventID != "" {
@@ -690,7 +679,7 @@ func (s *Service) RecordUnsubscribe(ctx context.Context, input RecordUnsubscribe
 					SourceEventID: input.SourceEventID,
 					OccurredAt:    input.OccurredAt,
 					ReceivedAt:    input.ReceivedAt,
-					MetadataJSON:  map[string]any{},
+					Metadata:      map[string]any{},
 					CreatedAt:     now,
 				}
 
@@ -711,7 +700,7 @@ func (s *Service) RecordUnsubscribe(ctx context.Context, input RecordUnsubscribe
 				WorkspaceID:     resolvedWorkspaceID,
 				EmailNormalized: resolvedRecipientEmailNormalized,
 				Scope:           "workspace",
-				Reason:          string(domain.SuppressionReasonUnsubscribe),
+				Reason:          suppressioncontracts.ReasonUnsubscribe,
 				Source:          source,
 				SourceEventID:   input.SourceEventID,
 				Note:            "unsubscribed via tracking endpoint or provider event",
@@ -825,7 +814,7 @@ func (s *Service) HandleProviderEvent(ctx context.Context, input HandleProviderE
 	)
 
 	if input.EventID == "" || input.EventType == "" {
-		return nil, &NonRetryableError{Err: trackingdomain.ErrTrackingEventInvalid}
+		return nil, &platformerrors.NonRetryableError{Err: trackingdomain.ErrTrackingEventInvalid}
 	}
 
 	switch input.EventType {

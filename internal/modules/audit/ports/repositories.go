@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audit/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
 )
 
 type EntryReadRepository interface {
@@ -13,3 +14,5 @@ type EntryReadRepository interface {
 type EntryWriteRepository interface {
 	Append(ctx context.Context, entry domain.AuditEntry) error
 }
+
+type PermissionChecker = auth.WorkspaceAccessChecker

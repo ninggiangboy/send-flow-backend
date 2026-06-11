@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type Handler struct {
@@ -29,13 +28,6 @@ type Command struct {
 
 func New(deps usecase.Deps, newSession usecase.NewSession) *Handler {
 	return &Handler{deps: deps, newSession: newSession, log: deps.Logger.With("usecase", "signup")}
-}
-
-type userRegisteredPayload struct {
-	UserID     string `json:"user_id"`
-	Email      string `json:"email"`
-	AuthMethod string `json:"auth_method"`
-	At         string `json:"at"`
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionContext, error) {
@@ -72,66 +64,28 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 
 	createUserWithOutbox := func(txCtx context.Context) error {
 		if err := h.deps.UsersWrite.Create(txCtx, user); err != nil {
-			if isDuplicateError(err) {
+			if errors.Is(err, domain.ErrEmailAlreadyExists) {
 				h.log.Warn("signup failed: duplicate email on write", "error", err)
 				return domain.ErrEmailAlreadyExists
 			}
 			h.log.Error("failed to create user", "error", err)
 			return err
 		}
-		if h.deps.OutboxWriter == nil {
-			return nil
-		}
-		payload := userRegisteredPayload{
+		bizPayload := contracts.UserRegisteredPayload{
 			UserID:     user.ID,
 			Email:      user.Email,
 			AuthMethod: user.PrimaryAuthMethod,
 			At:         cmd.Now.Format(time.RFC3339),
 		}
-		eventID, err := h.deps.IDGen.New()
-		if err != nil {
-			h.log.Error("failed to generate event ID", "user_id", user.ID, "error", err)
-			return err
-		}
-		envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-			EventID:       eventID,
-			EventType:     "identity.user.registered.v1",
-			EventVersion:  1,
-			AggregateType: "user",
-			AggregateID:   user.ID,
-			OccurredAt:    cmd.Now,
-		}, payload)
-		if err != nil {
-			h.log.Error("failed to create user registered envelope", "user_id", user.ID, "error", err)
-			return err
-		}
-		payloadBytes, err := events.Marshal(envelope)
-		if err != nil {
-			h.log.Error("failed to marshal user registered event", "user_id", user.ID, "error", err)
-			return err
-		}
-		if err := h.deps.OutboxWriter.Save(txCtx, ports.OutboxEvent{
-			ID:            eventID,
-			AggregateType: "user",
-			AggregateID:   user.ID,
-			EventType:     "identity.user.registered.v1",
-			Payload:       payloadBytes,
-			OccurredAt:    cmd.Now,
-		}); err != nil {
-			h.log.Error("failed to save user registered outbox event", "user_id", user.ID, "error", err)
+		if err := usecase.EmitEvent(txCtx, h.deps.OutboxWriter, h.deps.IDGen, contracts.EventUserRegisteredV1, "user", user.ID, "", bizPayload, cmd.Now); err != nil {
+			h.log.Error("failed to emit user registered event", "user_id", user.ID, "error", err)
 			return err
 		}
 		return nil
 	}
 
-	if h.deps.UnitOfWork != nil {
-		if err := h.deps.UnitOfWork.WithinTx(ctx, createUserWithOutbox); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := createUserWithOutbox(ctx); err != nil {
-			return nil, err
-		}
+	if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, createUserWithOutbox); err != nil {
+		return nil, err
 	}
 	h.log.Info("user signed up", "user_id", user.ID)
 
@@ -146,9 +100,4 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 		}
 	}
 	return h.newSession(ctx, usecase.NewSessionInput{User: user, Method: "password", IP: cmd.IP, UA: cmd.UA, Now: cmd.Now})
-}
-
-func isDuplicateError(err error) bool {
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "duplicate") || strings.Contains(s, "unique")
 }

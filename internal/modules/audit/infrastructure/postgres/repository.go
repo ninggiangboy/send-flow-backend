@@ -7,22 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	auditdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/audit/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
 type WriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewWriteRepository(db DBTX) *WriteRepository {
+func NewWriteRepository(db platformpostgres.DBTX) *WriteRepository {
 	return &WriteRepository{db: db}
 }
 
@@ -34,7 +28,7 @@ func (r *WriteRepository) Append(ctx context.Context, entry auditdomain.AuditEnt
 	_, err = r.db.Exec(ctx, `
 		INSERT INTO audit_entries (id, workspace_id, actor_user_id, action_type, target_type, target_id, payload_summary, request_id, occurred_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, entry.ID, entry.WorkspaceID, nullable(entry.ActorUserID), entry.ActionType, entry.TargetType, entry.TargetID, payload, entry.RequestID, entry.OccurredAt)
+	`, entry.ID, entry.WorkspaceID, platformpostgres.Nullable(entry.ActorUserID), entry.ActionType, entry.TargetType, entry.TargetID, payload, entry.RequestID, entry.OccurredAt)
 	if err != nil {
 		return fmt.Errorf("insert audit entry: %w", err)
 	}
@@ -42,17 +36,17 @@ func (r *WriteRepository) Append(ctx context.Context, entry auditdomain.AuditEnt
 }
 
 type ReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewReadRepository(db DBTX) *ReadRepository {
+func NewReadRepository(db platformpostgres.DBTX) *ReadRepository {
 	return &ReadRepository{db: db}
 }
 
 func (r *ReadRepository) List(ctx context.Context, filter auditdomain.AuditFilter) ([]auditdomain.AuditEntry, string, error) {
 	limit := filter.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
 	query := `SELECT id, workspace_id, actor_user_id, action_type, target_type, target_id, payload_summary, request_id, occurred_at
@@ -143,11 +137,4 @@ func (r *ReadRepository) List(ctx context.Context, filter auditdomain.AuditFilte
 	}
 
 	return entries, nextCursor, nil
-}
-
-func nullable(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

@@ -3,11 +3,10 @@ package contracts
 import (
 	"encoding/json"
 	"testing"
-	"time"
 )
 
 func TestProjectionUpdatedPayloadJSONFields(t *testing.T) {
-	now := time.Now().UTC()
+	now := "2024-06-10T12:00:00Z"
 	payload := ProjectionUpdatedPayload{
 		WorkspaceID:    "ws_1",
 		ProjectionType: "workspace_overview",
@@ -42,7 +41,7 @@ func TestProjectionUpdatedPayloadJSONFields(t *testing.T) {
 }
 
 func TestEventFactRecordedPayloadJSONFields(t *testing.T) {
-	now := time.Now().UTC()
+	now := "2024-06-10T12:00:00Z"
 	payload := EventFactRecordedPayload{
 		FactID:          "fact_1",
 		SourceEventID:   "src_1",

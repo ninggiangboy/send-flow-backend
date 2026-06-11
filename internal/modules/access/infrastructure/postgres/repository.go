@@ -7,17 +7,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
-
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
 
 type txKey struct{}
 
@@ -37,22 +32,22 @@ type apiKeyRow struct {
 }
 
 type APIKeyRepository struct {
-	readDB  DBTX
-	writeDB DBTX
+	readDB  platformpostgres.DBTX
+	writeDB platformpostgres.DBTX
 }
 
 func NewAPIKeyRepository(readPool, writePool *pgxpool.Pool) *APIKeyRepository {
 	return &APIKeyRepository{readDB: readPool, writeDB: writePool}
 }
 
-func (r *APIKeyRepository) getReadDB(ctx context.Context) DBTX {
+func (r *APIKeyRepository) getReadDB(ctx context.Context) platformpostgres.DBTX {
 	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
 		return tx
 	}
 	return r.readDB
 }
 
-func (r *APIKeyRepository) getWriteDB(ctx context.Context) DBTX {
+func (r *APIKeyRepository) getWriteDB(ctx context.Context) platformpostgres.DBTX {
 	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
 		return tx
 	}
@@ -64,7 +59,7 @@ func (r *APIKeyRepository) ListByWorkspace(ctx context.Context, query ports.APIK
 
 	limit := query.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
 	var rows pgx.Rows
@@ -144,7 +139,7 @@ func (r *APIKeyRepository) TouchLastUsed(ctx context.Context, workspaceID, keyID
 	return err
 }
 
-func (r *APIKeyRepository) findOne(ctx context.Context, db DBTX, sql string, args ...any) (*domain.APIKey, error) {
+func (r *APIKeyRepository) findOne(ctx context.Context, db platformpostgres.DBTX, sql string, args ...any) (*domain.APIKey, error) {
 	var row apiKeyRow
 	err := db.QueryRow(ctx, sql, args...).Scan(&row.ID, &row.WorkspaceID, &row.Name, &row.KeyPrefix, &row.SecretHash, &row.Scopes, &row.Status, &row.CreatedAt, &row.UpdatedAt, &row.LastUsedAt, &row.ExpiresAt, &row.RevokedAt)
 	if errors.Is(err, pgx.ErrNoRows) {

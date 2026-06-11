@@ -27,14 +27,8 @@ func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
 }
 
 func (s *SMTPSender) Send(ctx context.Context, msg Message) error {
-	if len(msg.To) == 0 {
-		return fmt.Errorf("email recipient is required")
-	}
-	if msg.Subject == "" {
-		return fmt.Errorf("email subject is required")
-	}
-	if msg.Text == "" && msg.HTML == "" {
-		return fmt.Errorf("email body is required")
+	if err := msg.Validate(); err != nil {
+		return err
 	}
 
 	mime, err := buildMIMEMessage(s.from, msg)
@@ -50,6 +44,9 @@ func (s *SMTPSender) Send(ctx context.Context, msg Message) error {
 
 	select {
 	case <-ctx.Done():
+		go func() {
+			<-errCh
+		}()
 		return ctx.Err()
 	case err := <-errCh:
 		if err != nil {
@@ -66,6 +63,7 @@ func buildMIMEMessage(from string, msg Message) ([]byte, error) {
 	b.WriteString(fmt.Sprintf("From: %s\r\n", from))
 	b.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(msg.To, ",")))
 	b.WriteString(fmt.Sprintf("Subject: %s\r\n", msg.Subject))
+	b.WriteString(fmt.Sprintf("Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z)))
 	b.WriteString("MIME-Version: 1.0\r\n")
 
 	if msg.Text != "" && msg.HTML != "" {

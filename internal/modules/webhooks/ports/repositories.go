@@ -5,6 +5,9 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/outbox"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type ConfigReadRepository interface {
@@ -74,28 +77,11 @@ type HTTPDeliverer interface {
 	Deliver(ctx context.Context, req DeliveryHTTPRequest) (DeliveryHTTPResponse, error)
 }
 
-type SecretGenerator interface {
-	Generate() (rawSecret string, hash string, hint string, err error)
-	Sign(payload []byte, timestamp string, secret string) string
-}
+type WorkspaceAccessChecker = auth.WorkspaceAccessChecker
 
-type WorkspaceAccessChecker interface {
-	RequirePermission(ctx context.Context, workspaceID, userID, permission string) error
-}
+type TransactionManager = transaction.UnitOfWork
 
-type TransactionManager interface {
-	RunInTransaction(ctx context.Context, fn func(context.Context) error) error
-}
-
-type OutboxEvent struct {
-	ID            string
-	AggregateType string
-	AggregateID   string
-	EventType     string
-	Payload       []byte
-	WorkspaceID   string
-	OccurredAt    time.Time
-}
+type OutboxEvent = outbox.Event
 
 type OutboxWriter interface {
 	Save(ctx context.Context, event OutboxEvent) error

@@ -52,7 +52,7 @@ func (h *trackingHTTP) serveClickRedirect(w http.ResponseWriter, r *http.Request
 		Source:     "http",
 	})
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 		return
 	}
 
@@ -77,7 +77,7 @@ func (h *trackingHTTP) serveUnsubscribe(w http.ResponseWriter, r *http.Request) 
 		Source: "http",
 	})
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 		return
 	}
 

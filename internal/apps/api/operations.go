@@ -9,6 +9,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	operationsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type operationsHTTP struct {
@@ -356,8 +358,7 @@ func (h *operationsHTTP) listReplayJobs(w http.ResponseWriter, r *http.Request) 
 	userID := r.Context().Value(ctxUserID).(string)
 
 	q := r.URL.Query()
-	var limit int
-	parseLimit(q.Get("limit"), &limit)
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
 
 	filter := domain.ReplayJobFilter{
 		Status: q.Get("status"),
@@ -460,8 +461,10 @@ func mapOperationsErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusConflict, "operations.replay_conflict", err.Error(), nil)
 	case errors.Is(err, domain.ErrWorkspaceRequired):
 		writeError(w, r, http.StatusBadRequest, "operations.filter_invalid", err.Error(), nil)
+	case errors.Is(err, auth.ErrPermissionDenied):
+		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", err.Error(), nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }
 
@@ -481,8 +484,7 @@ func buildOutboxFilter(q params) domain.OutboxFilter {
 			to = &t
 		}
 	}
-	var limit int
-	parseLimit(q.Get("limit"), &limit)
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
 	return domain.OutboxFilter{
 		EventType:     q.Get("event_type"),
 		AggregateType: q.Get("aggregate_type"),
@@ -508,8 +510,7 @@ func buildDeadLetterFilter(q params) domain.DeadLetterFilter {
 			to = &t
 		}
 	}
-	var limit int
-	parseLimit(q.Get("limit"), &limit)
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
 	filter := domain.DeadLetterFilter{
 		Source: q.Get("source"),
 		From:   from,

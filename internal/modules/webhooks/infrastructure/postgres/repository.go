@@ -11,13 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/ports"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
-
-type DBTX interface {
-	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-	Query(context.Context, string, ...any) (pgx.Rows, error)
-	QueryRow(context.Context, string, ...any) pgx.Row
-}
 
 type ConfigWriteRepository struct {
 	pool *pgxpool.Pool
@@ -27,9 +22,8 @@ func NewConfigWriteRepository(pool *pgxpool.Pool) *ConfigWriteRepository {
 	return &ConfigWriteRepository{pool: pool}
 }
 
-func (r *ConfigWriteRepository) db(ctx context.Context) DBTX {
-	tx, ok := ctx.Value(ctxTxKey).(pgx.Tx)
-	if ok {
+func (r *ConfigWriteRepository) db(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.pool
@@ -97,14 +91,14 @@ func (r *ConfigWriteRepository) Disable(ctx context.Context, workspaceID, webhoo
 }
 
 type ConfigReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 func NewConfigReadRepository(pool *pgxpool.Pool) *ConfigReadRepository {
 	return &ConfigReadRepository{db: pool}
 }
 
-func NewConfigReadRepositoryWithDBTX(db DBTX) *ConfigReadRepository {
+func NewConfigReadRepositoryWithDBTX(db platformpostgres.DBTX) *ConfigReadRepository {
 	return &ConfigReadRepository{db: db}
 }
 
@@ -170,24 +164,11 @@ func scanConfig(row pgx.Row) (*domain.WebhookConfig, error) {
 func scanConfigs(rows pgx.Rows) ([]domain.WebhookConfig, error) {
 	var configs []domain.WebhookConfig
 	for rows.Next() {
-		var cfg domain.WebhookConfig
-		var subsJSON []byte
-		var disabledAt *time.Time
-		err := rows.Scan(
-			&cfg.ID, &cfg.WorkspaceID, &cfg.Name, &cfg.TargetURL, (*string)(&cfg.Status),
-			&subsJSON, &cfg.SecretHash, &cfg.SecretHint, &cfg.Version, &cfg.CreatedByUserID,
-			&cfg.CreatedAt, &cfg.UpdatedAt, &disabledAt,
-		)
+		cfg, err := scanConfig(rows)
 		if err != nil {
 			return nil, err
 		}
-		if len(subsJSON) > 0 {
-			if err := json.Unmarshal(subsJSON, &cfg.Subscriptions); err != nil {
-				return nil, err
-			}
-		}
-		cfg.DisabledAt = disabledAt
-		configs = append(configs, cfg)
+		configs = append(configs, *cfg)
 	}
 	if configs == nil {
 		configs = []domain.WebhookConfig{}
@@ -203,9 +184,8 @@ func NewDeliveryWriteRepository(pool *pgxpool.Pool) *DeliveryWriteRepository {
 	return &DeliveryWriteRepository{pool: pool}
 }
 
-func (r *DeliveryWriteRepository) db(ctx context.Context) DBTX {
-	tx, ok := ctx.Value(ctxTxKey).(pgx.Tx)
-	if ok {
+func (r *DeliveryWriteRepository) db(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.pool
@@ -286,14 +266,14 @@ func (r *DeliveryWriteRepository) ScheduleRetry(ctx context.Context, deliveryID 
 }
 
 type DeliveryReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 func NewDeliveryReadRepository(pool *pgxpool.Pool) *DeliveryReadRepository {
 	return &DeliveryReadRepository{db: pool}
 }
 
-func NewDeliveryReadRepositoryWithDBTX(db DBTX) *DeliveryReadRepository {
+func NewDeliveryReadRepositoryWithDBTX(db platformpostgres.DBTX) *DeliveryReadRepository {
 	return &DeliveryReadRepository{db: db}
 }
 
@@ -322,27 +302,27 @@ func (r *DeliveryReadRepository) ListByWorkspace(ctx context.Context, workspaceI
 	argIdx := 2
 
 	if filter.WebhookID != "" {
-		query += ` AND webhook_id=$` + itoa(argIdx)
+		query += ` AND webhook_id=$` + platformpostgres.Itoa(argIdx)
 		args = append(args, filter.WebhookID)
 		argIdx++
 	}
 	if filter.Status != "" {
-		query += ` AND status=$` + itoa(argIdx)
+		query += ` AND status=$` + platformpostgres.Itoa(argIdx)
 		args = append(args, filter.Status)
 		argIdx++
 	}
 	if filter.EventType != "" {
-		query += ` AND source_event_type=$` + itoa(argIdx)
+		query += ` AND source_event_type=$` + platformpostgres.Itoa(argIdx)
 		args = append(args, filter.EventType)
 		argIdx++
 	}
 	if filter.From != nil {
-		query += ` AND created_at>=$` + itoa(argIdx)
+		query += ` AND created_at>=$` + platformpostgres.Itoa(argIdx)
 		args = append(args, *filter.From)
 		argIdx++
 	}
 	if filter.To != nil {
-		query += ` AND created_at<=$` + itoa(argIdx)
+		query += ` AND created_at<=$` + platformpostgres.Itoa(argIdx)
 		args = append(args, *filter.To)
 		argIdx++
 	}
@@ -352,12 +332,12 @@ func (r *DeliveryReadRepository) ListByWorkspace(ctx context.Context, workspaceI
 		limit = filter.Limit
 	}
 	if filter.Cursor != "" {
-		query += ` AND (created_at, id) < (SELECT created_at, id FROM customer_webhook_deliveries WHERE id=$` + itoa(argIdx) + `)`
+		query += ` AND (created_at, id) < (SELECT created_at, id FROM customer_webhook_deliveries WHERE id=$` + platformpostgres.Itoa(argIdx) + `)`
 		args = append(args, filter.Cursor)
 		argIdx++
 	}
 
-	query += ` ORDER BY created_at DESC LIMIT $` + itoa(argIdx)
+	query += ` ORDER BY created_at DESC LIMIT $` + platformpostgres.Itoa(argIdx)
 	args = append(args, limit+1)
 
 	rows, err := r.db.Query(ctx, query, args...)
@@ -468,9 +448,8 @@ func NewAttemptWriteRepository(pool *pgxpool.Pool) *AttemptWriteRepository {
 	return &AttemptWriteRepository{pool: pool}
 }
 
-func (r *AttemptWriteRepository) db(ctx context.Context) DBTX {
-	tx, ok := ctx.Value(ctxTxKey).(pgx.Tx)
-	if ok {
+func (r *AttemptWriteRepository) db(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.pool
@@ -489,14 +468,14 @@ func (r *AttemptWriteRepository) Create(ctx context.Context, attempt domain.Webh
 }
 
 type AttemptReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 func NewAttemptReadRepository(pool *pgxpool.Pool) *AttemptReadRepository {
 	return &AttemptReadRepository{db: pool}
 }
 
-func NewAttemptReadRepositoryWithDBTX(db DBTX) *AttemptReadRepository {
+func NewAttemptReadRepositoryWithDBTX(db platformpostgres.DBTX) *AttemptReadRepository {
 	return &AttemptReadRepository{db: db}
 }
 
@@ -542,66 +521,22 @@ func (r *AttemptReadRepository) ListByDelivery(ctx context.Context, deliveryID s
 	return attempts, rows.Err()
 }
 
-type TxManager struct {
-	pool *pgxpool.Pool
-}
-
-func NewTransactionManager(pool *pgxpool.Pool) *TxManager {
-	return &TxManager{pool: pool}
-}
-
-func (tm *TxManager) RunInTransaction(ctx context.Context, fn func(context.Context) error) error {
-	tx, err := tm.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	if err := fn(context.WithValue(ctx, ctxTxKey, tx)); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
-}
-
-type ctxKey string
-
-const ctxTxKey ctxKey = "tx"
-
 type OutboxRepository struct {
-	pool *pgxpool.Pool
+	db platformpostgres.DBTX
 }
 
 func NewOutboxRepository(pool *pgxpool.Pool) *OutboxRepository {
-	return &OutboxRepository{pool: pool}
+	return &OutboxRepository{db: pool}
 }
 
 func (r *OutboxRepository) Save(ctx context.Context, event ports.OutboxEvent) error {
-	tx, ok := ctx.Value(ctxTxKey).(pgx.Tx)
-	var err error
-	if ok {
-		_, err = tx.Exec(ctx,
-			`INSERT INTO outbox_events (id, aggregate_type, aggregate_id, event_type, payload, workspace_id, occurred_at) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
-			event.ID, event.AggregateType, event.AggregateID, event.EventType, event.Payload, event.WorkspaceID, event.OccurredAt,
-		)
-	} else {
-		_, err = r.pool.Exec(ctx,
-			`INSERT INTO outbox_events (id, aggregate_type, aggregate_id, event_type, payload, workspace_id, occurred_at) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
-			event.ID, event.AggregateType, event.AggregateID, event.EventType, event.Payload, event.WorkspaceID, event.OccurredAt,
-		)
+	db := r.db
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
+		db = tx
 	}
+	_, err := db.Exec(ctx,
+		`INSERT INTO outbox_events (id, aggregate_type, aggregate_id, event_type, payload, workspace_id, occurred_at) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
+		event.ID, event.AggregateType, event.AggregateID, event.EventType, event.Payload, event.WorkspaceID, event.OccurredAt,
+	)
 	return err
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	s := ""
-	for n > 0 {
-		digit := n % 10
-		s = string(rune('0'+digit)) + s
-		n /= 10
-	}
-	return s
 }

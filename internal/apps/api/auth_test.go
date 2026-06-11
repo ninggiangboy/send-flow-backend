@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	identitytoken "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/token"
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/observability"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
 )
@@ -353,40 +355,52 @@ func setupAuthRouter(t *testing.T) (http.Handler, *captureSender) {
 	invitations := newMemoryInvitationRepo()
 	sender := &captureSender{}
 	svc := identityapp.NewService(identityapp.Options{
-		UsersRead:        users,
-		UsersWrite:       users,
-		ExternalsRead:    noopExternalRepo{},
-		ExternalsWrite:   noopExternalRepo{},
-		SessionsRead:     sessions,
-		SessionsWrite:    sessions,
-		Hasher:           security.NewPasswordHasher(4),
-		Tokens:           identitytoken.NewJWTManager("send-flow-test", "access-secret", "refresh-secret", time.Minute, time.Hour),
-		OAuthState:       nil,
-		RefreshStore:     refreshStore,
-		AuthTokens:       authTokens,
-		TOTP:             totp,
-		Providers:        nil,
-		OAuthStateTTL:    time.Minute,
-		MailSender:       sender,
-		FrontendBaseURL:  "http://localhost:3000",
-		VerificationTTL:  24 * time.Hour,
-		PasswordResetTTL: time.Hour,
-		MFAChallengeTTL:  10 * time.Minute,
-		WorkspacesRead:   workspaces,
-		WorkspacesWrite:  workspaces,
-		RolesRead:        roles,
-		RolesWrite:       roles,
-		MembershipsRead:  memberships,
-		MembershipsWrite: memberships,
-		InvitationsRead:  invitations,
-		InvitationsWrite: invitations,
+		UsersRead:         users,
+		UsersWrite:        users,
+		ExternalsRead:     noopExternalRepo{},
+		ExternalsWrite:    noopExternalRepo{},
+		SessionsRead:      sessions,
+		SessionsWrite:     sessions,
+		Hasher:            security.NewPasswordHasher(4),
+		Tokens:            identitytoken.NewJWTManager("send-flow-test", "access-secret", "refresh-secret", time.Minute, time.Hour),
+		OAuthState:        nil,
+		RefreshStore:      refreshStore,
+		AuthTokens:        authTokens,
+		TOTP:              totp,
+		Providers:         nil,
+		OAuthStateTTL:     time.Minute,
+		MailSender:        &mailerAdapter{sender: sender},
+		FrontendBaseURL:   "http://localhost:3000",
+		VerificationTTL:   24 * time.Hour,
+		PasswordResetTTL:  time.Hour,
+		MFAChallengeTTL:   10 * time.Minute,
+		WorkspacesRead:    workspaces,
+		WorkspacesWrite:   workspaces,
+		RolesRead:         roles,
+		RolesWrite:        roles,
+		MembershipsRead:   memberships,
+		MembershipsWrite:  memberships,
+		InvitationsRead:   invitations,
+		InvitationsWrite:  invitations,
+		IDGen:             &uuidIDGeneratorAdapter{gen: id.NewUUIDGenerator()},
+		TokenGen:          &tokenGeneratorAdapter{},
+		TokenHasher:       &tokenHasherAdapter{},
+		PasswordValidator: &passwordValidatorAdapter{},
+		TOTPVerifier:      &totpVerifierAdapter{},
+		TOTPSecretGen:     &totpSecretGeneratorAdapter{},
+		RecoveryCodeGen:   &recoveryCodeGeneratorAdapter{},
+		RateLimiter:       &rateLimiterAdapter{svc: &mockRateLimiter{}},
+		SettingsWrite:     &noopSettingsWrite{},
+		Logger:            slog.Default(),
+		UnitOfWork:        &noopTxManager{},
 	})
 	healthSvc := platformhealth.NewService(platformhealth.Options{
 		AppName:       "sendflow",
 		PostgresCheck: func(context.Context) error { return nil },
 		RedisCheck:    func(context.Context) error { return nil },
 	})
-	return newRouter(healthSvc, svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, "http://localhost:3000", observability.NewHTTPMetrics(nil), nil), sender
+	metrics, _ := observability.NewHTTPMetrics(nil)
+	return newRouter(&RouterDeps{HealthSvc: healthSvc, AuthSvc: svc, SecureCookies: false, FrontendBaseURL: "http://localhost:3000", HTTPMetrics: metrics}), sender
 }
 
 func jsonRequest(t *testing.T, method, path string, body any) *http.Request {
@@ -427,6 +441,12 @@ func extractTokenFromMessage(t *testing.T, msg platformemail.Message) string {
 
 func authHeader(req *http.Request, token string) {
 	req.Header.Set("Authorization", "Bearer "+token)
+}
+
+type mockRateLimiter struct{}
+
+func (m *mockRateLimiter) Allow(_ context.Context, _ string, _ int64, _ time.Duration) (bool, error) {
+	return true, nil
 }
 
 func decodeData(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
@@ -594,4 +614,20 @@ func TestMFALoginTwoStep(t *testing.T) {
 	if extractCookie(challengeRec, "sf_refresh_token") == nil {
 		t.Fatal("expected refresh cookie after mfa login")
 	}
+}
+
+type noopTxManager struct{}
+
+func (m *noopTxManager) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
+type noopSettingsWrite struct{}
+
+func (m *noopSettingsWrite) CreateDefault(_ context.Context, _ domain.WorkspaceSettings) error {
+	return nil
+}
+
+func (m *noopSettingsWrite) Upsert(_ context.Context, _ domain.WorkspaceSettings, _ *int64) error {
+	return nil
 }

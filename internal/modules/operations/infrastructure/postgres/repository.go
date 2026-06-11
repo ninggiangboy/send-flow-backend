@@ -9,20 +9,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
-
-type DBTX interface {
-	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-	Query(context.Context, string, ...any) (pgx.Rows, error)
-	QueryRow(context.Context, string, ...any) pgx.Row
-}
-
-type ctxKey string
-
-const ctxTxKey ctxKey = "operations_tx"
 
 type OutboxRepository struct {
 	pool *pgxpool.Pool
@@ -32,9 +23,8 @@ func NewOutboxRepository(pool *pgxpool.Pool) *OutboxRepository {
 	return &OutboxRepository{pool: pool}
 }
 
-func (r *OutboxRepository) db(ctx context.Context) DBTX {
-	tx, ok := ctx.Value(ctxTxKey).(pgx.Tx)
-	if ok {
+func (r *OutboxRepository) db(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.pool
@@ -203,7 +193,7 @@ func (r *OutboxRepository) List(ctx context.Context, workspaceID string, filter 
 
 	limit := filter.Limit
 	if limit <= 0 || limit > 100 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
 	query := fmt.Sprintf(`
@@ -257,9 +247,8 @@ func NewDeadLetterRepository(pool *pgxpool.Pool) *DeadLetterRepository {
 	return &DeadLetterRepository{pool: pool}
 }
 
-func (r *DeadLetterRepository) db(ctx context.Context) DBTX {
-	tx, ok := ctx.Value(ctxTxKey).(pgx.Tx)
-	if ok {
+func (r *DeadLetterRepository) db(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.pool
@@ -331,7 +320,7 @@ func (r *DeadLetterRepository) List(ctx context.Context, workspaceID string, fil
 
 	limit := filter.Limit
 	if limit <= 0 || limit > 100 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
 	query := fmt.Sprintf(`
@@ -376,9 +365,8 @@ func NewReplayJobRepository(pool *pgxpool.Pool) *ReplayJobRepository {
 	return &ReplayJobRepository{pool: pool}
 }
 
-func (r *ReplayJobRepository) db(ctx context.Context) DBTX {
-	tx, ok := ctx.Value(ctxTxKey).(pgx.Tx)
-	if ok {
+func (r *ReplayJobRepository) db(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.pool
@@ -440,7 +428,7 @@ func (r *ReplayJobRepository) List(ctx context.Context, workspaceID string, filt
 
 	limit := filter.Limit
 	if limit <= 0 || limit > 100 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
 	query := fmt.Sprintf(`
@@ -503,26 +491,4 @@ func (r *ReplayJobRepository) MarkFailed(ctx context.Context, workspaceID, jobID
 		WHERE id = $1 AND workspace_id = $2`,
 		jobID, workspaceID, errorMessage, completedAt)
 	return err
-}
-
-type TxManager struct {
-	pool *pgxpool.Pool
-}
-
-func NewTransactionManager(pool *pgxpool.Pool) *TxManager {
-	return &TxManager{pool: pool}
-}
-
-func (tm *TxManager) RunInTransaction(ctx context.Context, fn func(context.Context) error) error {
-	tx, err := tm.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	if err := fn(context.WithValue(ctx, ctxTxKey, tx)); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
 }

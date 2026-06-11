@@ -14,4 +14,5 @@ var (
 	ErrPublishPayloadInvalid   = errors.New("template publish payload invalid")
 	ErrRenderPayloadInvalid    = errors.New("template render payload invalid")
 	ErrRenderContextInvalid    = errors.New("template render context invalid")
+	ErrTemplateNameConflict    = errors.New("content template name conflict")
 )

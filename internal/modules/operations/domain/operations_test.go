@@ -122,7 +122,13 @@ func TestSanitizePayloadPreview(t *testing.T) {
 
 	longData := json.RawMessage(make([]byte, 200))
 	preview = SanitizePayloadPreview(longData, 50)
-	if len(preview) != 50 {
-		t.Fatalf("expected 50 bytes, got %d", len(preview))
+	if string(preview) != "{}" {
+		t.Fatalf("expected {} for truncated invalid JSON, got %s", string(preview))
+	}
+
+	validLongData := json.RawMessage(`{"key": "a very long value that needs truncation for testing purposes"}`)
+	preview = SanitizePayloadPreview(validLongData, 30)
+	if len(preview) > 30 {
+		t.Fatalf("expected <=30 bytes, got %d", len(preview))
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type OutboxRepository interface {
@@ -28,13 +30,9 @@ type ReplayJobRepository interface {
 	MarkFailed(ctx context.Context, workspaceID, jobID, errorMessage string, completedAt time.Time) error
 }
 
-type WorkspaceAccessChecker interface {
-	RequirePermission(ctx context.Context, workspaceID, userID, permission string) error
-}
+type WorkspaceAccessChecker = auth.WorkspaceAccessChecker
 
-type TransactionManager interface {
-	RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error
-}
+type TransactionManager = transaction.UnitOfWork
 
 type OutboxWriter interface {
 	Write(ctx context.Context, eventType, aggregateID, workspaceID string, payload any) error

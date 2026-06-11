@@ -40,7 +40,7 @@ type TrackingLink struct {
 	MessageID      string
 	DestinationURL string
 	LinkType       string
-	MetadataJSON   map[string]any
+	Metadata       map[string]any
 	CreatedAt      time.Time
 	ExpiresAt      *time.Time
 }
@@ -58,7 +58,7 @@ type TrackingEvent struct {
 	ProviderMessageID string
 	OccurredAt        time.Time
 	ReceivedAt        time.Time
-	MetadataJSON      map[string]any
+	Metadata          map[string]any
 	CreatedAt         time.Time
 }
 

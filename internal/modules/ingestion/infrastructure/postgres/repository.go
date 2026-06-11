@@ -7,54 +7,40 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/httpheaders"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
-type txKey struct{}
-
 type RawEventRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type NormalizedEventRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewRawEventRepository(db DBTX) *RawEventRepository {
+func NewRawEventRepository(db platformpostgres.DBTX) *RawEventRepository {
 	return &RawEventRepository{db: db}
 }
 
-func NewNormalizedEventRepository(db DBTX) *NormalizedEventRepository {
+func NewNormalizedEventRepository(db platformpostgres.DBTX) *NormalizedEventRepository {
 	return &NormalizedEventRepository{db: db}
 }
 
-func (r *RawEventRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *RawEventRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
 
-func (n *NormalizedEventRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (n *NormalizedEventRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return n.db
-}
-
-func nullable(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
 }
 
 func (r *RawEventRepository) FindByID(ctx context.Context, id string) (*domain.ProviderWebhookEvent, error) {
@@ -148,8 +134,8 @@ func (r *RawEventRepository) Create(ctx context.Context, event domain.ProviderWe
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		 ON CONFLICT (provider, provider_event_id) WHERE provider_event_id IS NOT NULL DO NOTHING`,
 		event.ID, event.Provider,
-		nullable(event.ProviderEventID), nullable(event.ProviderMessageID),
-		nullable(event.WorkspaceID), nullable(event.MessageID), nullable(event.EventType),
+		platformpostgres.Nullable(event.ProviderEventID), platformpostgres.Nullable(event.ProviderMessageID),
+		platformpostgres.Nullable(event.WorkspaceID), platformpostgres.Nullable(event.MessageID), platformpostgres.Nullable(event.EventType),
 		event.PayloadJSON, event.HeadersJSON, event.SignatureValid,
 		event.ReceivedAt, event.CreatedAt,
 	)
@@ -243,9 +229,9 @@ func (n *NormalizedEventRepository) Create(ctx context.Context, event domain.Nor
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		 ON CONFLICT (provider, provider_event_id, event_type) WHERE provider_event_id IS NOT NULL DO NOTHING`,
 		event.ID, event.RawEventID,
-		nullable(event.WorkspaceID), nullable(event.MessageID),
+		platformpostgres.Nullable(event.WorkspaceID), platformpostgres.Nullable(event.MessageID),
 		event.Provider,
-		nullable(event.ProviderEventID), nullable(event.ProviderMessageID),
+		platformpostgres.Nullable(event.ProviderEventID), platformpostgres.Nullable(event.ProviderMessageID),
 		event.EventType, event.OccurredAt, event.ReceivedAt,
 		event.PayloadJSON, event.CreatedAt,
 	)
@@ -259,15 +245,15 @@ func (n *NormalizedEventRepository) Create(ctx context.Context, event domain.Nor
 }
 
 type OutboxRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewOutboxRepository(db DBTX) *OutboxRepository {
+func NewOutboxRepository(db platformpostgres.DBTX) *OutboxRepository {
 	return &OutboxRepository{db: db}
 }
 
-func (r *OutboxRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *OutboxRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
@@ -288,101 +274,18 @@ func (r *OutboxRepository) Save(ctx context.Context, event ports.OutboxEvent) er
 	return err
 }
 
-type TransactionManager struct {
-	pool DBTX
-}
-
-func NewTransactionManager(pool DBTX) *TransactionManager {
-	return &TransactionManager{pool: pool}
-}
-
-func (tm *TransactionManager) RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	conn, ok := tm.pool.(interface {
-		Begin(ctx context.Context) (pgx.Tx, error)
-	})
-	if !ok {
-		return errors.New("transaction manager requires a pool or conn that supports Begin")
-	}
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	if err := fn(context.WithValue(ctx, txKey{}, tx)); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
-}
-
-type DeliveryMessageResolver struct {
-	db DBTX
-}
-
-func NewDeliveryMessageResolver(db DBTX) *DeliveryMessageResolver {
-	return &DeliveryMessageResolver{db: db}
-}
-
-func (r *DeliveryMessageResolver) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
-		return tx
-	}
-	return r.db
-}
-
-func (r *DeliveryMessageResolver) FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*ports.MessageRef, error) {
-	db := r.getDB(ctx)
-	var ref ports.MessageRef
-	err := db.QueryRow(ctx,
-		`SELECT workspace_id, id, provider, provider_message_id
-		 FROM messages WHERE provider = $1 AND provider_message_id = $2`,
-		provider, providerMessageID,
-	).Scan(&ref.WorkspaceID, &ref.MessageID, &ref.Provider, &ref.ProviderMessageID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &ref, nil
-}
-
-type IDGenerator func() (string, error)
-
-func mustNewID(gen IDGenerator) string {
-	id, err := gen()
-	if err != nil {
-		panic(err)
-	}
-	return id
-}
-
 func sanitizeHeaders(headers map[string][]string) map[string][]string {
-	safe := make(map[string][]string, len(headers))
-	for k, v := range headers {
-		kl := lowerHeader(k)
-		switch kl {
-		case "content-type", "user-agent", "x-sendflow-fake-signature",
-			"x-amz-sns-message-type", "x-amz-sns-message-id",
-			"x-amz-sns-topic-arn", "x-amz-sns-subscription-arn",
-			"x-forwarded-for", "x-forwarded-proto", "x-real-ip":
-			safe[k] = v
-		}
+	sanitized := httpheaders.SanitizeHeaders(headers,
+		"content-type", "user-agent", "x-sendflow-fake-signature",
+		"x-amz-sns-message-type", "x-amz-sns-message-id",
+		"x-amz-sns-topic-arn", "x-amz-sns-subscription-arn",
+		"x-forwarded-for", "x-forwarded-proto", "x-real-ip",
+	)
+	result := make(map[string][]string, len(sanitized))
+	for k, v := range sanitized {
+		result[k] = []string{v}
 	}
-	return safe
-}
-
-func lowerHeader(s string) string {
-	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		b[i] = c
-	}
-	return string(b)
+	return result
 }
 
 type Clock interface {

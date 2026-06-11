@@ -51,6 +51,15 @@ func (s *refreshStoreStub) Replace(context.Context, string, string, string, time
 	return nil
 }
 
+type idGenStub struct {
+	id  string
+	err error
+}
+
+func (s *idGenStub) New() (string, error) {
+	return s.id, s.err
+}
+
 type tokenManagerStub struct {
 	pair ports.TokenPair
 	err  error
@@ -68,6 +77,7 @@ func (s *tokenManagerStub) ParseRefresh(string) (*ports.AccessClaims, error) { r
 func TestBuildNewSessionSuccess(t *testing.T) {
 	now := time.Now().UTC()
 	deps := Deps{
+		IDGen:         &idGenStub{id: "session-1"},
 		Tokens:        &tokenManagerStub{pair: ports.TokenPair{AccessToken: "a", RefreshToken: "r", AccessExpiresAt: now.Add(10 * time.Minute), RefreshExpiresAt: now.Add(20 * time.Minute)}},
 		SessionsWrite: &sessionWriteRepoStub{},
 		RefreshStore:  &refreshStoreStub{},
@@ -92,7 +102,8 @@ func TestBuildNewSessionSuccess(t *testing.T) {
 
 func TestBuildNewSessionFailsWhenTokenIssueFails(t *testing.T) {
 	deps := Deps{
-		Tokens:        &tokenManagerStub{err: errors.New("issue failed")},
+		IDGen:         &idGenStub{id: "session-1"},
+		Tokens:        &tokenManagerStub{pair: ports.TokenPair{}, err: errors.New("issue error")},
 		SessionsWrite: &sessionWriteRepoStub{},
 		RefreshStore:  &refreshStoreStub{},
 		Logger:        testLogger,

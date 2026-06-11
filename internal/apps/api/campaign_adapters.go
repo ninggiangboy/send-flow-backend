@@ -22,8 +22,8 @@ func newAudienceResolverAdapter(svc *audienceapp.Service) *audienceResolverAdapt
 	return &audienceResolverAdapter{svc: svc}
 }
 
-func (a *audienceResolverAdapter) ResolveAudienceRecipients(ctx context.Context, workspaceID string, ref campaignports.AudienceSelectionRef) ([]campaignports.Recipient, error) {
-	recipients, err := a.svc.ResolveAudienceRecipients(ctx, workspaceID, audienceapp.AudienceSelectionRef{
+func (a *audienceResolverAdapter) ResolveAudienceRecipients(ctx context.Context, workspaceID, userID string, ref campaignports.AudienceSelectionRef) ([]campaignports.Recipient, error) {
+	recipients, err := a.svc.ResolveAudienceRecipients(ctx, workspaceID, userID, audienceapp.AudienceSelectionRef{
 		ListID:     ref.ListID,
 		SegmentID:  ref.SegmentID,
 		ContactIDs: ref.ContactIDs,
@@ -52,8 +52,8 @@ func (a *audienceResolverAdapter) ResolveAudienceRecipients(ctx context.Context,
 	return result, nil
 }
 
-func (a *audienceResolverAdapter) EstimateAudienceSize(ctx context.Context, workspaceID string, ref campaignports.AudienceSelectionRef) (int, error) {
-	return a.svc.EstimateAudienceSize(ctx, workspaceID, audienceapp.AudienceSelectionRef{
+func (a *audienceResolverAdapter) EstimateAudienceSize(ctx context.Context, workspaceID, userID string, ref campaignports.AudienceSelectionRef) (int, error) {
+	return a.svc.EstimateAudienceSize(ctx, workspaceID, userID, audienceapp.AudienceSelectionRef{
 		ListID:     ref.ListID,
 		SegmentID:  ref.SegmentID,
 		ContactIDs: ref.ContactIDs,

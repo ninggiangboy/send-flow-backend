@@ -19,6 +19,6 @@ type Recipient struct {
 }
 
 type AudienceResolver interface {
-	ResolveAudienceRecipients(ctx context.Context, workspaceID string, ref AudienceSelectionRef) ([]Recipient, error)
-	EstimateAudienceSize(ctx context.Context, workspaceID string, ref AudienceSelectionRef) (int, error)
+	ResolveAudienceRecipients(ctx context.Context, workspaceID, userID string, ref AudienceSelectionRef) ([]Recipient, error)
+	EstimateAudienceSize(ctx context.Context, workspaceID, userID string, ref AudienceSelectionRef) (int, error)
 }

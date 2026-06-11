@@ -209,7 +209,12 @@ func (s *Service) ProcessMessage(ctx context.Context, msg domain.Message, now ti
 		return messageStatusFailed, nil
 	}
 
-	attemptID := mustNewID(s.idGen)
+	attemptID, err := s.idGen()
+	if err != nil {
+		log.Error("failed to generate attempt ID", "error", err)
+		s.failMessage(ctx, msg, now, "infrastructure_error", "failed to generate attempt ID")
+		return messageStatusFailed, nil
+	}
 
 	requestSnapshot := buildRequestSnapshot(msg, attemptNo)
 
@@ -334,7 +339,7 @@ func (s *Service) failMessage(ctx context.Context, msg domain.Message, now time.
 	msg.LastErrorMessage = errorMessage
 	msg.UpdatedAt = now
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		return s.messagesWrite.MarkFailed(txCtx, msg)
 	}); err != nil {
 		s.log.Error("failed to mark message failed",
@@ -356,7 +361,7 @@ func (s *Service) failMessageWithAttempt(ctx context.Context, msg domain.Message
 	msg.LastErrorMessage = errorMessage
 	msg.UpdatedAt = now
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		if err := s.attemptsWrite.Update(txCtx, attempt); err != nil {
 			return err
 		}
@@ -409,8 +414,13 @@ func (s *Service) handleTemporaryFailure(ctx context.Context, msg domain.Message
 
 	newRetry := retryState == nil
 	if newRetry {
+		retryStateID, err := s.idGen()
+		if err != nil {
+			log.Error("failed to generate retry state ID", "error", err)
+			return
+		}
 		retryState = &domain.RetryState{
-			ID:               mustNewID(s.idGen),
+			ID:               retryStateID,
 			WorkspaceID:      msg.WorkspaceID,
 			MessageID:        msg.ID,
 			RetryCount:       1,
@@ -431,7 +441,7 @@ func (s *Service) handleTemporaryFailure(ctx context.Context, msg domain.Message
 		retryState.UpdatedAt = now
 	}
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		if err := s.messagesWrite.Update(txCtx, msg); err != nil {
 			return err
 		}
@@ -469,7 +479,10 @@ func computeRetryDelay(retryCount int) time.Duration {
 }
 
 func (s *Service) persistAcceptedState(ctx context.Context, msg domain.Message, attempt domain.DeliveryAttempt, providerResult *ports.ProviderSendResult, now time.Time) error {
-	eventID := mustNewID(s.idGen)
+	eventID, err := s.idGen()
+	if err != nil {
+		return fmt.Errorf("generate event id: %w", err)
+	}
 	var lastErr error
 	for i := 0; i < 3; i++ {
 		txCtx := ctx
@@ -478,7 +491,7 @@ func (s *Service) persistAcceptedState(ctx context.Context, msg domain.Message, 
 			txCtx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 		}
 
-		err := s.txManager.RunInTransaction(txCtx, func(txCtx context.Context) error {
+		err := s.txManager.WithinTx(txCtx, func(txCtx context.Context) error {
 			if err := s.attemptsWrite.Update(txCtx, attempt); err != nil {
 				return err
 			}
@@ -549,7 +562,10 @@ func (s *Service) saveAcceptedEvent(ctx context.Context, msg domain.Message, pro
 }
 
 func (s *Service) saveRetryScheduledEvent(ctx context.Context, msg domain.Message, retryState *domain.RetryState, now time.Time) error {
-	eventID := mustNewID(s.idGen)
+	eventID, err := s.idGen()
+	if err != nil {
+		return err
+	}
 
 	payload := map[string]any{
 		"message_id":      msg.ID,

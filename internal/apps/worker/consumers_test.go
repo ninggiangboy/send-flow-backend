@@ -80,12 +80,12 @@ func (m *mockOutbox) Save(ctx context.Context, event ports.OutboxEvent) error {
 }
 
 type mockTxManager struct {
-	runInTransaction func(ctx context.Context, fn func(ctx context.Context) error) error
+	withinTx func(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-func (m *mockTxManager) RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	if m.runInTransaction != nil {
-		return m.runInTransaction(ctx, fn)
+func (m *mockTxManager) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	if m.withinTx != nil {
+		return m.withinTx(ctx, fn)
 	}
 	return fn(ctx)
 }

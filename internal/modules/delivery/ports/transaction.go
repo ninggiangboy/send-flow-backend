@@ -1,7 +1,5 @@
 package ports
 
-import "context"
+import "github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 
-type TransactionManager interface {
-	RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error
-}
+type UnitOfWork = transaction.UnitOfWork

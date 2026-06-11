@@ -8,7 +8,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	redispkg "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
 
 type Handler struct {
@@ -33,7 +33,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 	}
 	sessionID, err := h.deps.RefreshStore.Find(ctx, claims.JWTID)
 	if err != nil {
-		if errors.Is(err, redispkg.ErrCacheMiss) {
+		if errors.Is(err, ports.ErrCacheMiss) {
 			h.log.Warn("invalid refresh token: JTI not found or already rotated", "session_id", claims.SessionID)
 			return nil, domain.ErrUnauthorized
 		}

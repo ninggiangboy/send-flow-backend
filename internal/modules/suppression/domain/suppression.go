@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"strings"
 	"time"
 )
@@ -59,6 +60,35 @@ func ValidSuppressionReason(s string) bool {
 	default:
 		return false
 	}
+}
+
+func NewSuppressionEntry(id, workspaceID, email string, scope SuppressionScope, reason SuppressionReason, now time.Time) (*SuppressionEntry, error) {
+	if id == "" {
+		return nil, errors.New("suppression entry id is required")
+	}
+	if workspaceID == "" {
+		return nil, errors.New("workspace id is required")
+	}
+	if strings.TrimSpace(email) == "" {
+		return nil, errors.New("email is required")
+	}
+	if !ValidSuppressionScope(string(scope)) {
+		return nil, errors.New("valid suppression scope is required")
+	}
+	if !ValidSuppressionReason(string(reason)) {
+		return nil, errors.New("valid suppression reason is required")
+	}
+	return &SuppressionEntry{
+		ID:              id,
+		WorkspaceID:     workspaceID,
+		Email:           strings.TrimSpace(email),
+		EmailNormalized: NormalizeEmail(email),
+		Scope:           scope,
+		Reason:          reason,
+		Status:          SuppressionStatusActive,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}, nil
 }
 
 func NormalizeEmail(email string) string {

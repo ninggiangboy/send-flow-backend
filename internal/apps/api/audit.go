@@ -107,6 +107,6 @@ func writeAuditErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, auditdomain.ErrAuditFilterInvalid):
 		writeError(w, r, http.StatusBadRequest, "audit.filter_invalid", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }

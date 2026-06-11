@@ -6,10 +6,14 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	deliverycontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
+	suppressioncontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/contracts"
+	trackingcontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/contracts"
 	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/kafka"
+	platformerrors "github.com/ninggiangboy/send-flow/backend/internal/platform/retryable"
 )
 
 type WebhookEventConsumer struct {
@@ -51,16 +55,16 @@ func (c *WebhookEventConsumer) Run(ctx context.Context) error {
 	}
 
 	topics := []string{
-		events.TopicFromEventType("delivery.message.queued.v1"),
-		events.TopicFromEventType("delivery.message.accepted.v1"),
-		events.TopicFromEventType("delivery.message.delivered.v1"),
-		events.TopicFromEventType("delivery.message.bounced.v1"),
-		events.TopicFromEventType("delivery.message.complained.v1"),
-		events.TopicFromEventType("delivery.message.retry_scheduled.v1"),
-		events.TopicFromEventType("tracking.email_opened.v1"),
-		events.TopicFromEventType("tracking.link_clicked.v1"),
-		events.TopicFromEventType("tracking.recipient_unsubscribed.v1"),
-		events.TopicFromEventType("suppression.recipient_suppressed.v1"),
+		events.TopicFromEventType(deliverycontracts.EventDeliveryMessageQueuedV1),
+		events.TopicFromEventType(deliverycontracts.EventDeliveryMessageAcceptedV1),
+		events.TopicFromEventType(deliverycontracts.EventDeliveryMessageDeliveredV1),
+		events.TopicFromEventType(deliverycontracts.EventDeliveryMessageBouncedV1),
+		events.TopicFromEventType(deliverycontracts.EventDeliveryMessageComplainedV1),
+		events.TopicFromEventType(deliverycontracts.EventDeliveryMessageRetryScheduledV1),
+		events.TopicFromEventType(trackingcontracts.EventEmailOpenedV1),
+		events.TopicFromEventType(trackingcontracts.EventLinkClickedV1),
+		events.TopicFromEventType(trackingcontracts.EventRecipientUnsubscribedV1),
+		events.TopicFromEventType(suppressioncontracts.EventRecipientSuppressedV1),
 	}
 
 	consumer, err := kafka.NewReaderConsumer(kafka.ReaderConsumerOptions{
@@ -100,7 +104,7 @@ func (c *WebhookEventConsumer) Run(ctx context.Context) error {
 		}
 
 		if err := c.HandleEvent(ctx, eventID, msg.Value); err != nil {
-			var nonRetryable *webhooksapp.NonRetryableError
+			var nonRetryable *platformerrors.NonRetryableError
 			if errors.As(err, &nonRetryable) {
 				c.log.Warn("non-retryable error handling webhook event",
 					"event_id", eventID,
@@ -152,7 +156,7 @@ func (c *WebhookEventConsumer) Run(ctx context.Context) error {
 func (c *WebhookEventConsumer) HandleEvent(ctx context.Context, eventID string, rawPayload []byte) error {
 	envelope, err := events.Unmarshal(rawPayload)
 	if err != nil {
-		return &webhooksapp.NonRetryableError{Err: err}
+		return &platformerrors.NonRetryableError{Err: err}
 	}
 
 	mapped, err := webhooksapp.MapEnvelopeToSourceEvent(envelope)
@@ -164,7 +168,7 @@ func (c *WebhookEventConsumer) HandleEvent(ctx context.Context, eventID string, 
 			)
 			return nil
 		}
-		return &webhooksapp.NonRetryableError{Err: err}
+		return &platformerrors.NonRetryableError{Err: err}
 	}
 
 	if mapped.WorkspaceID == "" {
@@ -184,7 +188,7 @@ func (c *WebhookEventConsumer) HandleEvent(ctx context.Context, eventID string, 
 	if err := c.svc.HandleSourceEvent(ctx, webhooksapp.HandleSourceEventInput{
 		RawPayload: rawPayload,
 	}); err != nil {
-		var nonRetryable *webhooksapp.NonRetryableError
+		var nonRetryable *platformerrors.NonRetryableError
 		if errors.As(err, &nonRetryable) {
 			return nonRetryable
 		}

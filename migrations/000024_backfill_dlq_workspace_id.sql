@@ -7,6 +7,7 @@
 --
 -- Step 1: decode base64-encoded (string-typed) payloads back to JSON objects
 -- and extract workspace_id at the same time.
+-- +goose StatementBegin
 DO $$
 DECLARE
     rec RECORD;
@@ -26,13 +27,12 @@ BEGIN
                 workspace_id = decoded_json->>'workspace_id'
             WHERE id = rec.id;
         EXCEPTION WHEN others THEN
-            -- Payload isn't valid base64 or the decoded bytes are not valid
-            -- JSON; leave the row untouched, workspace_id stays NULL.
             NULL;
         END;
     END LOOP;
 END;
 $$;
+-- +goose StatementEnd
 
 -- Step 2: extract workspace_id from any remaining object-typed payloads that
 -- were stored correctly (e.g. by tests or future code paths).

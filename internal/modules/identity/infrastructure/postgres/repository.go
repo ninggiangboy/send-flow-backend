@@ -8,29 +8,30 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
+type UserWriteRepository struct{ db platformpostgres.DBTX }
+type UserReadRepository struct{ db platformpostgres.DBTX }
 
-type UserWriteRepository struct{ db DBTX }
-type UserReadRepository struct{ db DBTX }
-
-func NewUserWriteRepository(db DBTX) *UserWriteRepository {
+func NewUserWriteRepository(db platformpostgres.DBTX) *UserWriteRepository {
 	return &UserWriteRepository{db: db}
 }
-func NewUserReadRepository(db DBTX) *UserReadRepository { return &UserReadRepository{db: db} }
+func NewUserReadRepository(db platformpostgres.DBTX) *UserReadRepository {
+	return &UserReadRepository{db: db}
+}
 
 func (r *UserWriteRepository) Create(ctx context.Context, user domain.User) error {
-	_, err := r.getDB(ctx).Exec(ctx, `INSERT INTO users (id,email,hashed_password,status,primary_auth_method,email_verified_at,mfa_enabled_at,created_at,updated_at) VALUES ($1,$2,$3,'active',$4,$5,$6,$7,$8)`, user.ID, user.Email, nullable(user.HashedPassword), user.PrimaryAuthMethod, user.EmailVerifiedAt, user.MFAEnabledAt, user.CreatedAt, user.UpdatedAt)
-	return err
+	_, err := r.getDB(ctx).Exec(ctx, `INSERT INTO users (id,email,hashed_password,status,primary_auth_method,email_verified_at,mfa_enabled_at,created_at,updated_at) VALUES ($1,$2,$3,'active',$4,$5,$6,$7,$8)`, user.ID, user.Email, platformpostgres.Nullable(user.HashedPassword), user.PrimaryAuthMethod, user.EmailVerifiedAt, user.MFAEnabledAt, user.CreatedAt, user.UpdatedAt)
+	if err != nil {
+		if platformpostgres.IsUniqueViolation(err) {
+			return domain.ErrEmailAlreadyExists
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *UserWriteRepository) UpdatePassword(ctx context.Context, userID, hashedPassword string, at time.Time) error {
@@ -69,13 +70,13 @@ func scanUser(row pgx.Row) (*domain.User, error) {
 	return &u, nil
 }
 
-type ExternalAccountWriteRepository struct{ db DBTX }
-type ExternalAccountReadRepository struct{ db DBTX }
+type ExternalAccountWriteRepository struct{ db platformpostgres.DBTX }
+type ExternalAccountReadRepository struct{ db platformpostgres.DBTX }
 
-func NewExternalAccountWriteRepository(db DBTX) *ExternalAccountWriteRepository {
+func NewExternalAccountWriteRepository(db platformpostgres.DBTX) *ExternalAccountWriteRepository {
 	return &ExternalAccountWriteRepository{db: db}
 }
-func NewExternalAccountReadRepository(db DBTX) *ExternalAccountReadRepository {
+func NewExternalAccountReadRepository(db platformpostgres.DBTX) *ExternalAccountReadRepository {
 	return &ExternalAccountReadRepository{db: db}
 }
 
@@ -103,18 +104,18 @@ func (r *ExternalAccountWriteRepository) TouchLogin(ctx context.Context, account
 	return err
 }
 
-type SessionWriteRepository struct{ db DBTX }
-type SessionReadRepository struct{ db DBTX }
+type SessionWriteRepository struct{ db platformpostgres.DBTX }
+type SessionReadRepository struct{ db platformpostgres.DBTX }
 
-func NewSessionWriteRepository(db DBTX) *SessionWriteRepository {
+func NewSessionWriteRepository(db platformpostgres.DBTX) *SessionWriteRepository {
 	return &SessionWriteRepository{db: db}
 }
-func NewSessionReadRepository(db DBTX) *SessionReadRepository {
+func NewSessionReadRepository(db platformpostgres.DBTX) *SessionReadRepository {
 	return &SessionReadRepository{db: db}
 }
 
 func (r *SessionWriteRepository) Create(ctx context.Context, s domain.Session) error {
-	_, err := r.getDB(ctx).Exec(ctx, `INSERT INTO sessions (id,user_id,auth_method,access_jti,refresh_jti,expires_at,ip_address,user_agent,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, s.ID, s.UserID, s.AuthMethod, s.AccessJTI, s.RefreshJTI, s.ExpiresAt, nullable(s.IPAddress), nullable(s.UserAgent), s.CreatedAt)
+	_, err := r.getDB(ctx).Exec(ctx, `INSERT INTO sessions (id,user_id,auth_method,access_jti,refresh_jti,expires_at,ip_address,user_agent,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, s.ID, s.UserID, s.AuthMethod, s.AccessJTI, s.RefreshJTI, s.ExpiresAt, platformpostgres.Nullable(s.IPAddress), platformpostgres.Nullable(s.UserAgent), s.CreatedAt)
 	return err
 }
 
@@ -170,16 +171,9 @@ func (r *SessionReadRepository) findOne(ctx context.Context, sql string, arg str
 	return &s, nil
 }
 
-func nullable(v string) any {
-	if v == "" {
-		return nil
-	}
-	return v
-}
+type AuthTokenRepository struct{ db platformpostgres.DBTX }
 
-type AuthTokenRepository struct{ db DBTX }
-
-func NewAuthTokenRepository(db DBTX) *AuthTokenRepository {
+func NewAuthTokenRepository(db platformpostgres.DBTX) *AuthTokenRepository {
 	return &AuthTokenRepository{db: db}
 }
 
@@ -211,12 +205,11 @@ func (r *AuthTokenRepository) DeleteByUserAndPurpose(ctx context.Context, userID
 }
 
 type TOTPRepository struct {
-	db   DBTX
-	pool *pgxpool.Pool
+	db platformpostgres.DBTX
 }
 
-func NewTOTPRepository(db DBTX, pool *pgxpool.Pool) *TOTPRepository {
-	return &TOTPRepository{db: db, pool: pool}
+func NewTOTPRepository(db platformpostgres.DBTX) *TOTPRepository {
+	return &TOTPRepository{db: db}
 }
 
 func (r *TOTPRepository) UpsertSecret(ctx context.Context, secret domain.TOTPSecret) error {
@@ -246,35 +239,16 @@ func (r *TOTPRepository) DeleteSecret(ctx context.Context, userID string) error 
 }
 
 func (r *TOTPRepository) ReplaceRecoveryCodes(ctx context.Context, userID string, codes []domain.RecoveryCode) error {
-	if r.pool != nil {
-		return r.replaceRecoveryCodesInTx(ctx, userID, codes)
-	}
-	if _, err := r.getDB(ctx).Exec(ctx, `DELETE FROM user_mfa_recovery_codes WHERE user_id=$1`, userID); err != nil {
+	db := r.getDB(ctx)
+	if _, err := db.Exec(ctx, `DELETE FROM user_mfa_recovery_codes WHERE user_id=$1`, userID); err != nil {
 		return err
 	}
 	for _, code := range codes {
-		if _, err := r.getDB(ctx).Exec(ctx, `INSERT INTO user_mfa_recovery_codes (id,user_id,code_hash,consumed_at,created_at) VALUES ($1,$2,$3,$4,$5)`, code.ID, code.UserID, code.CodeHash, code.ConsumedAt, code.CreatedAt); err != nil {
+		if _, err := db.Exec(ctx, `INSERT INTO user_mfa_recovery_codes (id,user_id,code_hash,consumed_at,created_at) VALUES ($1,$2,$3,$4,$5)`, code.ID, code.UserID, code.CodeHash, code.ConsumedAt, code.CreatedAt); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func (r *TOTPRepository) replaceRecoveryCodesInTx(ctx context.Context, userID string, codes []domain.RecoveryCode) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `DELETE FROM user_mfa_recovery_codes WHERE user_id=$1`, userID); err != nil {
-		return err
-	}
-	for _, code := range codes {
-		if _, err := tx.Exec(ctx, `INSERT INTO user_mfa_recovery_codes (id,user_id,code_hash,consumed_at,created_at) VALUES ($1,$2,$3,$4,$5)`, code.ID, code.UserID, code.CodeHash, code.ConsumedAt, code.CreatedAt); err != nil {
-			return err
-		}
-	}
-	return tx.Commit(ctx)
 }
 
 func (r *TOTPRepository) ListRecoveryCodes(ctx context.Context, userID string) ([]domain.RecoveryCode, error) {
@@ -301,28 +275,34 @@ func (r *TOTPRepository) ConsumeRecoveryCode(ctx context.Context, codeID string,
 
 // ---- Workspace Repositories ----
 
-type WorkspaceWriteRepository struct{ db DBTX }
-type WorkspaceReadRepository struct{ db DBTX }
-type RoleWriteRepository struct{ db DBTX }
-type RoleReadRepository struct{ db DBTX }
+type WorkspaceWriteRepository struct{ db platformpostgres.DBTX }
+type WorkspaceReadRepository struct{ db platformpostgres.DBTX }
+type RoleWriteRepository struct{ db platformpostgres.DBTX }
+type RoleReadRepository struct{ db platformpostgres.DBTX }
 
-func NewWorkspaceWriteRepository(db DBTX) *WorkspaceWriteRepository {
+func NewWorkspaceWriteRepository(db platformpostgres.DBTX) *WorkspaceWriteRepository {
 	return &WorkspaceWriteRepository{db: db}
 }
-func NewWorkspaceReadRepository(db DBTX) *WorkspaceReadRepository {
+func NewWorkspaceReadRepository(db platformpostgres.DBTX) *WorkspaceReadRepository {
 	return &WorkspaceReadRepository{db: db}
 }
-func NewRoleWriteRepository(db DBTX) *RoleWriteRepository {
+func NewRoleWriteRepository(db platformpostgres.DBTX) *RoleWriteRepository {
 	return &RoleWriteRepository{db: db}
 }
-func NewRoleReadRepository(db DBTX) *RoleReadRepository {
+func NewRoleReadRepository(db platformpostgres.DBTX) *RoleReadRepository {
 	return &RoleReadRepository{db: db}
 }
 
 func (r *WorkspaceWriteRepository) Create(ctx context.Context, w domain.Workspace) error {
 	_, err := r.getDB(ctx).Exec(ctx, `INSERT INTO workspaces (id,name,plan,logo_icon,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
 		w.ID, w.Name, w.Plan, w.LogoIcon, w.CreatedAt, w.UpdatedAt)
-	return err
+	if err != nil {
+		if platformpostgres.IsUniqueViolation(err) {
+			return domain.ErrWorkspaceNameConflict
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *WorkspaceReadRepository) FindByID(ctx context.Context, workspaceID string) (*domain.Workspace, error) {
@@ -368,13 +348,25 @@ func scanWorkspace(row pgx.Row) (*domain.Workspace, error) {
 func (r *RoleWriteRepository) Create(ctx context.Context, role domain.Role) error {
 	_, err := r.getDB(ctx).Exec(ctx, `INSERT INTO roles (id,workspace_id,name,permissions_mask,builtin,type,status,version,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
 		role.ID, role.WorkspaceID, role.Name, role.PermissionsMask, role.Builtin, string(role.Type), string(role.Status), role.Version, role.CreatedAt, role.UpdatedAt)
-	return err
+	if err != nil {
+		if platformpostgres.IsUniqueViolation(err) {
+			return domain.ErrRoleNameConflict
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *RoleWriteRepository) Update(ctx context.Context, role domain.Role) error {
 	_, err := r.getDB(ctx).Exec(ctx, `UPDATE roles SET name=$2, permissions_mask=$3, builtin=$4, type=$5, status=$6, version=$7, updated_at=$8 WHERE id=$1 AND workspace_id=$9`,
 		role.ID, role.Name, role.PermissionsMask, role.Builtin, string(role.Type), string(role.Status), role.Version, role.UpdatedAt, role.WorkspaceID)
-	return err
+	if err != nil {
+		if platformpostgres.IsUniqueViolation(err) {
+			return domain.ErrRoleNameConflict
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *RoleWriteRepository) ReplaceMembershipRoles(ctx context.Context, membershipID string, roleIDs []string, updatedAt time.Time) error {
@@ -500,13 +492,13 @@ func scanRole(row pgx.Row) (*domain.Role, error) {
 
 // ---- Membership Repositories ----
 
-type MembershipWriteRepository struct{ db DBTX }
-type MembershipReadRepository struct{ db DBTX }
+type MembershipWriteRepository struct{ db platformpostgres.DBTX }
+type MembershipReadRepository struct{ db platformpostgres.DBTX }
 
-func NewMembershipWriteRepository(db DBTX) *MembershipWriteRepository {
+func NewMembershipWriteRepository(db platformpostgres.DBTX) *MembershipWriteRepository {
 	return &MembershipWriteRepository{db: db}
 }
-func NewMembershipReadRepository(db DBTX) *MembershipReadRepository {
+func NewMembershipReadRepository(db platformpostgres.DBTX) *MembershipReadRepository {
 	return &MembershipReadRepository{db: db}
 }
 
@@ -600,13 +592,13 @@ func scanMembership(row pgx.Row) (*domain.Membership, error) {
 
 // ---- Invitation Repositories ----
 
-type InvitationWriteRepository struct{ db DBTX }
-type InvitationReadRepository struct{ db DBTX }
+type InvitationWriteRepository struct{ db platformpostgres.DBTX }
+type InvitationReadRepository struct{ db platformpostgres.DBTX }
 
-func NewInvitationWriteRepository(db DBTX) *InvitationWriteRepository {
+func NewInvitationWriteRepository(db platformpostgres.DBTX) *InvitationWriteRepository {
 	return &InvitationWriteRepository{db: db}
 }
-func NewInvitationReadRepository(db DBTX) *InvitationReadRepository {
+func NewInvitationReadRepository(db platformpostgres.DBTX) *InvitationReadRepository {
 	return &InvitationReadRepository{db: db}
 }
 
@@ -681,10 +673,10 @@ func placeholders(start, count int) string {
 }
 
 type OutboxRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewIdentityOutboxRepository(db DBTX) *OutboxRepository {
+func NewIdentityOutboxRepository(db platformpostgres.DBTX) *OutboxRepository {
 	return &OutboxRepository{db: db}
 }
 

@@ -11,6 +11,10 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
+type noopTx struct{}
+
+func (noopTx) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
+
 var testLogger = slog.Default()
 
 type userReadStub struct {
@@ -51,12 +55,24 @@ type hasherStub struct {
 func (s *hasherStub) Hash(string) (string, error)  { return s.hash, s.err }
 func (s *hasherStub) Compare(string, string) error { return nil }
 
+type noopPasswordValidator struct{}
+
+func (noopPasswordValidator) Validate(string) error { return nil }
+
+type idGenStub struct {
+	id string
+}
+
+func (s idGenStub) New() (string, error) { return s.id, nil }
+
 func TestExecuteReturnsDuplicateWhenEmailExists(t *testing.T) {
 	h := New(usecase.Deps{
-		UsersRead:  &userReadStub{user: &domain.User{ID: "u1"}},
-		UsersWrite: &userWriteStub{},
-		Hasher:     &hasherStub{hash: "h"},
-		Logger:     testLogger,
+		UsersRead:         &userReadStub{user: &domain.User{ID: "u1"}},
+		UsersWrite:        &userWriteStub{},
+		Hasher:            &hasherStub{hash: "h"},
+		PasswordValidator: noopPasswordValidator{},
+		Logger:            testLogger,
+		UnitOfWork:        noopTx{},
 	}, func(context.Context, usecase.NewSessionInput) (*usecase.SessionContext, error) {
 		return nil, nil
 	})
@@ -70,10 +86,13 @@ func TestExecuteReturnsDuplicateWhenEmailExists(t *testing.T) {
 func TestExecuteSuccess(t *testing.T) {
 	var called bool
 	h := New(usecase.Deps{
-		UsersRead:  &userReadStub{err: domain.ErrNotFound},
-		UsersWrite: &userWriteStub{},
-		Hasher:     &hasherStub{hash: "hashed"},
-		Logger:     testLogger,
+		UsersRead:         &userReadStub{err: domain.ErrNotFound},
+		IDGen:             idGenStub{id: "u1"},
+		UsersWrite:        &userWriteStub{},
+		Hasher:            &hasherStub{hash: "hashed"},
+		PasswordValidator: noopPasswordValidator{},
+		Logger:            testLogger,
+		UnitOfWork:        noopTx{},
 	}, func(_ context.Context, in usecase.NewSessionInput) (*usecase.SessionContext, error) {
 		called = true
 		return &usecase.SessionContext{User: in.User}, nil

@@ -9,12 +9,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
-var DefaultSettingsJSON = map[string]any{
-	"email_defaults": map[string]any{
-		"default_sender_domain_id": "",
-	},
-	"feature_controls": map[string]any{},
-}
+var DefaultSettingsJSON = domain.DefaultSettingsJSON
 
 func (s *Service) GetWorkspaceSettings(ctx context.Context, workspaceID, userID string) (*domain.WorkspaceSettings, error) {
 	if _, err := s.requireWorkspacePermission(ctx, workspaceID, userID, domain.PermissionWorkspaceRead); err != nil {
@@ -39,10 +34,6 @@ func (s *Service) GetWorkspaceSettings(ctx context.Context, workspaceID, userID 
 				if sid, ok := em["default_sender_domain_id"].(string); ok {
 					defaultSettings.EmailDefaults.DefaultSenderDomainID = sid
 				}
-			}
-			if err := s.settingsWrite.CreateDefault(ctx, defaultSettings); err != nil {
-				s.logger.Error("failed to create default settings", "error", err, "workspace_id", workspaceID)
-				return nil, err
 			}
 			return &defaultSettings, nil
 		}

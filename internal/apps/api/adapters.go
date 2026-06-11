@@ -20,7 +20,7 @@ func newPermissionCheckerAdapter(svc *identityapp.Service) *permissionCheckerAda
 	return &permissionCheckerAdapter{svc: svc}
 }
 
-func (a *permissionCheckerAdapter) RequireWorkspacePermission(ctx context.Context, workspaceID, userID, permission string) error {
+func (a *permissionCheckerAdapter) RequirePermission(ctx context.Context, workspaceID, userID, permission string) error {
 	return a.svc.RequireWorkspacePermission(ctx, workspaceID, userID, permission)
 }
 

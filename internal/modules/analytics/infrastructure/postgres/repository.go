@@ -4,40 +4,34 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
-type txKey struct{}
-
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
-func getDB(ctx context.Context, db DBTX) DBTX {
-	tx, ok := ctx.Value(txKey{}).(pgx.Tx)
-	if ok {
+func getDB(ctx context.Context, db platformpostgres.DBTX) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return db
 }
 
 type EventFactRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewEventFactRepository(db DBTX) *EventFactRepository {
+func NewEventFactRepository(db platformpostgres.DBTX) *EventFactRepository {
 	return &EventFactRepository{db: db}
 }
 
 func (r *EventFactRepository) Create(ctx context.Context, fact domain.EmailEventFact) error {
-	md, err := json.Marshal(fact.MetadataJSON)
+	md, err := json.Marshal(fact.Metadata)
 	if err != nil {
 		return err
 	}
@@ -110,17 +104,17 @@ func (r *EventFactRepository) FindBySourceEventID(ctx context.Context, sourceEve
 		fact.RecipientDomain = *recipientDomain
 	}
 	if md != nil {
-		json.Unmarshal(md, &fact.MetadataJSON)
+		json.Unmarshal(md, &fact.Metadata)
 	}
 
 	return &fact, nil
 }
 
 type ProjectionRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewProjectionRepository(db DBTX) *ProjectionRepository {
+func NewProjectionRepository(db platformpostgres.DBTX) *ProjectionRepository {
 	return &ProjectionRepository{db: db}
 }
 
@@ -128,6 +122,9 @@ func (r *ProjectionRepository) IncrementWorkspaceOverview(ctx context.Context, w
 	col := eventTypeToCounter(eventType)
 	if col == "" {
 		return nil
+	}
+	if !validCounterColumns[col] {
+		return fmt.Errorf("invalid counter column: %s", col)
 	}
 
 	db := getDB(ctx, r.db)
@@ -148,6 +145,9 @@ func (r *ProjectionRepository) IncrementCampaignSummary(ctx context.Context, wor
 	if col == "" {
 		return nil
 	}
+	if !validCounterColumns[col] {
+		return fmt.Errorf("invalid counter column: %s", col)
+	}
 
 	db := getDB(ctx, r.db)
 	_, err := db.Exec(ctx,
@@ -166,6 +166,9 @@ func (r *ProjectionRepository) IncrementDeliverability(ctx context.Context, work
 	col := deliverabilityCounter(eventType)
 	if col == "" {
 		return nil
+	}
+	if !validCounterColumns[col] {
+		return fmt.Errorf("invalid counter column: %s", col)
 	}
 
 	db := getDB(ctx, r.db)
@@ -239,12 +242,12 @@ func (r *ProjectionRepository) ListDeliverability(ctx context.Context, workspace
 	argIdx := 2
 
 	if filter.Provider != "" {
-		query += ` AND provider = $` + string(rune('0'+argIdx))
+		query += ` AND provider = $` + strconv.Itoa(argIdx)
 		args = append(args, filter.Provider)
 		argIdx++
 	}
 	if filter.RecipientDomain != "" {
-		query += ` AND recipient_domain = $` + string(rune('0'+argIdx))
+		query += ` AND recipient_domain = $` + strconv.Itoa(argIdx)
 		args = append(args, filter.RecipientDomain)
 		argIdx++
 	}
@@ -295,6 +298,18 @@ func eventTypeToCounter(eventType string) string {
 	}
 }
 
+var validCounterColumns = map[string]bool{
+	"queued_count":          true,
+	"accepted_count":        true,
+	"delivered_count":       true,
+	"bounced_count":         true,
+	"complained_count":      true,
+	"opened_count":          true,
+	"clicked_count":         true,
+	"unsubscribed_count":    true,
+	"retry_scheduled_count": true,
+}
+
 func deliverabilityCounter(eventType string) string {
 	switch eventType {
 	case domain.EventTypeDelivered:
@@ -320,39 +335,11 @@ func (r *ProjectionRepository) WithTx(tx pgx.Tx) *ProjectionRepository {
 	return &ProjectionRepository{db: tx}
 }
 
-type TransactionManager struct {
-	pool DBTX
-}
-
-func NewTransactionManager(pool DBTX) *TransactionManager {
-	return &TransactionManager{pool: pool}
-}
-
-func (tm *TransactionManager) RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	conn, ok := tm.pool.(interface {
-		Begin(ctx context.Context) (pgx.Tx, error)
-	})
-	if !ok {
-		return errors.New("transaction manager requires a pool or conn that supports Begin")
-	}
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	if err := fn(context.WithValue(ctx, txKey{}, tx)); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
-}
-
 type OutboxRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewOutboxRepository(db DBTX) *OutboxRepository {
+func NewOutboxRepository(db platformpostgres.DBTX) *OutboxRepository {
 	return &OutboxRepository{db: db}
 }
 

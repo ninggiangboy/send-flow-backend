@@ -30,14 +30,30 @@ func NewStatic(defaultValue bool, flags map[string]bool) StaticClient {
 }
 
 func (c StaticClient) WithTenantFlag(tenantID, flag string, enabled bool) StaticClient {
-	if c.tenantFlags == nil {
-		c.tenantFlags = map[string]map[string]bool{}
+	deepCopyMap := func(src map[string]bool) map[string]bool {
+		if src == nil {
+			return nil
+		}
+		dst := make(map[string]bool, len(src))
+		for k, v := range src {
+			dst[k] = v
+		}
+		return dst
 	}
-	if c.tenantFlags[tenantID] == nil {
-		c.tenantFlags[tenantID] = map[string]bool{}
+
+	newFlags := deepCopyMap(c.flags)
+	if newFlags == nil {
+		newFlags = map[string]bool{}
 	}
-	c.tenantFlags[tenantID][flag] = enabled
-	return c
+	newTenantFlags := make(map[string]map[string]bool, len(c.tenantFlags))
+	for t, tf := range c.tenantFlags {
+		newTenantFlags[t] = deepCopyMap(tf)
+	}
+	if newTenantFlags[tenantID] == nil {
+		newTenantFlags[tenantID] = map[string]bool{}
+	}
+	newTenantFlags[tenantID][flag] = enabled
+	return StaticClient{defaultValue: c.defaultValue, flags: newFlags, tenantFlags: newTenantFlags}
 }
 
 func (c StaticClient) Enabled(_ context.Context, flag string, ctx EvaluationContext) bool {

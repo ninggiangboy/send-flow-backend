@@ -225,6 +225,6 @@ func writeNotificationErr(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, domain.ErrNotificationStatusInvalid):
 		writeError(w, r, http.StatusBadRequest, "notification.filter_invalid", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }

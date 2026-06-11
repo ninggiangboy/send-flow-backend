@@ -12,11 +12,12 @@ import (
 
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
+	"github.com/ninggiangboy/send-flow/backend"
+	"github.com/ninggiangboy/send-flow/backend/internal/apps/shared"
 	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
 	accessinfrastructure "github.com/ninggiangboy/send-flow/backend/internal/modules/access/infrastructure"
 	accesspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/access/infrastructure/postgres"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
-	analyticspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/postgres"
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
 	audiencepostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/postgres"
 	auditapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audit/app"
@@ -24,8 +25,8 @@ import (
 	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
 	campaignpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/infrastructure/postgres"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
-	contentpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/postgres"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
+	deliveryinfrastructure "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure"
 	deliverypostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/postgres"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	identityoauth "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/oauth"
@@ -37,21 +38,13 @@ import (
 	ingestionpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/infrastructure/postgres"
 	ingestionprovider "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/infrastructure/provider"
 	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
-	notificationemail "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/email"
-	notificationpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/postgres"
 	operationsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app"
 	operationspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/operations/infrastructure/postgres"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	senderdns "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/dns"
-	senderpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/postgres"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
-	suppressionpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/infrastructure/postgres"
 	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/unsubscribetoken"
-	trackingpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/infrastructure/postgres"
 	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
-	webhookshttp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/infrastructure/http"
-	webhookspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/infrastructure/postgres"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
@@ -66,6 +59,7 @@ import (
 	platformredis "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/sse"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -76,17 +70,23 @@ func Run(ctx context.Context) error {
 	}
 
 	log := logger.New(cfg)
+	config.WarnDevSecrets(log, cfg)
 
 	if cfg.AutoMigrate {
 		log.Info("running database migrations")
-		if err := migration.Up(ctx, cfg.DatabaseURL); err != nil {
+		if err := migration.Up(ctx, cfg.DatabaseURL, backend.MigrationFS()); err != nil {
 			return err
 		}
 		log.Info("database migrations completed")
 	}
 
-	httpMetrics := observability.NewHTTPMetrics(nil)
-	observability.RegisterFallbackProcessMetrics(nil)
+	httpMetrics, err := observability.NewHTTPMetrics(nil)
+	if err != nil {
+		return err
+	}
+	if err := observability.RegisterFallbackProcessMetrics(nil); err != nil {
+		return err
+	}
 
 	pgClient, err := postgres.New(ctx, cfg)
 	if err != nil {
@@ -105,7 +105,7 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	var objectStorageClient *objectstorage.Client
+	var objectStorageClient objectstorage.ObjectStorage
 	if cfg.ObjectStorageEnabled() {
 		objectStorageClient, err = objectstorage.New(ctx, cfg.ObjectStorage)
 		if err != nil {
@@ -125,46 +125,46 @@ func Run(ctx context.Context) error {
 	auditWriteRepo := auditpostgres.NewWriteRepository(pgClient.WritePool())
 
 	authSvc := identityapp.NewService(identityapp.Options{
-		UsersRead:          identitypostgres.NewUserReadRepository(pgClient.ReadPool()),
-		UsersWrite:         identitypostgres.NewUserWriteRepository(pgClient.WritePool()),
-		ExternalsRead:      identitypostgres.NewExternalAccountReadRepository(pgClient.ReadPool()),
-		ExternalsWrite:     identitypostgres.NewExternalAccountWriteRepository(pgClient.WritePool()),
-		SessionsRead:       identitypostgres.NewSessionReadRepository(pgClient.ReadPool()),
-		SessionsWrite:      identitypostgres.NewSessionWriteRepository(pgClient.WritePool()),
-		Hasher:             security.NewPasswordHasher(0),
-		Tokens:             identitytoken.NewJWTManager(cfg.JWTIssuer, cfg.JWTAccessSecret, cfg.JWTRefreshSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL),
-		OAuthState:         identityredis.NewOAuthStateStore(redisClient),
-		RefreshStore:       identityredis.NewRefreshStore(redisClient),
-		AuthTokens:         identitypostgres.NewAuthTokenRepository(pgClient.WritePool()),
-		TOTP:               identitypostgres.NewTOTPRepository(pgClient.WritePool(), pgClient.WritePool()),
-		Providers:          []ports.OAuthProvider{identityoauth.NewGoogleProvider(cfg.OAuthGoogleClientID, cfg.OAuthGoogleSecret), identityoauth.NewGithubProvider(cfg.OAuthGithubClientID, cfg.OAuthGithubSecret)},
-		OAuthStateTTL:      cfg.OAuthStateTTL,
-		MailSender:         &mailerAdapter{sender: emailSender},
-		RateLimiter:        &rateLimiterAdapter{svc: ratelimit.NewRedisService(redisClient)},
-		IDGen:              &uuidIDGeneratorAdapter{gen: id.NewUUIDGenerator()},
-		TokenGen:           &tokenGeneratorAdapter{},
-		TokenHasher:        &tokenHasherAdapter{},
-		PasswordValidator:  &passwordValidatorAdapter{},
-		TOTPVerifier:       &totpVerifierAdapter{},
-		TOTPSecretGen:      &totpSecretGeneratorAdapter{},
-		RecoveryCodeGen:    &recoveryCodeGeneratorAdapter{},
-		FrontendBaseURL:    cfg.FrontendBaseURL,
-		VerificationTTL:    cfg.EmailVerificationTTL,
-		PasswordResetTTL:   cfg.PasswordResetTTL,
-		MFAChallengeTTL:    cfg.MFAChallengeTTL,
-		WorkspacesRead:     identitypostgres.NewWorkspaceReadRepository(pgClient.ReadPool()),
-		WorkspacesWrite:    identitypostgres.NewWorkspaceWriteRepository(pgClient.WritePool()),
-		RolesRead:          identitypostgres.NewRoleReadRepository(pgClient.ReadPool()),
-		RolesWrite:         identitypostgres.NewRoleWriteRepository(pgClient.WritePool()),
-		MembershipsRead:    identitypostgres.NewMembershipReadRepository(pgClient.ReadPool()),
-		MembershipsWrite:   identitypostgres.NewMembershipWriteRepository(pgClient.WritePool()),
-		InvitationsRead:    identitypostgres.NewInvitationReadRepository(pgClient.ReadPool()),
-		InvitationsWrite:   identitypostgres.NewInvitationWriteRepository(pgClient.WritePool()),
-		SettingsRead:       settingsRead,
-		SettingsWrite:      settingsWrite,
-		Logger:             log,
-		UnitOfWork:         identitypostgres.NewUnitOfWork(pgClient.WritePool()),
-		OutboxWriter:       identitypostgres.NewIdentityOutboxRepository(pgClient.WritePool()),
+		UsersRead:         identitypostgres.NewUserReadRepository(pgClient.ReadPool()),
+		UsersWrite:        identitypostgres.NewUserWriteRepository(pgClient.WritePool()),
+		ExternalsRead:     identitypostgres.NewExternalAccountReadRepository(pgClient.ReadPool()),
+		ExternalsWrite:    identitypostgres.NewExternalAccountWriteRepository(pgClient.WritePool()),
+		SessionsRead:      identitypostgres.NewSessionReadRepository(pgClient.ReadPool()),
+		SessionsWrite:     identitypostgres.NewSessionWriteRepository(pgClient.WritePool()),
+		Hasher:            security.NewPasswordHasher(0),
+		Tokens:            identitytoken.NewJWTManager(cfg.JWTIssuer, cfg.JWTAccessSecret, cfg.JWTRefreshSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL),
+		OAuthState:        identityredis.NewOAuthStateStore(redisClient),
+		RefreshStore:      identityredis.NewRefreshStore(redisClient),
+		AuthTokens:        identitypostgres.NewAuthTokenRepository(pgClient.WritePool()),
+		TOTP:              identitypostgres.NewTOTPRepository(pgClient.WritePool()),
+		Providers:         []ports.OAuthProvider{identityoauth.NewGoogleProvider(cfg.OAuthGoogleClientID, cfg.OAuthGoogleSecret, nil), identityoauth.NewGithubProvider(cfg.OAuthGithubClientID, cfg.OAuthGithubSecret, nil)},
+		OAuthStateTTL:     cfg.OAuthStateTTL,
+		MailSender:        &mailerAdapter{sender: emailSender},
+		RateLimiter:       &rateLimiterAdapter{svc: ratelimit.NewRedisService(redisClient)},
+		IDGen:             &uuidIDGeneratorAdapter{gen: id.NewUUIDGenerator()},
+		TokenGen:          &tokenGeneratorAdapter{},
+		TokenHasher:       &tokenHasherAdapter{},
+		PasswordValidator: &passwordValidatorAdapter{},
+		TOTPVerifier:      &totpVerifierAdapter{},
+		TOTPSecretGen:     &totpSecretGeneratorAdapter{},
+		RecoveryCodeGen:   &recoveryCodeGeneratorAdapter{},
+		FrontendBaseURL:   cfg.FrontendBaseURL,
+		VerificationTTL:   cfg.EmailVerificationTTL,
+		PasswordResetTTL:  cfg.PasswordResetTTL,
+		MFAChallengeTTL:   cfg.MFAChallengeTTL,
+		WorkspacesRead:    identitypostgres.NewWorkspaceReadRepository(pgClient.ReadPool()),
+		WorkspacesWrite:   identitypostgres.NewWorkspaceWriteRepository(pgClient.WritePool()),
+		RolesRead:         identitypostgres.NewRoleReadRepository(pgClient.ReadPool()),
+		RolesWrite:        identitypostgres.NewRoleWriteRepository(pgClient.WritePool()),
+		MembershipsRead:   identitypostgres.NewMembershipReadRepository(pgClient.ReadPool()),
+		MembershipsWrite:  identitypostgres.NewMembershipWriteRepository(pgClient.WritePool()),
+		InvitationsRead:   identitypostgres.NewInvitationReadRepository(pgClient.ReadPool()),
+		InvitationsWrite:  identitypostgres.NewInvitationWriteRepository(pgClient.WritePool()),
+		SettingsRead:      settingsRead,
+		SettingsWrite:     settingsWrite,
+		Logger:            log,
+		UnitOfWork:        transaction.NewManager(pgClient.WritePool()),
+		OutboxWriter:      identitypostgres.NewIdentityOutboxRepository(pgClient.WritePool()),
 	})
 
 	auditSvc := auditapp.NewService(auditapp.Options{
@@ -193,17 +193,9 @@ func Run(ctx context.Context) error {
 		ObjectStorageEnabled: cfg.ObjectStorageEnabled(),
 	})
 
-	senderDomainsRead := senderpostgres.NewReadRepository(pgClient.ReadPool())
-	senderDomainsWrite := senderpostgres.NewWriteRepository(pgClient.WritePool())
+	senderReadRepo, senderWriteRepo := shared.NewSenderRepos(pgClient.ReadPool(), pgClient.WritePool())
 	senderResolver := senderdns.NewResolver()
-	senderSvc := senderapp.NewService(senderapp.Options{
-		DomainsRead:   senderDomainsRead,
-		DomainsWrite:  senderDomainsWrite,
-		DNSResolver:   senderResolver,
-		AccessChecker: newWorkspaceAccessAdapter(authSvc),
-		IDGen:         id.NewUUIDGenerator().New,
-		Logger:        log,
-	})
+	senderSvc := shared.NewSenderService(senderReadRepo, senderWriteRepo, senderResolver, newWorkspaceAccessAdapter(authSvc), log)
 
 	audienceContactsRead := audiencepostgres.NewContactReadRepository(pgClient.ReadPool())
 	audienceContactsWrite := audiencepostgres.NewContactWriteRepository(pgClient.WritePool())
@@ -231,30 +223,16 @@ func Run(ctx context.Context) error {
 		Logger:          log,
 	})
 
-	contentTemplatesRead := contentpostgres.NewTemplateReadRepository(pgClient.ReadPool())
-	contentTemplatesWrite := contentpostgres.NewTemplateWriteRepository(pgClient.WritePool())
-	contentSvc := contentapp.NewService(contentapp.Options{
-		TemplatesRead:  contentTemplatesRead,
-		TemplatesWrite: contentTemplatesWrite,
-		AccessChecker:  newWorkspaceAccessAdapter(authSvc),
-		IDGen:          id.NewUUIDGenerator().New,
-		Logger:         log,
-	})
+	contentReadRepo, contentWriteRepo := shared.NewContentRepos(pgClient.ReadPool(), pgClient.WritePool())
+	contentSvc := shared.NewContentService(contentReadRepo, contentWriteRepo, newWorkspaceAccessAdapter(authSvc), log)
 
-	suppressionEntriesRead := suppressionpostgres.NewReadRepository(pgClient.ReadPool())
-	suppressionEntriesWrite := suppressionpostgres.NewWriteRepository(pgClient.WritePool())
-	suppressionSvc := suppressionapp.NewService(suppressionapp.Options{
-		EntriesRead:   suppressionEntriesRead,
-		EntriesWrite:  suppressionEntriesWrite,
-		AccessChecker: newWorkspaceAccessAdapter(authSvc),
-		IDGen:         id.NewUUIDGenerator().New,
-		Logger:        log,
-	})
+	suppressionReadRepo, suppressionWriteRepo := shared.NewSuppressionRepos(pgClient.ReadPool(), pgClient.WritePool())
+	suppressionSvc := shared.NewSuppressionService(suppressionReadRepo, suppressionWriteRepo, newWorkspaceAccessAdapter(authSvc), log)
 
 	campaignReadRepo := campaignpostgres.NewCampaignReadRepository(pgClient.ReadPool())
 	campaignWriteRepo := campaignpostgres.NewCampaignWriteRepository(pgClient.WritePool())
 	campaignOutboxRepo := campaignpostgres.NewOutboxRepository(pgClient.WritePool())
-	campaignTxManager := campaignpostgres.NewTransactionManager(pgClient.WritePool())
+	campaignTxManager := transaction.NewManager(pgClient.WritePool())
 	campaignSvc := campaignapp.NewService(campaignapp.Options{
 		CampaignsRead:    campaignReadRepo,
 		CampaignsWrite:   campaignWriteRepo,
@@ -277,7 +255,7 @@ func Run(ctx context.Context) error {
 	deliveryRetryStateReadRepo := deliverypostgres.NewRetryStateReadRepository(pgClient.ReadPool())
 	deliveryRetryStateWriteRepo := deliverypostgres.NewRetryStateWriteRepository(pgClient.WritePool())
 	deliveryOutboxRepo := deliverypostgres.NewOutboxRepository(pgClient.WritePool())
-	deliveryTxManager := deliverypostgres.NewTransactionManager(pgClient.WritePool())
+	deliveryTxManager := transaction.NewManager(pgClient.WritePool())
 	deliveryContentRenderer := newTransactionalContentRenderer(contentSvc)
 	deliverySenderChecker := newTransactionalSenderChecker(senderSvc)
 	deliverySuppressionChecker := newTransactionalSuppressionChecker(suppressionSvc)
@@ -315,35 +293,18 @@ func Run(ctx context.Context) error {
 	ingestionNormReadRepo := ingestionpostgres.NewNormalizedEventRepository(pgClient.ReadPool())
 	ingestionNormWriteRepo := ingestionpostgres.NewNormalizedEventRepository(pgClient.WritePool())
 	ingestionOutboxRepo := ingestionpostgres.NewOutboxRepository(pgClient.WritePool())
-	ingestionTxManager := ingestionpostgres.NewTransactionManager(pgClient.WritePool())
-	ingestionMsgResolver := ingestionpostgres.NewDeliveryMessageResolver(pgClient.ReadPool())
+	ingestionTxManager := transaction.NewManager(pgClient.WritePool())
+	ingestionMsgResolver := deliveryinfrastructure.NewIngestionMessageResolver(deliveryMsgReadRepo)
 
 	ingestionFakeVerifier := &ingestionprovider.FakeVerifier{Secret: cfg.FakeWebhookSecret}
 	ingestionFakeNormalizer := &ingestionprovider.FakeNormalizer{}
 	ingestionReg := ingestionprovider.NewRegistry()
 	ingestionReg.Register("fake", ingestionFakeVerifier, ingestionFakeNormalizer)
 
-	trackingLinkReadRepo := trackingpostgres.NewTrackingLinkRepository(pgClient.ReadPool())
-	trackingLinkWriteRepo := trackingpostgres.NewTrackingLinkRepository(pgClient.WritePool())
-	trackingEventReadRepo := trackingpostgres.NewTrackingEventRepository(pgClient.ReadPool())
-	trackingEventWriteRepo := trackingpostgres.NewTrackingEventRepository(pgClient.WritePool())
-	trackingMessageResolver := newTrackingMessageResolverAdapter(deliveryMsgReadRepo)
-	trackingSuppressor := newTrackingSuppressorAdapter(suppressionSvc)
-	trackingOutboxRepo := trackingpostgres.NewOutboxRepository(pgClient.WritePool())
-	trackingTxManager := trackingpostgres.NewTransactionManager(pgClient.WritePool())
-	trackingSvc := trackingapp.NewService(trackingapp.Options{
-		LinkReadRepo:        trackingLinkReadRepo,
-		LinkWriteRepo:       trackingLinkWriteRepo,
-		EventReadRepo:       trackingEventReadRepo,
-		EventWriteRepo:      trackingEventWriteRepo,
-		MessageResolver:     trackingMessageResolver,
-		RecipientSuppressor: trackingSuppressor,
-		OutboxWriter:        trackingOutboxRepo,
-		TxManager:           trackingTxManager,
-		IDGen:               id.NewUUIDGenerator().New,
-		Logger:              log,
-		TokenSigner:         unsubscribetoken.NewSigner(cfg.UnsubscribeTokenSecret),
-	})
+	trackingDeps := shared.NewTrackingRepos(pgClient.ReadPool(), pgClient.WritePool())
+	trackingMessageResolver := shared.NewTrackingMessageResolverAdapter(deliveryinfrastructure.NewMessageResolver(deliveryMsgReadRepo))
+	trackingSuppressor := shared.NewTrackingSuppressorAdapter(suppressionSvc)
+	trackingSvc := shared.NewTrackingService(trackingDeps, trackingMessageResolver, trackingSuppressor, cfg.UnsubscribeTokenSecret, log)
 
 	ingestionSvc := ingestionapp.NewService(ingestionapp.Options{
 		RawEventsRead:         ingestionRawReadRepo,
@@ -358,51 +319,17 @@ func Run(ctx context.Context) error {
 		Logger:                log,
 	})
 
-	analyticsWritePool := pgClient.WritePool()
-	analyticsFactRepo := analyticspostgres.NewEventFactRepository(analyticsWritePool)
-	analyticsProjectionRepo := analyticspostgres.NewProjectionRepository(analyticsWritePool)
-	analyticsTxManager := analyticspostgres.NewTransactionManager(analyticsWritePool)
-	analyticsOutboxRepo := analyticspostgres.NewOutboxRepository(analyticsWritePool)
+	analyticsOpts, _ := shared.NewAnalyticsRepos(pgClient.WritePool())
+	analyticsOpts.AccessChecker = newWorkspaceAccessAdapter(authSvc)
+	analyticsOpts.Logger = log
+	analyticsSvc := analyticsapp.NewService(analyticsOpts)
 
-	analyticsSvc := analyticsapp.NewService(analyticsapp.Options{
-		FactRepo:       analyticsFactRepo,
-		ProjectionRepo: analyticsProjectionRepo,
-		TxManager:      analyticsTxManager,
-		OutboxWriter:   analyticsOutboxRepo,
-		AccessChecker:  newWorkspaceAccessAdapter(authSvc),
-		IDGen:          id.NewUUIDGenerator().New,
-		Logger:         log,
-	})
-
-	webhooksConfigRead := webhookspostgres.NewConfigReadRepository(pgClient.ReadPool())
-	webhooksConfigWrite := webhookspostgres.NewConfigWriteRepository(pgClient.WritePool())
-	webhooksDeliveryRead := webhookspostgres.NewDeliveryReadRepository(pgClient.ReadPool())
-	webhooksDeliveryWrite := webhookspostgres.NewDeliveryWriteRepository(pgClient.WritePool())
-	webhooksAttemptRead := webhookspostgres.NewAttemptReadRepository(pgClient.ReadPool())
-	webhooksAttemptWrite := webhookspostgres.NewAttemptWriteRepository(pgClient.WritePool())
-	webhooksTxManager := webhookspostgres.NewTransactionManager(pgClient.WritePool())
-	webhooksOutbox := webhookspostgres.NewOutboxRepository(pgClient.WritePool())
-	webhooksDeliverer := webhookshttp.NewDeliverer()
-
-	webhooksSvc := webhooksapp.NewService(webhooksapp.Options{
-		ConfigRead:    webhooksConfigRead,
-		ConfigWrite:   webhooksConfigWrite,
-		DeliveryRead:  webhooksDeliveryRead,
-		DeliveryWrite: webhooksDeliveryWrite,
-		AttemptRead:   webhooksAttemptRead,
-		AttemptWrite:  webhooksAttemptWrite,
-		TxManager:     webhooksTxManager,
-		OutboxWriter:  webhooksOutbox,
-		Deliverer:     webhooksDeliverer,
-		AccessChecker: newWorkspaceAccessAdapter(authSvc),
-		IDGen:         id.NewUUIDGenerator().New,
-		Logger:        log,
-	})
+	webhooksSvc := shared.NewWebhooksService(pgClient.ReadPool(), pgClient.WritePool(), newWorkspaceAccessAdapter(authSvc), log)
 
 	operationsOutboxRepo := operationspostgres.NewOutboxRepository(pgClient.ReadPool())
 	operationsDeadLetterRepo := operationspostgres.NewDeadLetterRepository(pgClient.ReadPool())
 	operationsReplayJobRepo := operationspostgres.NewReplayJobRepository(pgClient.WritePool())
-	operationsTxManager := operationspostgres.NewTransactionManager(pgClient.WritePool())
+	operationsTxManager := transaction.NewManager(pgClient.WritePool())
 
 	operationsSvc := operationsapp.NewService(operationsapp.Options{
 		OutboxRepo:     operationsOutboxRepo,
@@ -414,28 +341,35 @@ func Run(ctx context.Context) error {
 		Logger:         log,
 	})
 
-	notificationMsgRead := notificationpostgres.NewMessageReadRepository(pgClient.ReadPool())
-	notificationMsgWrite := notificationpostgres.NewMessageWriteRepository(pgClient.WritePool())
-	notificationAttemptRead := notificationpostgres.NewAttemptReadRepository(pgClient.ReadPool())
-	notificationAttemptWrite := notificationpostgres.NewAttemptWriteRepository(pgClient.WritePool())
-	notificationOutbox := notificationpostgres.NewOutboxRepository(pgClient.WritePool())
-	notificationTxManager := notificationpostgres.NewTransactionManager(pgClient.WritePool())
-	notificationEmailAdapter := notificationemail.NewEmailAdapter(emailSender)
+	notificationOpts := shared.NewNotificationRepos(pgClient.ReadPool(), pgClient.WritePool(), emailSender)
+	notificationOpts.AccessChecker = newWorkspaceAccessAdapter(authSvc)
+	notificationOpts.Logger = log
+	notificationSvc := notificationapp.NewService(notificationOpts)
 
-	notificationSvc := notificationapp.NewService(notificationapp.Options{
-		MessagesRead:  notificationMsgRead,
-		MessagesWrite: notificationMsgWrite,
-		AttemptsRead:  notificationAttemptRead,
-		AttemptsWrite: notificationAttemptWrite,
-		OutboxWriter:  notificationOutbox,
-		TxManager:     notificationTxManager,
-		AccessChecker: newWorkspaceAccessAdapter(authSvc),
-		EmailSender:   notificationEmailAdapter,
-		IDGen:         id.NewUUIDGenerator().New,
-		Logger:        log,
+	r := newRouter(&RouterDeps{
+		HealthSvc:       healthSvc,
+		AuthSvc:         authSvc,
+		SenderSvc:       senderSvc,
+		AudienceSvc:     audienceSvc,
+		ContentSvc:      contentSvc,
+		SuppressionSvc:  suppressionSvc,
+		CampaignSvc:     campaignSvc,
+		DeliverySvc:     deliverySvc,
+		AccessSvc:       accessSvc,
+		IngestionSvc:    ingestionSvc,
+		TrackingSvc:     trackingSvc,
+		AnalyticsSvc:    analyticsSvc,
+		WebhooksSvc:     webhooksSvc,
+		OperationsSvc:   operationsSvc,
+		NotificationSvc: notificationSvc,
+		SettingsSvc:     authSvc,
+		AuditSvc:        auditSvc,
+		AuthRateLimiter: ratelimit.NewRedisService(redisClient),
+		SecureCookies:   cfg.SecureCookies(),
+		FrontendBaseURL: cfg.FrontendBaseURL,
+		HTTPMetrics:     httpMetrics,
+		Log:             log,
 	})
-
-	r := newRouter(healthSvc, authSvc, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc, operationsSvc, notificationSvc, authSvc, auditSvc, ratelimit.NewRedisService(redisClient), cfg.SecureCookies(), cfg.FrontendBaseURL, httpMetrics, log)
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -466,10 +400,35 @@ func Run(ctx context.Context) error {
 	return server.Shutdown(shutdownCtx)
 }
 
-func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, senderSvc *senderapp.Service, audienceSvc *audienceapp.Service, contentSvc *contentapp.Service, suppressionSvc *suppressionapp.Service, campaignSvc *campaignapp.Service, deliverySvc *deliveryapp.Service, accessSvc *accessapp.Service, ingestionSvc *ingestionapp.Service, trackingSvc *trackingapp.Service, analyticsSvc *analyticsapp.Service, webhooksSvc *webhooksapp.Service, operationsSvc *operationsapp.Service, notificationSvc *notificationapp.Service, settingsSvc *identityapp.Service, auditSvc *auditapp.Service, authRateLimiter ratelimit.Service, secureCookies bool, frontendBaseURL string, httpMetrics *observability.HTTPMetrics, log *slog.Logger) http.Handler {
+type RouterDeps struct {
+	HealthSvc       *platformhealth.Service
+	AuthSvc         *identityapp.Service
+	SenderSvc       *senderapp.Service
+	AudienceSvc     *audienceapp.Service
+	ContentSvc      *contentapp.Service
+	SuppressionSvc  *suppressionapp.Service
+	CampaignSvc     *campaignapp.Service
+	DeliverySvc     *deliveryapp.Service
+	AccessSvc       *accessapp.Service
+	IngestionSvc    *ingestionapp.Service
+	TrackingSvc     *trackingapp.Service
+	AnalyticsSvc    *analyticsapp.Service
+	WebhooksSvc     *webhooksapp.Service
+	OperationsSvc   *operationsapp.Service
+	NotificationSvc *notificationapp.Service
+	SettingsSvc     *identityapp.Service
+	AuditSvc        *auditapp.Service
+	AuthRateLimiter ratelimit.Service
+	SecureCookies   bool
+	FrontendBaseURL string
+	HTTPMetrics     *observability.HTTPMetrics
+	Log             *slog.Logger
+}
+
+func newRouter(deps *RouterDeps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware(corsOptions{
-		AllowedOrigins: []string{frontendBaseURL},
+		AllowedOrigins: []string{deps.FrontendBaseURL},
 		AllowedMethods: []string{
 			http.MethodGet,
 			http.MethodPost,
@@ -495,8 +454,8 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 				route = r.URL.Path
 			}
 			duration := time.Since(start)
-			httpMetrics.Record(r.Method, route, strconv.Itoa(rec.Status), duration.Seconds())
-			if log != nil && shouldLogHTTPRequest(route) {
+			deps.HTTPMetrics.Record(r.Method, route, strconv.Itoa(rec.Status), duration.Seconds())
+			if deps.Log != nil && shouldLogHTTPRequest(route) {
 				attrs := []any{
 					"request_id", reqCtx.RequestID,
 					"method", r.Method,
@@ -510,41 +469,44 @@ func newRouter(healthSvc *platformhealth.Service, authSvc *identityapp.Service, 
 				if reqCtx.SessionID != "" {
 					attrs = append(attrs, "session_id", reqCtx.SessionID)
 				}
-				log.Info("http request", attrs...)
+				deps.Log.Info("http request", attrs...)
 			}
 		})
 	})
 	humaAPI := humachi.New(r, openAPIConfig())
-	registerOpenAPIRoutes(humaAPI, r, healthSvc, authSvc, authRateLimiter, secureCookies, senderSvc, audienceSvc, contentSvc, suppressionSvc, campaignSvc, deliverySvc, notificationSvc, accessSvc, ingestionSvc, trackingSvc, analyticsSvc, webhooksSvc, operationsSvc, settingsSvc, auditSvc)
+	registerOpenAPIRoutes(humaAPI, r, deps)
 
 	r.Route("/api", func(r chi.Router) {
-		r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {
-			stream, err := sse.New(w, req, sse.Options{HeartbeatInterval: sse.DefaultHeartbeatInterval})
-			if err != nil {
-				httpjson.Write(w, http.StatusInternalServerError, map[string]string{"error": "streaming is not supported"})
-				return
-			}
-			defer stream.Close()
-			if err := stream.WriteEvent(sse.Event{Event: "connected", Data: "send-flow stream connected"}); err != nil {
-				return
-			}
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-req.Context().Done():
+		r.Group(func(r chi.Router) {
+			r.Use(authzMiddleware(deps.AuthSvc))
+			r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {
+				stream, err := sse.New(w, req, sse.Options{HeartbeatInterval: sse.DefaultHeartbeatInterval})
+				if err != nil {
+					_ = httpjson.Write(w, http.StatusInternalServerError, map[string]string{"error": "streaming is not supported"})
 					return
-				case ts := <-ticker.C:
-					if err := stream.WriteEvent(sse.Event{Event: "tick", ID: fmt.Sprintf("%d", ts.Unix()), Data: ts.UTC().Format(time.RFC3339)}); err != nil {
+				}
+				defer stream.Close()
+				if err := stream.WriteEvent(sse.Event{Event: "connected", Data: "send-flow stream connected"}); err != nil {
+					return
+				}
+				ticker := time.NewTicker(30 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-req.Context().Done():
 						return
+					case ts := <-ticker.C:
+						if err := stream.WriteEvent(sse.Event{Event: "tick", ID: fmt.Sprintf("%d", ts.Unix()), Data: ts.UTC().Format(time.RFC3339)}); err != nil {
+							return
+						}
 					}
 				}
-			}
+			})
 		})
 		r.Handle("/metrics", promhttp.Handler())
 	})
-	if trackingSvc != nil {
-		tracking := newTrackingHTTP(trackingSvc)
+	if deps.TrackingSvc != nil {
+		tracking := newTrackingHTTP(deps.TrackingSvc)
 		r.Get("/o/{tracking_id}", tracking.serveOpenPixel)
 		r.Get("/t/{tracking_id}", tracking.serveClickRedirect)
 		r.Get("/u/{token}", tracking.serveUnsubscribe)

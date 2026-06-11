@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type Command struct {
@@ -117,9 +117,6 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 		if err := h.deps.RolesWrite.ReplaceInvitationRoles(txCtx, invitation.ID, roleIDs, cmd.Now); err != nil {
 			return err
 		}
-		if h.deps.OutboxWriter == nil {
-			return nil
-		}
 		payload := map[string]string{
 			"workspace_id":     cmd.WorkspaceID,
 			"email":            email,
@@ -128,53 +125,15 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 			"invited_by_email": inviter.Email,
 			"at":               cmd.Now.Format(time.RFC3339),
 		}
-		eventID, err := h.deps.IDGen.New()
-		if err != nil {
-			h.log.Error("failed to generate event ID", "error", err)
-			return err
-		}
-		envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-			EventID:       eventID,
-			EventType:     "identity.workspace.member_invited.v1",
-			EventVersion:  1,
-			AggregateType: "invitation",
-			AggregateID:   invitation.ID,
-			WorkspaceID:   cmd.WorkspaceID,
-			OccurredAt:    cmd.Now,
-		}, payload)
-		if err != nil {
-			h.log.Error("failed to create member invited envelope", "error", err)
-			return err
-		}
-		envBytes, err := events.Marshal(envelope)
-		if err != nil {
-			h.log.Error("failed to marshal member invited event", "error", err)
-			return err
-		}
-		if err := h.deps.OutboxWriter.Save(txCtx, ports.OutboxEvent{
-			ID:            eventID,
-			AggregateType: "invitation",
-			AggregateID:   invitation.ID,
-			EventType:     "identity.workspace.member_invited.v1",
-			Payload:       envBytes,
-			WorkspaceID:   cmd.WorkspaceID,
-			OccurredAt:    cmd.Now,
-		}); err != nil {
-			h.log.Error("failed to save member invited outbox event", "error", err)
+		if err := usecase.EmitEvent(txCtx, h.deps.OutboxWriter, h.deps.IDGen, contracts.EventWorkspaceMemberInvitedV1, "invitation", invitation.ID, cmd.WorkspaceID, payload, cmd.Now); err != nil {
+			h.log.Error("failed to emit member invited event", "error", err)
 			return err
 		}
 		return nil
 	}
-	if h.deps.UnitOfWork != nil {
-		if err := h.deps.UnitOfWork.WithinTx(ctx, persistInvitation); err != nil {
-			h.log.Error("failed to create invitation", "workspace_id", cmd.WorkspaceID, "error", err)
-			return nil, err
-		}
-	} else {
-		if err := persistInvitation(ctx); err != nil {
-			h.log.Error("failed to create invitation", "workspace_id", cmd.WorkspaceID, "error", err)
-			return nil, err
-		}
+	if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, persistInvitation); err != nil {
+		h.log.Error("failed to create invitation", "workspace_id", cmd.WorkspaceID, "error", err)
+		return nil, err
 	}
 	h.log.Info("workspace invitation created", "workspace_id", cmd.WorkspaceID, "inviter_id", cmd.InviterID)
 

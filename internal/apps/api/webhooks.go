@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type webhookConfigHTTP struct {
@@ -65,7 +68,7 @@ type updateWebhookConfigRequest struct {
 
 func (h *webhookConfigHTTP) listWebhookConfigs(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspace_id")
-	userID := r.Context().Value(ctxUserID).(string)
+	userID, _ := userIDFromContext(r.Context())
 
 	configs, err := h.svc.ListWebhookConfigs(r.Context(), webhooksapp.ListConfigsInput{
 		WorkspaceID: workspaceID,
@@ -82,7 +85,7 @@ func (h *webhookConfigHTTP) listWebhookConfigs(w http.ResponseWriter, r *http.Re
 			ID:               c.ID,
 			Name:             c.Name,
 			TargetURL:        c.TargetURL,
-			Status:           string(c.Status),
+			Status:           c.Status,
 			SubscribedEvents: c.Subscriptions,
 			SecretHint:       c.SecretHint,
 			Version:          c.Version,
@@ -99,7 +102,7 @@ func (h *webhookConfigHTTP) listWebhookConfigs(w http.ResponseWriter, r *http.Re
 
 func (h *webhookConfigHTTP) createWebhookConfig(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspace_id")
-	userID := r.Context().Value(ctxUserID).(string)
+	userID, _ := userIDFromContext(r.Context())
 
 	var req createWebhookConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -125,30 +128,30 @@ func (h *webhookConfigHTTP) createWebhookConfig(w http.ResponseWriter, r *http.R
 		ActorUserID: userID,
 		ActionType:  "webhook.created",
 		TargetType:  "webhook",
-		TargetID:    result.Config.ID,
+		TargetID:    result.ID,
 		PayloadSummary: map[string]any{
-			"name":       result.Config.Name,
-			"target_url": result.Config.TargetURL,
+			"name":       result.Name,
+			"target_url": result.TargetURL,
 		},
 	})
 
 	writeEnvelope(w, r, http.StatusCreated, webhookConfigResponse{
-		ID:               result.Config.ID,
-		Name:             result.Config.Name,
-		TargetURL:        result.Config.TargetURL,
-		Status:           string(result.Config.Status),
-		SubscribedEvents: result.Config.Subscriptions,
+		ID:               result.ID,
+		Name:             result.Name,
+		TargetURL:        result.TargetURL,
+		Status:           result.Status,
+		SubscribedEvents: result.Subscriptions,
 		Secret:           result.RawSecret,
-		Version:          result.Config.Version,
-		CreatedAt:        result.Config.CreatedAt,
-		UpdatedAt:        result.Config.UpdatedAt,
+		Version:          result.Version,
+		CreatedAt:        result.CreatedAt,
+		UpdatedAt:        result.UpdatedAt,
 	})
 }
 
 func (h *webhookConfigHTTP) updateWebhookConfig(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspace_id")
 	webhookID := chi.URLParam(r, "webhook_id")
-	userID := r.Context().Value(ctxUserID).(string)
+	userID, _ := userIDFromContext(r.Context())
 
 	var req updateWebhookConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -181,21 +184,21 @@ func (h *webhookConfigHTTP) updateWebhookConfig(w http.ResponseWriter, r *http.R
 	})
 
 	writeEnvelope(w, r, http.StatusOK, webhookConfigResponse{
-		ID:               result.Config.ID,
-		Name:             result.Config.Name,
-		TargetURL:        result.Config.TargetURL,
-		Status:           string(result.Config.Status),
-		SubscribedEvents: result.Config.Subscriptions,
-		Version:          result.Config.Version,
-		CreatedAt:        result.Config.CreatedAt,
-		UpdatedAt:        result.Config.UpdatedAt,
+		ID:               result.ID,
+		Name:             result.Name,
+		TargetURL:        result.TargetURL,
+		Status:           result.Status,
+		SubscribedEvents: result.Subscriptions,
+		Version:          result.Version,
+		CreatedAt:        result.CreatedAt,
+		UpdatedAt:        result.UpdatedAt,
 	})
 }
 
 func (h *webhookConfigHTTP) disableWebhookConfig(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspace_id")
 	webhookID := chi.URLParam(r, "webhook_id")
-	userID := r.Context().Value(ctxUserID).(string)
+	userID, _ := userIDFromContext(r.Context())
 
 	if err := h.svc.DisableWebhookConfig(r.Context(), webhooksapp.DisableConfigInput{
 		WorkspaceID: workspaceID,
@@ -221,7 +224,7 @@ func (h *webhookConfigHTTP) disableWebhookConfig(w http.ResponseWriter, r *http.
 func (h *webhookConfigHTTP) rotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspace_id")
 	webhookID := chi.URLParam(r, "webhook_id")
-	userID := r.Context().Value(ctxUserID).(string)
+	userID, _ := userIDFromContext(r.Context())
 
 	result, err := h.svc.RotateWebhookSecret(r.Context(), webhooksapp.RotateSecretInput{
 		WorkspaceID: workspaceID,
@@ -257,7 +260,7 @@ func (h *webhookConfigHTTP) recordAudit(r *http.Request, input identityapp.Recor
 	input.RequestID = reqCtx.RequestID
 	input.OccurredAt = time.Now().UTC()
 	if err := h.auditRecorder.Record(r.Context(), input); err != nil {
-		// Best-effort audit; log error but don't fail the request
+		slog.Warn("failed to record audit event", "error", err)
 	}
 }
 
@@ -322,7 +325,7 @@ type deliveryAttemptDoc struct {
 
 func (h *webhookDeliveryHTTP) listWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspace_id")
-	userID := r.Context().Value(ctxUserID).(string)
+	userID, _ := userIDFromContext(r.Context())
 
 	q := r.URL.Query()
 	var from, to *time.Time
@@ -339,8 +342,7 @@ func (h *webhookDeliveryHTTP) listWebhookDeliveries(w http.ResponseWriter, r *ht
 		}
 	}
 
-	var limit int
-	parseLimit(q.Get("limit"), &limit)
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
 
 	result, err := h.svc.ListWebhookDeliveries(r.Context(), webhooksapp.ListDeliveriesInput{
 		WorkspaceID: workspaceID,
@@ -385,7 +387,7 @@ func (h *webhookDeliveryHTTP) listWebhookDeliveries(w http.ResponseWriter, r *ht
 func (h *webhookDeliveryHTTP) getWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspace_id")
 	deliveryID := chi.URLParam(r, "delivery_id")
-	userID := r.Context().Value(ctxUserID).(string)
+	userID, _ := userIDFromContext(r.Context())
 
 	delivery, err := h.svc.GetWebhookDelivery(r.Context(), webhooksapp.GetDeliveryInput{
 		WorkspaceID: workspaceID,
@@ -433,7 +435,7 @@ func (h *webhookDeliveryHTTP) getWebhookDelivery(w http.ResponseWriter, r *http.
 func (h *webhookDeliveryHTTP) retryWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspace_id")
 	deliveryID := chi.URLParam(r, "delivery_id")
-	userID := r.Context().Value(ctxUserID).(string)
+	userID, _ := userIDFromContext(r.Context())
 
 	if err := h.svc.RetryWebhookDelivery(r.Context(), webhooksapp.RetryDeliveryInput{
 		WorkspaceID: workspaceID,
@@ -463,8 +465,10 @@ func mapWebhookConfigErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusConflict, "webhook.config_name_conflict", err.Error(), nil)
 	case errors.Is(err, domain.ErrRotateConflict):
 		writeError(w, r, http.StatusConflict, "webhook.rotate_conflict", err.Error(), nil)
+	case errors.Is(err, auth.ErrPermissionDenied):
+		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", err.Error(), nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }
 
@@ -482,7 +486,9 @@ func mapWebhookDeliveryErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusNotFound, "webhook.config_not_found", err.Error(), nil)
 	case errors.Is(err, domain.ErrConfigDisabled):
 		writeError(w, r, http.StatusConflict, "webhook.config_disabled", err.Error(), nil)
+	case errors.Is(err, auth.ErrPermissionDenied):
+		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", err.Error(), nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }

@@ -42,6 +42,8 @@ func TestLoadFromEnv_ParsesValues(t *testing.T) {
 	t.Setenv("WORKER_CONCURRENCY", "3")
 	t.Setenv("WORKER_SHUTDOWN_TIMEOUT", "7s")
 	t.Setenv("WORKER_CONSUMER_GROUP_PREFIX", "send-flow-test")
+	t.Setenv("JWT_ACCESS_SECRET", "real-access-secret-for-testing")
+	t.Setenv("JWT_REFRESH_SECRET", "real-refresh-secret-for-testing")
 
 	cfg, err := LoadFromEnv()
 	if err != nil {
@@ -136,5 +138,8 @@ func TestMain(m *testing.M) {
 	_ = os.Unsetenv("OBJECT_STORAGE_BUCKET")
 	_ = os.Unsetenv("OBJECT_STORAGE_FORCE_PATH_STYLE")
 	_ = os.Unsetenv("OBJECT_STORAGE_USE_SSL")
+	_ = os.Unsetenv("JWT_ACCESS_SECRET")
+	_ = os.Unsetenv("JWT_REFRESH_SECRET")
+	_ = os.Unsetenv("UNSUBSCRIBE_TOKEN_SECRET")
 	os.Exit(m.Run())
 }

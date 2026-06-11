@@ -12,6 +12,54 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/ports"
 )
 
+type OutboxEventResult struct {
+	ID            string          `json:"id"`
+	WorkspaceID   string          `json:"workspace_id"`
+	AggregateType string          `json:"aggregate_type"`
+	AggregateID   string          `json:"aggregate_id"`
+	EventType     string          `json:"event_type"`
+	Payload       json.RawMessage `json:"payload"`
+	Headers       json.RawMessage `json:"headers"`
+	OccurredAt    time.Time       `json:"occurred_at"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
+
+type DeadLetterResult struct {
+	ID           string          `json:"id"`
+	WorkspaceID  string          `json:"workspace_id"`
+	Source       string          `json:"source"`
+	EventID      string          `json:"event_id"`
+	Payload      json.RawMessage `json:"payload"`
+	ErrorMessage string          `json:"error_message"`
+	Retryable    bool            `json:"retryable"`
+	FailedAt     time.Time       `json:"failed_at"`
+}
+
+type ReplayJobResult struct {
+	ID                string                  `json:"id"`
+	WorkspaceID       string                  `json:"workspace_id"`
+	TargetType        domain.ReplayTargetType `json:"target_type"`
+	TargetID          string                  `json:"target_id"`
+	Source            string                  `json:"source"`
+	Status            domain.ReplayJobStatus  `json:"status"`
+	RequestedByUserID string                  `json:"requested_by_user_id"`
+	Reason            string                  `json:"reason"`
+	Filter            json.RawMessage         `json:"filter"`
+	Result            json.RawMessage         `json:"result"`
+	ErrorMessage      string                  `json:"error_message"`
+	CreatedAt         time.Time               `json:"created_at"`
+	StartedAt         *time.Time              `json:"started_at"`
+	CompletedAt       *time.Time              `json:"completed_at"`
+	UpdatedAt         time.Time               `json:"updated_at"`
+}
+
+type OutboxSummaryResult struct {
+	TotalCount   int            `json:"total_count"`
+	OldestAgeSec int64          `json:"oldest_age_seconds"`
+	OldestAt     *time.Time     `json:"oldest_at,omitempty"`
+	ByEventType  map[string]int `json:"by_event_type,omitempty"`
+}
+
 type Options struct {
 	OutboxRepo     ports.OutboxRepository
 	DeadLetterRepo ports.DeadLetterRepository
@@ -56,34 +104,94 @@ func NewService(opts Options) *Service {
 	}
 }
 
+// --- Mappers ---
+
+func outboxRecordToResult(r domain.OutboxRecord) OutboxEventResult {
+	return OutboxEventResult{
+		ID:            r.ID,
+		WorkspaceID:   r.WorkspaceID,
+		AggregateType: r.AggregateType,
+		AggregateID:   r.AggregateID,
+		EventType:     r.EventType,
+		Payload:       r.Payload,
+		Headers:       r.Headers,
+		OccurredAt:    r.OccurredAt,
+		CreatedAt:     r.CreatedAt,
+	}
+}
+
+func deadLetterToResult(r domain.DeadLetterRecord) DeadLetterResult {
+	return DeadLetterResult{
+		ID:           r.ID,
+		WorkspaceID:  r.WorkspaceID,
+		Source:       r.Source,
+		EventID:      r.EventID,
+		Payload:      r.Payload,
+		ErrorMessage: r.ErrorMessage,
+		Retryable:    r.Retryable,
+		FailedAt:     r.FailedAt,
+	}
+}
+
+func replayJobToResult(j domain.ReplayJob) ReplayJobResult {
+	return ReplayJobResult{
+		ID:                j.ID,
+		WorkspaceID:       j.WorkspaceID,
+		TargetType:        j.TargetType,
+		TargetID:          j.TargetID,
+		Source:            j.Source,
+		Status:            j.Status,
+		RequestedByUserID: j.RequestedByUserID,
+		Reason:            j.Reason,
+		Filter:            j.Filter,
+		Result:            j.Result,
+		ErrorMessage:      j.ErrorMessage,
+		CreatedAt:         j.CreatedAt,
+		StartedAt:         j.StartedAt,
+		CompletedAt:       j.CompletedAt,
+		UpdatedAt:         j.UpdatedAt,
+	}
+}
+
+func outboxSummaryToResult(s domain.OutboxSummary) OutboxSummaryResult {
+	return OutboxSummaryResult{
+		TotalCount:   s.TotalCount,
+		OldestAgeSec: s.OldestAgeSec,
+		OldestAt:     s.OldestAt,
+		ByEventType:  s.ByEventType,
+	}
+}
+
+// --- Inputs ---
+
 type GetOutboxSummaryInput struct {
 	WorkspaceID string
 	UserID      string
 	Filter      domain.OutboxFilter
 }
 
-func (s *Service) GetOutboxSummary(ctx context.Context, input GetOutboxSummaryInput) (domain.OutboxSummary, error) {
+func (s *Service) GetOutboxSummary(ctx context.Context, input GetOutboxSummaryInput) (OutboxSummaryResult, error) {
 	log := s.log.With("usecase", "get_outbox_summary", "workspace_id", input.WorkspaceID)
 	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.queue.read"); err != nil {
 		if errors.Is(err, domain.ErrQueueReadDenied) || errors.Is(err, domain.ErrDLQReadDenied) || errors.Is(err, domain.ErrReplayManageDenied) {
-			return domain.OutboxSummary{}, err
+			return OutboxSummaryResult{}, err
 		}
-		return domain.OutboxSummary{}, err
+		return OutboxSummaryResult{}, err
 	}
 	if input.WorkspaceID == "" {
 		log.Warn("missing workspace id")
-		return domain.OutboxSummary{}, domain.ErrWorkspaceRequired
+		return OutboxSummaryResult{}, domain.ErrWorkspaceRequired
 	}
-	if err := validateOutboxFilter(input.Filter); err != nil {
+	if err := input.Filter.Validate(); err != nil {
 		log.Warn("invalid outbox filter", "error", err)
-		return domain.OutboxSummary{}, err
+		return OutboxSummaryResult{}, err
 	}
 	summary, err := s.outboxRepo.GetSummary(ctx, input.WorkspaceID, input.Filter)
 	if err != nil {
 		log.Error("failed to get outbox summary", "error", err)
-		return domain.OutboxSummary{}, err
+		return OutboxSummaryResult{}, err
 	}
-	return summary, nil
+	return outboxSummaryToResult(summary), nil
 }
 
 type ListOutboxRecordsInput struct {
@@ -92,7 +200,7 @@ type ListOutboxRecordsInput struct {
 	Filter      domain.OutboxFilter
 }
 
-func (s *Service) ListOutboxRecords(ctx context.Context, input ListOutboxRecordsInput) ([]domain.OutboxRecord, string, error) {
+func (s *Service) ListOutboxRecords(ctx context.Context, input ListOutboxRecordsInput) ([]OutboxEventResult, string, error) {
 	log := s.log.With("usecase", "list_outbox_records", "workspace_id", input.WorkspaceID)
 	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.queue.read"); err != nil {
 		return nil, "", err
@@ -100,7 +208,7 @@ func (s *Service) ListOutboxRecords(ctx context.Context, input ListOutboxRecords
 	if input.WorkspaceID == "" {
 		return nil, "", domain.ErrWorkspaceRequired
 	}
-	if err := validateOutboxFilter(input.Filter); err != nil {
+	if err := input.Filter.Validate(); err != nil {
 		log.Warn("invalid outbox filter", "error", err)
 		return nil, "", err
 	}
@@ -115,7 +223,11 @@ func (s *Service) ListOutboxRecords(ctx context.Context, input ListOutboxRecords
 			records[i].Headers = domain.RedactSensitiveFields(domain.SanitizePayloadPreview(records[i].Headers, 2048))
 		}
 	}
-	return records, cursor, nil
+	results := make([]OutboxEventResult, len(records))
+	for i := range records {
+		results[i] = outboxRecordToResult(records[i])
+	}
+	return results, cursor, nil
 }
 
 type GetOutboxRecordInput struct {
@@ -124,7 +236,7 @@ type GetOutboxRecordInput struct {
 	OutboxID    string
 }
 
-func (s *Service) GetOutboxRecord(ctx context.Context, input GetOutboxRecordInput) (*domain.OutboxRecord, error) {
+func (s *Service) GetOutboxRecord(ctx context.Context, input GetOutboxRecordInput) (*OutboxEventResult, error) {
 	log := s.log.With("usecase", "get_outbox_record", "workspace_id", input.WorkspaceID, "outbox_id", input.OutboxID)
 	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.queue.read"); err != nil {
 		return nil, err
@@ -145,7 +257,8 @@ func (s *Service) GetOutboxRecord(ctx context.Context, input GetOutboxRecordInpu
 	if len(rec.Headers) > 0 && string(rec.Headers) != "null" {
 		rec.Headers = domain.RedactSensitiveFields(domain.SanitizePayloadPreview(rec.Headers, 2048))
 	}
-	return rec, nil
+	result := outboxRecordToResult(*rec)
+	return &result, nil
 }
 
 type ListDeadLetterRecordsInput struct {
@@ -154,7 +267,7 @@ type ListDeadLetterRecordsInput struct {
 	Filter      domain.DeadLetterFilter
 }
 
-func (s *Service) ListDeadLetterRecords(ctx context.Context, input ListDeadLetterRecordsInput) ([]domain.DeadLetterRecord, string, error) {
+func (s *Service) ListDeadLetterRecords(ctx context.Context, input ListDeadLetterRecordsInput) ([]DeadLetterResult, string, error) {
 	log := s.log.With("usecase", "list_dead_letter_records", "workspace_id", input.WorkspaceID)
 	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.dlq.read"); err != nil {
 		return nil, "", err
@@ -162,7 +275,7 @@ func (s *Service) ListDeadLetterRecords(ctx context.Context, input ListDeadLette
 	if input.WorkspaceID == "" {
 		return nil, "", domain.ErrWorkspaceRequired
 	}
-	if err := validateDeadLetterFilter(input.Filter); err != nil {
+	if err := input.Filter.Validate(); err != nil {
 		log.Warn("invalid dead letter filter", "error", err)
 		return nil, "", err
 	}
@@ -174,7 +287,11 @@ func (s *Service) ListDeadLetterRecords(ctx context.Context, input ListDeadLette
 	for i := range records {
 		records[i].Payload = domain.RedactSensitiveFields(domain.SanitizePayloadPreview(records[i].Payload, 4096))
 	}
-	return records, cursor, nil
+	results := make([]DeadLetterResult, len(records))
+	for i := range records {
+		results[i] = deadLetterToResult(records[i])
+	}
+	return results, cursor, nil
 }
 
 type GetDeadLetterRecordInput struct {
@@ -183,7 +300,7 @@ type GetDeadLetterRecordInput struct {
 	RecordID    string
 }
 
-func (s *Service) GetDeadLetterRecord(ctx context.Context, input GetDeadLetterRecordInput) (*domain.DeadLetterRecord, error) {
+func (s *Service) GetDeadLetterRecord(ctx context.Context, input GetDeadLetterRecordInput) (*DeadLetterResult, error) {
 	log := s.log.With("usecase", "get_dead_letter_record", "workspace_id", input.WorkspaceID, "dead_letter_id", input.RecordID)
 	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.dlq.read"); err != nil {
 		return nil, err
@@ -201,7 +318,8 @@ func (s *Service) GetDeadLetterRecord(ctx context.Context, input GetDeadLetterRe
 		return nil, err
 	}
 	rec.Payload = domain.RedactSensitiveFields(domain.SanitizePayloadPreview(rec.Payload, 4096))
-	return rec, nil
+	result := deadLetterToResult(*rec)
+	return &result, nil
 }
 
 type CreateReplayJobInput struct {
@@ -214,7 +332,7 @@ type CreateReplayJobInput struct {
 	Filter      json.RawMessage
 }
 
-func (s *Service) CreateReplayJob(ctx context.Context, input CreateReplayJobInput) (*domain.ReplayJob, error) {
+func (s *Service) CreateReplayJob(ctx context.Context, input CreateReplayJobInput) (*ReplayJobResult, error) {
 	log := s.log.With("usecase", "create_replay_job", "workspace_id", input.WorkspaceID, "target_type", input.TargetType, "target_id", input.TargetID)
 	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.replay.manage"); err != nil {
 		return nil, err
@@ -317,7 +435,8 @@ func (s *Service) CreateReplayJob(ctx context.Context, input CreateReplayJobInpu
 		"target_id", input.TargetID,
 		"source", input.Source,
 	)
-	return &job, nil
+	result := replayJobToResult(job)
+	return &result, nil
 }
 
 type RunReplayJobInput struct {
@@ -326,7 +445,7 @@ type RunReplayJobInput struct {
 	JobID       string
 }
 
-func (s *Service) RunReplayJob(ctx context.Context, input RunReplayJobInput) (*domain.ReplayJob, error) {
+func (s *Service) RunReplayJob(ctx context.Context, input RunReplayJobInput) (*ReplayJobResult, error) {
 	log := s.log.With("usecase", "run_replay_job", "workspace_id", input.WorkspaceID, "replay_job_id", input.JobID)
 	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.replay.manage"); err != nil {
 		return nil, err
@@ -368,19 +487,20 @@ func (s *Service) RunReplayJob(ctx context.Context, input RunReplayJobInput) (*d
 			job.ErrorMessage = errMsg
 			job.CompletedAt = &now
 			log.Warn("replay job failed", "replay_job_id", input.JobID, "error", errMsg)
-			return job, nil
+			result := replayJobToResult(*job)
+			return &result, nil
 		}
 		return nil, resultErr
 	}
 
-	result := map[string]any{"replayed": true}
-	if err := s.replayJobRepo.MarkCompleted(ctx, input.WorkspaceID, input.JobID, result, now); err != nil {
+	resultData := map[string]any{"replayed": true}
+	if err := s.replayJobRepo.MarkCompleted(ctx, input.WorkspaceID, input.JobID, resultData, now); err != nil {
 		log.Error("failed to mark job completed", "error", err)
 		return nil, err
 	}
 	job.Status = domain.ReplayJobCompleted
 	job.CompletedAt = &now
-	job.Result, _ = json.Marshal(result)
+	job.Result, _ = json.Marshal(resultData)
 
 	if s.outboxWriter != nil {
 		if err := s.outboxWriter.Write(ctx, contracts.EventReplayJobCompletedV1, input.JobID, input.WorkspaceID, contracts.ReplayJobCompletedPayload{
@@ -395,7 +515,8 @@ func (s *Service) RunReplayJob(ctx context.Context, input RunReplayJobInput) (*d
 	}
 
 	log.Info("replay job completed", "replay_job_id", input.JobID)
-	return job, nil
+	result := replayJobToResult(*job)
+	return &result, nil
 }
 
 func (s *Service) executeDeadLetterReplay(ctx context.Context, job *domain.ReplayJob, log *slog.Logger) error {
@@ -438,7 +559,7 @@ type GetReplayJobInput struct {
 	JobID       string
 }
 
-func (s *Service) GetReplayJob(ctx context.Context, input GetReplayJobInput) (*domain.ReplayJob, error) {
+func (s *Service) GetReplayJob(ctx context.Context, input GetReplayJobInput) (*ReplayJobResult, error) {
 	log := s.log.With("usecase", "get_replay_job", "workspace_id", input.WorkspaceID, "replay_job_id", input.JobID)
 	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.replay.manage"); err != nil {
 		return nil, err
@@ -455,7 +576,8 @@ func (s *Service) GetReplayJob(ctx context.Context, input GetReplayJobInput) (*d
 		log.Error("failed to get replay job", "error", err)
 		return nil, err
 	}
-	return job, nil
+	result := replayJobToResult(*job)
+	return &result, nil
 }
 
 type ListReplayJobsInput struct {
@@ -464,7 +586,7 @@ type ListReplayJobsInput struct {
 	Filter      domain.ReplayJobFilter
 }
 
-func (s *Service) ListReplayJobs(ctx context.Context, input ListReplayJobsInput) ([]domain.ReplayJob, string, error) {
+func (s *Service) ListReplayJobs(ctx context.Context, input ListReplayJobsInput) ([]ReplayJobResult, string, error) {
 	log := s.log.With("usecase", "list_replay_jobs", "workspace_id", input.WorkspaceID)
 	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.replay.manage"); err != nil {
 		return nil, "", err
@@ -475,7 +597,7 @@ func (s *Service) ListReplayJobs(ctx context.Context, input ListReplayJobsInput)
 	if input.Filter.Status != "" && !domain.IsValidReplayStatus(domain.ReplayJobStatus(input.Filter.Status)) {
 		return nil, "", domain.ErrFilterInvalid
 	}
-	if err := validateReplayJobFilter(input.Filter); err != nil {
+	if err := input.Filter.Validate(); err != nil {
 		log.Warn("invalid replay job filter", "error", err)
 		return nil, "", err
 	}
@@ -484,32 +606,9 @@ func (s *Service) ListReplayJobs(ctx context.Context, input ListReplayJobsInput)
 		log.Error("failed to list replay jobs", "error", err)
 		return nil, "", err
 	}
-	return jobs, cursor, nil
-}
-
-func validateOutboxFilter(f domain.OutboxFilter) error {
-	if f.Limit < 0 || f.Limit > 100 {
-		return domain.ErrFilterInvalid
+	results := make([]ReplayJobResult, len(jobs))
+	for i := range jobs {
+		results[i] = replayJobToResult(jobs[i])
 	}
-	if f.From != nil && f.To != nil && f.From.After(*f.To) {
-		return domain.ErrFilterInvalid
-	}
-	return nil
-}
-
-func validateDeadLetterFilter(f domain.DeadLetterFilter) error {
-	if f.Limit < 0 || f.Limit > 100 {
-		return domain.ErrFilterInvalid
-	}
-	if f.From != nil && f.To != nil && f.From.After(*f.To) {
-		return domain.ErrFilterInvalid
-	}
-	return nil
-}
-
-func validateReplayJobFilter(f domain.ReplayJobFilter) error {
-	if f.Limit < 0 || f.Limit > 100 {
-		return domain.ErrFilterInvalid
-	}
-	return nil
+	return results, cursor, nil
 }

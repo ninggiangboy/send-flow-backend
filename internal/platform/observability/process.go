@@ -18,7 +18,7 @@ type fallbackProcessCollector struct {
 	rss      *prometheus.Desc
 }
 
-func RegisterFallbackProcessMetrics(reg prometheus.Registerer) {
+func RegisterFallbackProcessMetrics(reg prometheus.Registerer) error {
 	if reg == nil {
 		reg = prometheus.DefaultRegisterer
 	}
@@ -36,10 +36,13 @@ func RegisterFallbackProcessMetrics(reg prometheus.Registerer) {
 			nil,
 		),
 	}); err != nil {
-		if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
-			panic(err)
+		var are prometheus.AlreadyRegisteredError
+		if errors.As(err, &are) {
+			return nil
 		}
+		return err
 	}
+	return nil
 }
 
 func (c *fallbackProcessCollector) Describe(ch chan<- *prometheus.Desc) {

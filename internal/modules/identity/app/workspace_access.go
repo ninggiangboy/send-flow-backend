@@ -166,7 +166,7 @@ func (s *Service) CreateWorkspaceRole(ctx context.Context, workspaceID, actorID,
 		UpdatedAt:       now,
 	}
 	if err := s.deps.RolesWrite.Create(ctx, *role); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+		if errors.Is(err, domain.ErrRoleNameConflict) {
 			return nil, domain.ErrRoleNameConflict
 		}
 		return nil, err
@@ -211,7 +211,7 @@ func (s *Service) UpdateWorkspaceRole(ctx context.Context, workspaceID, roleID, 
 	role.Version++
 	role.UpdatedAt = now
 	if err := s.deps.RolesWrite.Update(ctx, *role); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+		if errors.Is(err, domain.ErrRoleNameConflict) {
 			return nil, domain.ErrRoleNameConflict
 		}
 		return nil, err

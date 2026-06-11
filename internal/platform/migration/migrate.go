@@ -4,16 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
+	"io/fs"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 )
 
-const dir = "migrations"
-
-func Up(ctx context.Context, databaseURL string) error {
+func Up(ctx context.Context, databaseURL string, migrationsFS fs.FS) error {
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		return fmt.Errorf("open sql db: %w", err)
@@ -32,7 +30,7 @@ func Up(ctx context.Context, databaseURL string) error {
 	provider, err := goose.NewProvider(
 		goose.DialectPostgres,
 		db,
-		os.DirFS(dir),
+		migrationsFS,
 		goose.WithSessionLocker(sessionLocker),
 	)
 	if err != nil {

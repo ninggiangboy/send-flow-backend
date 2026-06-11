@@ -28,7 +28,7 @@ func (h *Handler) Execute(ctx context.Context, email string, now time.Time) erro
 	user, err := h.deps.UsersRead.FindByEmail(ctx, parsed.String())
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			h.log.Info("password reset requested for unregistered email")
+			h.log.Debug("password reset requested")
 			return nil
 		}
 		h.log.Error("failed to lookup user for password reset", "error", err)

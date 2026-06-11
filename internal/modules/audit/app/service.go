@@ -5,22 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	auditdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/audit/domain"
 	auditports "github.com/ninggiangboy/send-flow/backend/internal/modules/audit/ports"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
-type PermissionChecker interface {
-	RequireWorkspacePermission(ctx context.Context, workspaceID, userID, permission string) error
-}
+const PermissionAuditRead = "audit:read"
 
 type Options struct {
 	EntriesRead  auditports.EntryReadRepository
 	EntriesWrite auditports.EntryWriteRepository
-	PermChecker  PermissionChecker
+	PermChecker  auditports.PermissionChecker
 	IDGen        func() (string, error)
 	Logger       *slog.Logger
 }
@@ -28,7 +25,7 @@ type Options struct {
 type Service struct {
 	entriesRead  auditports.EntryReadRepository
 	entriesWrite auditports.EntryWriteRepository
-	permChecker  PermissionChecker
+	permChecker  auditports.PermissionChecker
 	idGen        func() (string, error)
 	logger       *slog.Logger
 }
@@ -47,26 +44,16 @@ func NewService(opts Options) *Service {
 }
 
 func (s *Service) RecordAuditEntry(ctx context.Context, input RecordAuditEntryInput) error {
-	if err := validateEntry(input); err != nil {
-		return err
-	}
 	idVal, err := s.idGen()
 	if err != nil {
 		return fmt.Errorf("generate audit entry id: %w", err)
 	}
 	payload := auditdomain.RedactPayload(input.PayloadSummary)
-	entry := auditdomain.AuditEntry{
-		ID:             idVal,
-		WorkspaceID:    input.WorkspaceID,
-		ActorUserID:    input.ActorUserID,
-		ActionType:     input.ActionType,
-		TargetType:     input.TargetType,
-		TargetID:       input.TargetID,
-		PayloadSummary: payload,
-		RequestID:      input.RequestID,
-		OccurredAt:     input.OccurredAt,
+	entry, err := auditdomain.NewAuditEntry(idVal, input.WorkspaceID, input.ActorUserID, input.ActionType, input.TargetType, input.TargetID, input.RequestID, payload, input.OccurredAt)
+	if err != nil {
+		return err
 	}
-	if err := s.entriesWrite.Append(ctx, entry); err != nil {
+	if err := s.entriesWrite.Append(ctx, *entry); err != nil {
 		s.logger.Error("failed to append audit entry", "error", err, "workspace_id", input.WorkspaceID, "action_type", input.ActionType)
 		return err
 	}
@@ -90,7 +77,7 @@ type ListAuditEntriesInput struct {
 func (s *Service) ListAuditEntries(ctx context.Context, input ListAuditEntriesInput) ([]auditdomain.AuditEntry, string, error) {
 	limit := input.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 	if limit > 100 {
 		return nil, "", fmt.Errorf("%w: limit must be between 1 and 100", auditdomain.ErrAuditFilterInvalid)
@@ -98,8 +85,8 @@ func (s *Service) ListAuditEntries(ctx context.Context, input ListAuditEntriesIn
 	if input.From != nil && input.To != nil && input.From.After(*input.To) {
 		return nil, "", fmt.Errorf("%w: 'from' cannot be after 'to'", auditdomain.ErrAuditFilterInvalid)
 	}
-	if err := s.permChecker.RequireWorkspacePermission(ctx, input.WorkspaceID, input.UserID, domain.PermissionAuditRead); err != nil {
-		if errors.Is(err, domain.ErrWorkspaceAccessDenied) {
+	if err := s.permChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, PermissionAuditRead); err != nil {
+		if errors.Is(err, auditdomain.ErrAuditReadDenied) {
 			return nil, "", auditdomain.ErrAuditReadDenied
 		}
 		return nil, "", err
@@ -121,26 +108,4 @@ func (s *Service) ListAuditEntries(ctx context.Context, input ListAuditEntriesIn
 		return nil, "", err
 	}
 	return entries, next, nil
-}
-
-func validateEntry(input RecordAuditEntryInput) error {
-	if strings.TrimSpace(input.WorkspaceID) == "" {
-		return fmt.Errorf("%w: workspace_id is required", auditdomain.ErrAuditEntryInvalid)
-	}
-	if strings.TrimSpace(input.ActionType) == "" {
-		return fmt.Errorf("%w: action_type is required", auditdomain.ErrAuditEntryInvalid)
-	}
-	if len(input.ActionType) > 100 {
-		return fmt.Errorf("%w: action_type too long", auditdomain.ErrAuditEntryInvalid)
-	}
-	if len(input.TargetType) > 100 {
-		return fmt.Errorf("%w: target_type too long", auditdomain.ErrAuditEntryInvalid)
-	}
-	if len(input.TargetID) > 255 {
-		return fmt.Errorf("%w: target_id too long", auditdomain.ErrAuditEntryInvalid)
-	}
-	if len(input.RequestID) > 255 {
-		return fmt.Errorf("%w: request_id too long", auditdomain.ErrAuditEntryInvalid)
-	}
-	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	identitycontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/contracts"
 	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
@@ -54,8 +55,8 @@ func (c *NotificationEventConsumer) Run(ctx context.Context) error {
 		return nil
 	}
 
-	userRegisteredTopic := events.TopicFromEventType("identity.user.registered.v1")
-	memberInvitedTopic := events.TopicFromEventType("identity.workspace.member_invited.v1")
+	userRegisteredTopic := events.TopicFromEventType(identitycontracts.EventUserRegisteredV1)
+	memberInvitedTopic := events.TopicFromEventType(identitycontracts.EventWorkspaceMemberInvitedV1)
 
 	consumer, err := kafka.NewReaderConsumer(kafka.ReaderConsumerOptions{
 		Brokers:     c.brokers,
@@ -100,9 +101,9 @@ func (c *NotificationEventConsumer) Run(ctx context.Context) error {
 
 		var handleErr error
 		switch eventType {
-		case "identity.user.registered.v1":
+		case identitycontracts.EventUserRegisteredV1:
 			handleErr = c.handleUserRegisteredEvent(ctx, eventID, msg.Value)
-		case "identity.workspace.member_invited.v1":
+		case identitycontracts.EventWorkspaceMemberInvitedV1:
 			handleErr = c.handleMemberInvitedEvent(ctx, eventID, msg.Value)
 		default:
 			c.log.Warn("unknown event type, skipping", "event_type", eventType, "event_id", eventID)
@@ -166,22 +167,6 @@ func (c *NotificationEventConsumer) Run(ctx context.Context) error {
 	})
 }
 
-type userRegisteredIdentityPayload struct {
-	UserID     string `json:"user_id"`
-	Email      string `json:"email"`
-	AuthMethod string `json:"auth_method"`
-	At         string `json:"at"`
-}
-
-type memberInvitedIdentityPayload struct {
-	WorkspaceID     string `json:"workspace_id"`
-	Email           string `json:"email"`
-	Role            string `json:"role"`
-	InvitedBy       string `json:"invited_by"`
-	InvitedByEmail  string `json:"invited_by_email"`
-	At              string `json:"at"`
-}
-
 func (c *NotificationEventConsumer) handleUserRegisteredEvent(ctx context.Context, eventID string, payload []byte) error {
 	var env events.Envelope
 	if err := json.Unmarshal(payload, &env); err != nil {
@@ -189,7 +174,7 @@ func (c *NotificationEventConsumer) handleUserRegisteredEvent(ctx context.Contex
 		return &notificationapp.NonRetryableError{Err: err}
 	}
 
-	var evt userRegisteredIdentityPayload
+	var evt identitycontracts.UserRegisteredPayload
 	if err := json.Unmarshal(env.Payload, &evt); err != nil {
 		c.log.Warn("failed to unmarshal user registered event payload", "event_id", eventID, "error", err)
 		return &notificationapp.NonRetryableError{Err: err}
@@ -217,7 +202,7 @@ func (c *NotificationEventConsumer) handleMemberInvitedEvent(ctx context.Context
 		return &notificationapp.NonRetryableError{Err: err}
 	}
 
-	var evt memberInvitedIdentityPayload
+	var evt identitycontracts.WorkspaceMemberInvitedPayload
 	if err := json.Unmarshal(env.Payload, &evt); err != nil {
 		c.log.Warn("failed to unmarshal member invited event payload", "event_id", eventID, "error", err)
 		return &notificationapp.NonRetryableError{Err: err}
@@ -231,7 +216,7 @@ func (c *NotificationEventConsumer) handleMemberInvitedEvent(ctx context.Context
 
 	_, err := c.svc.SendWorkspaceInvitationEmail(ctx, domain.SendInvitationEmailInput{
 		WorkspaceID:     evt.WorkspaceID,
-		InvitedByEmail:  evt.InvitedByEmail,
+		InvitedByEmail:  "",
 		InvitedByUserID: evt.InvitedBy,
 		InviteeEmail:    evt.Email,
 		Role:            evt.Role,

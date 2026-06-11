@@ -8,7 +8,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/domain"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type contentHTTP struct {
@@ -24,20 +25,12 @@ func (h *contentHTTP) listTemplates(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	q := r.URL.Query()
-	limit := parseIntParam(q.Get("limit"), 50)
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
 	if limit > 100 {
 		limit = 100
 	}
 
-	query := ports.TemplateListQuery{
-		WorkspaceID: workspaceID,
-		Status:      q.Get("status"),
-		Q:           q.Get("q"),
-		Cursor:      q.Get("cursor"),
-		Limit:       limit,
-	}
-
-	result, err := h.svc.ListTemplates(r.Context(), query, userID)
+	result, err := h.svc.ListTemplates(r.Context(), workspaceID, q.Get("status"), q.Get("q"), q.Get("cursor"), limit, userID)
 	if err != nil {
 		writeContentErr(w, r, err)
 		return
@@ -158,7 +151,7 @@ func (h *contentHTTP) listTemplateVersions(w http.ResponseWriter, r *http.Reques
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	q := r.URL.Query()
-	limit := parseIntParam(q.Get("limit"), 50)
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
 	if limit > 100 {
 		limit = 100
 	}
@@ -256,8 +249,10 @@ func writeContentErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusUnprocessableEntity, "template.render_payload_invalid", err.Error(), nil)
 	case errors.Is(err, domain.ErrRenderContextInvalid):
 		writeError(w, r, http.StatusUnprocessableEntity, "template.render_context_invalid", err.Error(), nil)
+	case errors.Is(err, auth.ErrPermissionDenied):
+		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }
 

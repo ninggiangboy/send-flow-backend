@@ -8,6 +8,11 @@ import (
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 )
 
+func userIDFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(ctxUserID).(string)
+	return v, ok
+}
+
 func authzMiddleware(svc *identityapp.Service) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

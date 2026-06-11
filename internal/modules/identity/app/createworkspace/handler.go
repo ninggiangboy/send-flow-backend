@@ -2,12 +2,14 @@ package createworkspace
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type Command struct {
@@ -35,7 +37,11 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Workspace, 
 		h.log.Error("failed to generate workspace ID", "error", err)
 		return nil, err
 	}
-	ws := domain.NewWorkspace(wsID, name, cmd.Now)
+	ws, err := domain.NewWorkspace(wsID, name, cmd.Now)
+	if err != nil {
+		h.log.Error("failed to create workspace domain object", "error", err)
+		return nil, err
+	}
 	membershipID, err := h.deps.IDGen.New()
 	if err != nil {
 		h.log.Error("failed to generate membership ID", "error", err)
@@ -72,27 +78,26 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Workspace, 
 				return err
 			}
 		}
-		return h.deps.RolesWrite.ReplaceMembershipRoles(ctx, membership.ID, []string{ownerRoleID}, cmd.Now)
+		if err := h.deps.RolesWrite.ReplaceMembershipRoles(ctx, membership.ID, []string{ownerRoleID}, cmd.Now); err != nil {
+			return err
+		}
+		defaultSettings := domain.WorkspaceSettings{
+			WorkspaceID:     ws.ID,
+			SettingsJSON:    domain.DefaultSettingsJSON,
+			Version:         1,
+			CreatedAt:       cmd.Now.UTC(),
+			UpdatedAt:       cmd.Now.UTC(),
+			FeatureControls: make(domain.FeatureControls),
+		}
+		return h.deps.SettingsWrite.CreateDefault(ctx, defaultSettings)
 	}
-	if h.deps.UnitOfWork != nil {
-		err := h.deps.UnitOfWork.WithinTx(ctx, createAll)
-		if err != nil {
-			if strings.Contains(strings.ToLower(err.Error()), "duplicate") || strings.Contains(strings.ToLower(err.Error()), "unique") {
-				h.log.Warn("workspace creation failed: duplicate name", "name", name)
-				return nil, domain.ErrWorkspaceNameConflict
-			}
-			h.log.Error("failed to create workspace", "error", err)
-			return nil, err
+	if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, createAll); err != nil {
+		if errors.Is(err, domain.ErrWorkspaceNameConflict) {
+			h.log.Warn("workspace creation failed: duplicate name", "name", name)
+			return nil, domain.ErrWorkspaceNameConflict
 		}
-	} else {
-		if err := createAll(ctx); err != nil {
-			if strings.Contains(strings.ToLower(err.Error()), "duplicate") || strings.Contains(strings.ToLower(err.Error()), "unique") {
-				h.log.Warn("workspace creation failed: duplicate name", "name", name)
-				return nil, domain.ErrWorkspaceNameConflict
-			}
-			h.log.Error("failed to create workspace", "error", err)
-			return nil, err
-		}
+		h.log.Error("failed to create workspace", "error", err)
+		return nil, err
 	}
 	ws.MembershipID = membership.ID
 	ws.RoleNames = []string{string(domain.MembershipRoleOwner)}

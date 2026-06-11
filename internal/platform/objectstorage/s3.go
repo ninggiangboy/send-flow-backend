@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -14,6 +15,15 @@ import (
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 )
+
+type ObjectStorage interface {
+	PutObject(ctx context.Context, key string, body io.Reader, contentType string) error
+	PresignGetObject(ctx context.Context, key string, expiry time.Duration) (string, error)
+	EnsureBucket(ctx context.Context) error
+	Ping(ctx context.Context) error
+}
+
+var _ ObjectStorage = (*Client)(nil)
 
 type Client struct {
 	s3     *s3.Client
@@ -38,6 +48,42 @@ func New(ctx context.Context, cfg config.ObjectStorageConfig) (*Client, error) {
 	return &Client{s3: client, bucket: cfg.Bucket}, nil
 }
 
+func (c *Client) PutObject(ctx context.Context, key string, body io.Reader, contentType string) error {
+	input := &s3.PutObjectInput{
+		Bucket:      &c.bucket,
+		Key:         &key,
+		Body:        body,
+		ContentType: &contentType,
+	}
+	_, err := c.s3.PutObject(ctx, input)
+	if err != nil {
+		return fmt.Errorf("put object %s: %w", key, err)
+	}
+	return nil
+}
+
+func (c *Client) PresignGetObject(ctx context.Context, key string, expiry time.Duration) (string, error) {
+	presignClient := s3.NewPresignClient(c.s3)
+	req, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: &c.bucket,
+		Key:    &key,
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = expiry
+	})
+	if err != nil {
+		return "", fmt.Errorf("presign get object %s: %w", key, err)
+	}
+	return req.URL, nil
+}
+
+func (c *Client) createBucket(ctx context.Context) error {
+	_, err := c.s3.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: &c.bucket})
+	if err != nil {
+		return fmt.Errorf("create bucket %s: %w", c.bucket, err)
+	}
+	return nil
+}
+
 func (c *Client) EnsureBucket(ctx context.Context) error {
 	if c.bucket == "" {
 		return errors.New("object storage bucket is required")
@@ -48,20 +94,12 @@ func (c *Client) EnsureBucket(ctx context.Context) error {
 	}
 	var apiErr smithy.APIError
 	if errors.As(err, &apiErr) && (apiErr.ErrorCode() == "NotFound" || apiErr.ErrorCode() == "NoSuchBucket") {
-		_, createErr := c.s3.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: &c.bucket})
-		if createErr != nil {
-			return fmt.Errorf("create bucket %s: %w", c.bucket, createErr)
-		}
-		return nil
+		return c.createBucket(ctx)
 	}
 
 	var responseErr *smithyhttp.ResponseError
 	if errors.As(err, &responseErr) && responseErr.HTTPStatusCode() == http.StatusNotFound {
-		_, createErr := c.s3.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: &c.bucket})
-		if createErr != nil {
-			return fmt.Errorf("create bucket %s: %w", c.bucket, createErr)
-		}
-		return nil
+		return c.createBucket(ctx)
 	}
 
 	return fmt.Errorf("head bucket %s: %w", c.bucket, err)

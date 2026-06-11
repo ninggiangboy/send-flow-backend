@@ -74,11 +74,11 @@ func (m *mockOutboxWriter) Save(ctx context.Context, event ports.OutboxEvent) er
 }
 
 type mockTxManager struct {
-	runInTransactionFunc func(ctx context.Context, fn func(ctx context.Context) error) error
+	withinTxFunc func(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-func (m *mockTxManager) RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	return m.runInTransactionFunc(ctx, fn)
+func (m *mockTxManager) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return m.withinTxFunc(ctx, fn)
 }
 
 func validCampaignScheduledPayload(t *testing.T, scheduledAt string) (string, []byte) {
@@ -126,7 +126,7 @@ func TestHandleCampaignScheduled_ValidEvent(t *testing.T) {
 		},
 	}
 	txManager := &mockTxManager{
-		runInTransactionFunc: func(_ context.Context, fn func(ctx context.Context) error) error {
+		withinTxFunc: func(_ context.Context, fn func(ctx context.Context) error) error {
 			return fn(context.Background())
 		},
 	}
@@ -172,7 +172,7 @@ func TestHandleCampaignScheduled_DuplicateEvent(t *testing.T) {
 		},
 	}
 	txManager := &mockTxManager{
-		runInTransactionFunc: func(_ context.Context, fn func(ctx context.Context) error) error {
+		withinTxFunc: func(_ context.Context, fn func(ctx context.Context) error) error {
 			return fn(context.Background())
 		},
 	}

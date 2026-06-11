@@ -33,11 +33,17 @@ type githubEmail struct {
 	Verified bool   `json:"verified"`
 }
 
-func NewGoogleProvider(clientID, clientSecret string) *HTTPProvider {
-	return &HTTPProvider{name: "google", typ: "oidc", displayName: "Google", clientID: clientID, clientSecret: clientSecret, authURL: "https://accounts.google.com/o/oauth2/v2/auth", tokenURL: "https://oauth2.googleapis.com/token", userURL: "https://openidconnect.googleapis.com/v1/userinfo", scopes: []string{"openid", "email", "profile"}, httpClient: &http.Client{Timeout: 10 * time.Second}}
+func NewGoogleProvider(clientID, clientSecret string, httpClient *http.Client) *HTTPProvider {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+	return &HTTPProvider{name: "google", typ: "oidc", displayName: "Google", clientID: clientID, clientSecret: clientSecret, authURL: "https://accounts.google.com/o/oauth2/v2/auth", tokenURL: "https://oauth2.googleapis.com/token", userURL: "https://openidconnect.googleapis.com/v1/userinfo", scopes: []string{"openid", "email", "profile"}, httpClient: httpClient}
 }
-func NewGithubProvider(clientID, clientSecret string) *HTTPProvider {
-	return &HTTPProvider{name: "github", typ: "oauth2", displayName: "GitHub", clientID: clientID, clientSecret: clientSecret, authURL: "https://github.com/login/oauth/authorize", tokenURL: "https://github.com/login/oauth/access_token", userURL: "https://api.github.com/user", scopes: []string{"read:user", "user:email"}, httpClient: &http.Client{Timeout: 10 * time.Second}}
+func NewGithubProvider(clientID, clientSecret string, httpClient *http.Client) *HTTPProvider {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+	return &HTTPProvider{name: "github", typ: "oauth2", displayName: "GitHub", clientID: clientID, clientSecret: clientSecret, authURL: "https://github.com/login/oauth/authorize", tokenURL: "https://github.com/login/oauth/access_token", userURL: "https://api.github.com/user", scopes: []string{"read:user", "user:email"}, httpClient: httpClient}
 }
 
 func (p *HTTPProvider) Name() string        { return p.name }

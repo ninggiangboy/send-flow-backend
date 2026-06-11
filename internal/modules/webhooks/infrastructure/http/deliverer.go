@@ -2,9 +2,6 @@ package http
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/ports"
 )
@@ -45,7 +43,7 @@ func NewDeliverer() *Deliverer {
 				return http.ErrUseLastResponse
 			},
 		},
-		signer: SignPayload,
+		signer: app.SignPayloadRaw,
 	}
 }
 
@@ -81,13 +79,6 @@ func dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 
 func NewDelivererWithClient(client *http.Client, signer func(payload []byte, timestamp, secret string) string) *Deliverer {
 	return &Deliverer{client: client, signer: signer}
-}
-
-func SignPayload(payload []byte, timestamp, secret string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(timestamp))
-	mac.Write(payload)
-	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func (d *Deliverer) Deliver(ctx context.Context, req ports.DeliveryHTTPRequest) (ports.DeliveryHTTPResponse, error) {

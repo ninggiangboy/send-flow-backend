@@ -2,14 +2,13 @@ package redis
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -36,6 +35,10 @@ func New(ctx context.Context, cfg config.Config) (*Client, error) {
 	}
 
 	return &Client{client: client}, nil
+}
+
+func (c *Client) Eval(ctx context.Context, script string, keys []string, args ...any) (any, error) {
+	return c.client.Eval(ctx, script, keys, args...).Result()
 }
 
 func (c *Client) Ping(ctx context.Context) error {
@@ -81,7 +84,7 @@ func (c *Client) AcquireLock(ctx context.Context, key string, ttl time.Duration)
 	if ttl <= 0 {
 		return "", false, errors.New("redis lock ttl must be positive")
 	}
-	token, err := randomToken(16)
+	token, err := security.RandomToken(16)
 	if err != nil {
 		return "", false, err
 	}
@@ -133,12 +136,4 @@ func (c *Client) DeletePrefix(ctx context.Context, prefix string, batchSize int6
 			return deleted, nil
 		}
 	}
-}
-
-func randomToken(bytes int) (string, error) {
-	buf := make([]byte, bytes)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("generate redis lock token: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(buf), nil
 }

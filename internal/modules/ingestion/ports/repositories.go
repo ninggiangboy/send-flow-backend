@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/outbox"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type RawEventReadRepository interface {
@@ -36,24 +38,13 @@ type DeliveryMessageResolver interface {
 	FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*MessageRef, error)
 }
 
-type OutboxEvent struct {
-	ID            string
-	AggregateType string
-	AggregateID   string
-	EventType     string
-	Payload       []byte
-	Headers       map[string]string
-	WorkspaceID   string
-	OccurredAt    time.Time
-}
+type OutboxEvent = outbox.Event
 
 type OutboxWriter interface {
 	Save(ctx context.Context, event OutboxEvent) error
 }
 
-type TransactionManager interface {
-	RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error
-}
+type TransactionManager = transaction.UnitOfWork
 
 type VerifyInput struct {
 	Provider string

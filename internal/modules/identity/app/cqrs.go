@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/acceptworkspaceinvitation"
@@ -73,6 +74,7 @@ type QueryBus interface {
 }
 
 type commandBus struct {
+	logger       *slog.Logger
 	signup       *signup.Handler
 	login        *login.Handler
 	oauthStart   *oauthstart.Handler
@@ -96,6 +98,7 @@ type commandBus struct {
 }
 
 func newCommandBus(
+	logger *slog.Logger,
 	signupH *signup.Handler,
 	loginH *login.Handler,
 	oauthStartH *oauthstart.Handler,
@@ -118,6 +121,7 @@ func newCommandBus(
 	updateRoleH *updateworkspacememberrole.Handler,
 ) CommandBus {
 	return &commandBus{
+		logger:       logger,
 		signup:       signupH,
 		login:        loginH,
 		oauthStart:   oauthStartH,
@@ -142,67 +146,168 @@ func newCommandBus(
 }
 
 func (b *commandBus) Signup(ctx context.Context, cmd signup.Command) (*usecase.SessionContext, error) {
-	return b.signup.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "signup")
+	result, err := b.signup.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "signup", "error", err)
+	}
+	return result, err
 }
 func (b *commandBus) Login(ctx context.Context, cmd login.Command) (*usecase.LoginResult, error) {
-	return b.login.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "login")
+	result, err := b.login.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "login", "error", err)
+	}
+	return result, err
 }
 func (b *commandBus) OAuthStart(ctx context.Context, cmd oauthstart.Command) (*usecase.OAuthStartResult, error) {
-	return b.oauthStart.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "oauth_start")
+	result, err := b.oauthStart.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "oauth_start", "error", err)
+	}
+	return result, err
 }
 func (b *commandBus) OAuthExchange(ctx context.Context, cmd oauthexchange.Command) (*usecase.SessionContext, *domain.OAuthIdentity, error) {
-	return b.oauthEx.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "oauth_exchange")
+	session, identity, err := b.oauthEx.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "oauth_exchange", "error", err)
+	}
+	return session, identity, err
 }
 func (b *commandBus) RevokeSession(ctx context.Context, sessionID, userID string, now time.Time) error {
-	return b.revoke.Execute(ctx, sessionID, userID, now)
+	b.logger.Info("dispatching command", "command", "revoke_session")
+	err := b.revoke.Execute(ctx, sessionID, userID, now)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "revoke_session", "error", err)
+	}
+	return err
 }
 func (b *commandBus) Refresh(ctx context.Context, cmd refresh.Command) (*usecase.SessionContext, error) {
-	return b.refresh.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "refresh")
+	result, err := b.refresh.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "refresh", "error", err)
+	}
+	return result, err
 }
 func (b *commandBus) RequestEmailVerification(ctx context.Context, userID string, now time.Time) error {
-	return b.reqVerify.Execute(ctx, userID, now)
+	b.logger.Info("dispatching command", "command", "request_email_verification")
+	err := b.reqVerify.Execute(ctx, userID, now)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "request_email_verification", "error", err)
+	}
+	return err
 }
 func (b *commandBus) VerifyEmail(ctx context.Context, token string, now time.Time) error {
-	return b.verify.Execute(ctx, token, now)
+	b.logger.Info("dispatching command", "command", "verify_email")
+	err := b.verify.Execute(ctx, token, now)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "verify_email", "error", err)
+	}
+	return err
 }
 func (b *commandBus) ForgotPassword(ctx context.Context, email string, now time.Time) error {
-	return b.forgot.Execute(ctx, email, now)
+	b.logger.Info("dispatching command", "command", "forgot_password")
+	err := b.forgot.Execute(ctx, email, now)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "forgot_password", "error", err)
+	}
+	return err
 }
 func (b *commandBus) ResetPassword(ctx context.Context, cmd resetpassword.Command) error {
-	return b.reset.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "reset_password")
+	err := b.reset.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "reset_password", "error", err)
+	}
+	return err
 }
 func (b *commandBus) MFALogin(ctx context.Context, cmd mfalogin.Command) (*usecase.SessionContext, error) {
-	return b.mfaLogin.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "mfa_login")
+	result, err := b.mfaLogin.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "mfa_login", "error", err)
+	}
+	return result, err
 }
 func (b *commandBus) MFATOTPSetup(ctx context.Context, userID string, now time.Time) (*mfatotpsetup.Result, error) {
-	return b.mfaSetup.Execute(ctx, userID, now)
+	b.logger.Info("dispatching command", "command", "mfa_totp_setup")
+	result, err := b.mfaSetup.Execute(ctx, userID, now)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "mfa_totp_setup", "error", err)
+	}
+	return result, err
 }
 func (b *commandBus) MFATOTPEnable(ctx context.Context, userID, code string, now time.Time) (*mfatotpenable.Result, error) {
-	return b.mfaEnable.Execute(ctx, userID, code, now)
+	b.logger.Info("dispatching command", "command", "mfa_totp_enable")
+	result, err := b.mfaEnable.Execute(ctx, userID, code, now)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "mfa_totp_enable", "error", err)
+	}
+	return result, err
 }
 func (b *commandBus) MFATOTPDisable(ctx context.Context, cmd mfatotpdisable.Command) error {
-	return b.mfaDisable.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "mfa_totp_disable")
+	err := b.mfaDisable.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "mfa_totp_disable", "error", err)
+	}
+	return err
 }
 func (b *commandBus) MFARegenerate(ctx context.Context, userID, code string, now time.Time) (*mfatotpenable.Result, error) {
-	return b.mfaRegen.Execute(ctx, userID, code, now)
+	b.logger.Info("dispatching command", "command", "mfa_regenerate")
+	result, err := b.mfaRegen.Execute(ctx, userID, code, now)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "mfa_regenerate", "error", err)
+	}
+	return result, err
 }
 func (b *commandBus) CreateWorkspace(ctx context.Context, cmd createworkspace.Command) (*domain.Workspace, error) {
-	return b.createWS.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "create_workspace")
+	result, err := b.createWS.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "create_workspace", "error", err)
+	}
+	return result, err
 }
 func (b *commandBus) InviteWorkspaceMember(ctx context.Context, cmd inviteworkspacemember.Command) (*inviteworkspacemember.Result, error) {
-	return b.inviteMember.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "invite_workspace_member")
+	result, err := b.inviteMember.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "invite_workspace_member", "error", err)
+	}
+	return result, err
 }
 func (b *commandBus) AcceptWorkspaceInvitation(ctx context.Context, cmd acceptworkspaceinvitation.Command) (*domain.Membership, error) {
-	return b.acceptInvite.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "accept_workspace_invitation")
+	result, err := b.acceptInvite.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "accept_workspace_invitation", "error", err)
+	}
+	return result, err
 }
 func (b *commandBus) RemoveWorkspaceMember(ctx context.Context, cmd removeworkspacemember.Command) error {
-	return b.removeMember.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "remove_workspace_member")
+	err := b.removeMember.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "remove_workspace_member", "error", err)
+	}
+	return err
 }
 func (b *commandBus) UpdateWorkspaceMemberRole(ctx context.Context, cmd updateworkspacememberrole.Command) error {
-	return b.updateRole.Execute(ctx, cmd)
+	b.logger.Info("dispatching command", "command", "update_workspace_member_role")
+	err := b.updateRole.Execute(ctx, cmd)
+	if err != nil {
+		b.logger.Warn("command failed", "command", "update_workspace_member_role", "error", err)
+	}
+	return err
 }
 
 type queryBus struct {
+	logger        *slog.Logger
 	listProvider  *listproviders.Handler
 	getMe         *getme.Handler
 	listSessions  *listsessions.Handler
@@ -215,6 +320,7 @@ type queryBus struct {
 }
 
 func newQueryBus(
+	logger *slog.Logger,
 	listProviderH *listproviders.Handler,
 	getMeH *getme.Handler,
 	listSessionsH *listsessions.Handler,
@@ -226,6 +332,7 @@ func newQueryBus(
 	listWSInvitesH *listworkspaceinvitations.Handler,
 ) QueryBus {
 	return &queryBus{
+		logger:        logger,
 		listProvider:  listProviderH,
 		getMe:         getMeH,
 		listSessions:  listSessionsH,
@@ -238,28 +345,71 @@ func newQueryBus(
 	}
 }
 
-func (b *queryBus) ListProviders() []usecase.Provider { return b.listProvider.Execute() }
+func (b *queryBus) ListProviders() []usecase.Provider {
+	b.logger.Info("dispatching query", "query", "list_providers")
+	return b.listProvider.Execute()
+}
 func (b *queryBus) GetMe(ctx context.Context, userID string) (*domain.User, error) {
-	return b.getMe.Execute(ctx, userID)
+	b.logger.Info("dispatching query", "query", "get_me")
+	user, err := b.getMe.Execute(ctx, userID)
+	if err != nil {
+		b.logger.Warn("query failed", "query", "get_me", "error", err)
+	}
+	return user, err
 }
 func (b *queryBus) ListSessions(ctx context.Context, userID string, now time.Time) ([]domain.Session, error) {
-	return b.listSessions.Execute(ctx, userID, now)
+	b.logger.Info("dispatching query", "query", "list_sessions")
+	sessions, err := b.listSessions.Execute(ctx, userID, now)
+	if err != nil {
+		b.logger.Warn("query failed", "query", "list_sessions", "error", err)
+	}
+	return sessions, err
 }
 func (b *queryBus) AuthenticateAccessToken(ctx context.Context, token string) (*domain.Session, *domain.User, error) {
-	return b.authn.Execute(ctx, token)
+	b.logger.Info("dispatching query", "query", "authenticate_access_token")
+	session, user, err := b.authn.Execute(ctx, token)
+	if err != nil {
+		b.logger.Warn("query failed", "query", "authenticate_access_token", "error", err)
+	}
+	return session, user, err
 }
 func (b *queryBus) ListWorkspaces(ctx context.Context, userID string) ([]domain.Workspace, error) {
-	return b.listWS.Execute(ctx, userID)
+	b.logger.Info("dispatching query", "query", "list_workspaces")
+	workspaces, err := b.listWS.Execute(ctx, userID)
+	if err != nil {
+		b.logger.Warn("query failed", "query", "list_workspaces", "error", err)
+	}
+	return workspaces, err
 }
 func (b *queryBus) GetWorkspace(ctx context.Context, workspaceID, userID string) (*domain.Workspace, error) {
-	return b.getWS.Execute(ctx, workspaceID, userID)
+	b.logger.Info("dispatching query", "query", "get_workspace")
+	workspace, err := b.getWS.Execute(ctx, workspaceID, userID)
+	if err != nil {
+		b.logger.Warn("query failed", "query", "get_workspace", "error", err)
+	}
+	return workspace, err
 }
 func (b *queryBus) ListWorkspaceMembers(ctx context.Context, workspaceID, userID string) ([]domain.Membership, error) {
-	return b.listWSMembers.Execute(ctx, workspaceID, userID)
+	b.logger.Info("dispatching query", "query", "list_workspace_members")
+	members, err := b.listWSMembers.Execute(ctx, workspaceID, userID)
+	if err != nil {
+		b.logger.Warn("query failed", "query", "list_workspace_members", "error", err)
+	}
+	return members, err
 }
 func (b *queryBus) GetWorkspaceAccess(ctx context.Context, workspaceID, userID string) (*domain.Membership, error) {
-	return b.getWSAccess.Execute(ctx, workspaceID, userID)
+	b.logger.Info("dispatching query", "query", "get_workspace_access")
+	access, err := b.getWSAccess.Execute(ctx, workspaceID, userID)
+	if err != nil {
+		b.logger.Warn("query failed", "query", "get_workspace_access", "error", err)
+	}
+	return access, err
 }
 func (b *queryBus) ListWorkspaceInvitations(ctx context.Context, workspaceID, userID string) ([]domain.Invitation, error) {
-	return b.listWSInvites.Execute(ctx, workspaceID, userID)
+	b.logger.Info("dispatching query", "query", "list_workspace_invitations")
+	invitations, err := b.listWSInvites.Execute(ctx, workspaceID, userID)
+	if err != nil {
+		b.logger.Warn("query failed", "query", "list_workspace_invitations", "error", err)
+	}
+	return invitations, err
 }

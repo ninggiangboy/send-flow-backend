@@ -1,7 +1,5 @@
 package ports
 
-import "context"
+import "github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
 
-type WorkspaceAccessChecker interface {
-	RequirePermission(ctx context.Context, workspaceID, userID, permission string) error
-}
+type WorkspaceAccessChecker = auth.WorkspaceAccessChecker

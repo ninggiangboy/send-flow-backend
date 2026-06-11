@@ -11,29 +11,23 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
-type txKey struct{}
-
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
 type TrackingLinkRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type TrackingEventRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewTrackingLinkRepository(db DBTX) *TrackingLinkRepository {
+func NewTrackingLinkRepository(db platformpostgres.DBTX) *TrackingLinkRepository {
 	return &TrackingLinkRepository{db: db}
 }
 
-func NewTrackingEventRepository(db DBTX) *TrackingEventRepository {
+func NewTrackingEventRepository(db platformpostgres.DBTX) *TrackingEventRepository {
 	return &TrackingEventRepository{db: db}
 }
 
@@ -60,11 +54,11 @@ func (r *TrackingLinkRepository) FindByID(ctx context.Context, trackingID string
 	}
 
 	if len(metadataJSON) > 0 {
-		if err := json.Unmarshal(metadataJSON, &link.MetadataJSON); err != nil {
-			link.MetadataJSON = map[string]any{}
+		if err := json.Unmarshal(metadataJSON, &link.Metadata); err != nil {
+			link.Metadata = map[string]any{}
 		}
 	} else {
-		link.MetadataJSON = map[string]any{}
+		link.Metadata = map[string]any{}
 	}
 
 	return &link, nil
@@ -97,11 +91,11 @@ func (r *TrackingLinkRepository) ListByMessage(ctx context.Context, workspaceID,
 			link.ExpiresAt = expiresAt
 		}
 		if len(metadataJSON) > 0 {
-			if err := json.Unmarshal(metadataJSON, &link.MetadataJSON); err != nil {
-				link.MetadataJSON = map[string]any{}
+			if err := json.Unmarshal(metadataJSON, &link.Metadata); err != nil {
+				link.Metadata = map[string]any{}
 			}
 		} else {
-			link.MetadataJSON = map[string]any{}
+			link.Metadata = map[string]any{}
 		}
 
 		links = append(links, link)
@@ -114,7 +108,7 @@ func (r *TrackingLinkRepository) ListByMessage(ctx context.Context, workspaceID,
 }
 
 func (r *TrackingLinkRepository) Create(ctx context.Context, link domain.TrackingLink) error {
-	metadataJSON, err := json.Marshal(link.MetadataJSON)
+	metadataJSON, err := json.Marshal(link.Metadata)
 	if err != nil {
 		return err
 	}
@@ -165,18 +159,18 @@ func (r *TrackingEventRepository) FindBySourceEvent(ctx context.Context, source,
 	}
 
 	if len(metadataJSON) > 0 {
-		if err := json.Unmarshal(metadataJSON, &evt.MetadataJSON); err != nil {
-			evt.MetadataJSON = map[string]any{}
+		if err := json.Unmarshal(metadataJSON, &evt.Metadata); err != nil {
+			evt.Metadata = map[string]any{}
 		}
 	} else {
-		evt.MetadataJSON = map[string]any{}
+		evt.Metadata = map[string]any{}
 	}
 
 	return &evt, nil
 }
 
 func (r *TrackingEventRepository) Create(ctx context.Context, evt domain.TrackingEvent) error {
-	metadataJSON, err := json.Marshal(evt.MetadataJSON)
+	metadataJSON, err := json.Marshal(evt.Metadata)
 	if err != nil {
 		return err
 	}
@@ -202,7 +196,7 @@ func (r *TrackingEventRepository) Create(ctx context.Context, evt domain.Trackin
 		 occurred_at, received_at, metadata_json, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14)`,
 		evt.ID, evt.WorkspaceID, evt.MessageID, trackingLinkID,
-		evt.EventType, evt.Source, nullable(evt.SourceEventID),
+		evt.EventType, evt.Source, platformpostgres.Nullable(evt.SourceEventID),
 		provider, providerEventID, providerMessageID,
 		evt.OccurredAt, evt.ReceivedAt, metadataJSON, evt.CreatedAt,
 	)
@@ -218,7 +212,7 @@ func (r *TrackingEventRepository) Create(ctx context.Context, evt domain.Trackin
 
 func (r *TrackingEventRepository) ListByMessage(ctx context.Context, workspaceID, messageID string, limit int, cursor string) ([]domain.TrackingEvent, string, error) {
 	if limit <= 0 || limit > 100 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
 	var rows pgx.Rows
@@ -284,11 +278,11 @@ func (r *TrackingEventRepository) ListByMessage(ctx context.Context, workspaceID
 		}
 
 		if len(metadataJSON) > 0 {
-			if err := json.Unmarshal(metadataJSON, &evt.MetadataJSON); err != nil {
-				evt.MetadataJSON = map[string]any{}
+			if err := json.Unmarshal(metadataJSON, &evt.Metadata); err != nil {
+				evt.Metadata = map[string]any{}
 			}
 		} else {
-			evt.MetadataJSON = map[string]any{}
+			evt.Metadata = map[string]any{}
 		}
 
 		events = append(events, evt)
@@ -311,15 +305,11 @@ func (r *TrackingEventRepository) ListByMessage(ctx context.Context, workspaceID
 }
 
 func packJSON(v map[string]any) string {
-	data, _ := json.Marshal(v)
-	return string(data)
-}
-
-func nullable(s string) *string {
-	if s == "" {
-		return nil
+	data, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
 	}
-	return &s
+	return string(data)
 }
 
 func parseCursor(cursor string, occurredAt *time.Time, id *string) error {
@@ -340,30 +330,30 @@ func formatCursor(t time.Time, id string) string {
 	return t.UTC().Format(time.RFC3339Nano) + "_" + id
 }
 
-func (r *TrackingLinkRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *TrackingLinkRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
 
-func (r *TrackingEventRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *TrackingEventRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
 
 type OutboxRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewOutboxRepository(db DBTX) *OutboxRepository {
+func NewOutboxRepository(db platformpostgres.DBTX) *OutboxRepository {
 	return &OutboxRepository{db: db}
 }
 
-func (r *OutboxRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *OutboxRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
@@ -378,32 +368,4 @@ func (r *OutboxRepository) Save(ctx context.Context, event ports.OutboxEvent) er
 		event.WorkspaceID, event.OccurredAt,
 	)
 	return err
-}
-
-type TransactionManager struct {
-	pool DBTX
-}
-
-func NewTransactionManager(pool DBTX) *TransactionManager {
-	return &TransactionManager{pool: pool}
-}
-
-func (tm *TransactionManager) RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	conn, ok := tm.pool.(interface {
-		Begin(ctx context.Context) (pgx.Tx, error)
-	})
-	if !ok {
-		return errors.New("transaction manager requires a pool or conn that supports Begin")
-	}
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	if err := fn(context.WithValue(ctx, txKey{}, tx)); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
 }

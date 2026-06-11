@@ -46,7 +46,7 @@ func (s *RefreshStore) Find(ctx context.Context, refreshJTI string) (string, err
 	value, err := s.client.Raw().Get(ctx, fmt.Sprintf("identity:refresh:%s", refreshJTI)).Result()
 	if err != nil {
 		if errors.Is(err, goredis.Nil) {
-			return "", redis.ErrCacheMiss
+			return "", ports.ErrCacheMiss
 		}
 		return "", err
 	}

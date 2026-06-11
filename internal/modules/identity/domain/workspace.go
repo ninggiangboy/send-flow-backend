@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"strings"
+	"time"
+)
 
 type Workspace struct {
 	ID           string
@@ -13,11 +17,17 @@ type Workspace struct {
 	UpdatedAt    time.Time
 }
 
-func NewWorkspace(id, name string, now time.Time) Workspace {
+func NewWorkspace(id, name string, now time.Time) (Workspace, error) {
+	if id == "" {
+		return Workspace{}, errors.New("workspace id is required")
+	}
+	if strings.TrimSpace(name) == "" {
+		return Workspace{}, errors.New("workspace name is required")
+	}
 	return Workspace{
 		ID:        id,
-		Name:      name,
+		Name:      strings.TrimSpace(name),
 		CreatedAt: now,
 		UpdatedAt: now,
-	}
+	}, nil
 }

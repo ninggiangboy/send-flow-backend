@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
 )
 
 type campaignHTTP struct {
@@ -342,7 +343,9 @@ func writeCampaignErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusUnprocessableEntity, "template.publish_required", err.Error(), nil)
 	case errors.Is(err, domain.ErrInvalidStateTransition):
 		writeError(w, r, http.StatusConflict, "campaign.invalid_state_transition", err.Error(), nil)
+	case errors.Is(err, auth.ErrPermissionDenied):
+		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }

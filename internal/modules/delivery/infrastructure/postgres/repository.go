@@ -8,74 +8,98 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+type scannable interface {
+	Scan(dest ...any) error
 }
 
-type txKey struct{}
+func scanMessageRow(row scannable) (*domain.Message, error) {
+	var msg domain.Message
+	var snapshotJSON []byte
+	var scheduledAt, queuedAt, processingStartedAt, acceptedAt, deliveredAt, bouncedAt, complainedAt, failedAt *time.Time
 
-func nullable(value string) *string {
-	if value == "" {
-		return nil
+	err := row.Scan(
+		&msg.ID, &msg.WorkspaceID, &msg.CampaignID, &msg.CampaignCandidateID, &msg.TransactionalRequestID,
+		&msg.ContactID, &msg.RecipientEmailNormalized, &snapshotJSON,
+		&msg.TemplateID, &msg.TemplateVersionID, &msg.SenderDomainID,
+		&msg.MessageType, &msg.SourceType, &msg.Status,
+		&scheduledAt, &queuedAt, &processingStartedAt,
+		&acceptedAt, &deliveredAt, &bouncedAt, &complainedAt, &failedAt,
+		&msg.LastErrorClass, &msg.LastErrorMessage, &msg.Provider, &msg.ProviderMessageID,
+		&msg.CreatedAt, &msg.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrMessageNotFound
+		}
+		return nil, err
 	}
-	return &value
+
+	if snapshotJSON != nil {
+		if err := json.Unmarshal(snapshotJSON, &msg.RecipientSnapshot); err != nil {
+			return nil, err
+		}
+	}
+	msg.ScheduledAt = scheduledAt
+	msg.QueuedAt = queuedAt
+	msg.ProcessingStartedAt = processingStartedAt
+	msg.AcceptedAt = acceptedAt
+	msg.DeliveredAt = deliveredAt
+	msg.BouncedAt = bouncedAt
+	msg.ComplainedAt = complainedAt
+	msg.FailedAt = failedAt
+
+	return &msg, nil
 }
 
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
+func scanMessageRows(rows pgx.Rows) ([]domain.Message, error) {
+	var results []domain.Message
+	for rows.Next() {
+		msg, err := scanMessageRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, *msg)
 	}
-	var buf [12]byte
-	pos := len(buf)
-	neg := false
-	if i < 0 {
-		neg = true
-		i = -i
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
-	for i > 0 {
-		pos--
-		buf[pos] = byte('0' + i%10)
-		i /= 10
+	if results == nil {
+		results = []domain.Message{}
 	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
+	return results, nil
 }
 
 type MessageReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type MessageWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewMessageReadRepository(db DBTX) *MessageReadRepository {
+func NewMessageReadRepository(db platformpostgres.DBTX) *MessageReadRepository {
 	return &MessageReadRepository{db: db}
 }
 
-func NewMessageWriteRepository(db DBTX) *MessageWriteRepository {
+func NewMessageWriteRepository(db platformpostgres.DBTX) *MessageWriteRepository {
 	return &MessageWriteRepository{db: db}
 }
 
-func (r *MessageReadRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *MessageReadRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
 
-func (w *MessageWriteRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (w *MessageWriteRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return w.db
@@ -83,11 +107,7 @@ func (w *MessageWriteRepository) getDB(ctx context.Context) DBTX {
 
 func (r *MessageReadRepository) FindByID(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 	db := r.getDB(ctx)
-	var msg domain.Message
-	var snapshotJSON []byte
-	var scheduledAt, queuedAt, processingStartedAt, acceptedAt, deliveredAt, bouncedAt, complainedAt, failedAt *time.Time
-
-	err := db.QueryRow(ctx,
+	return scanMessageRow(db.QueryRow(ctx,
 		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
 		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
 		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
@@ -98,43 +118,12 @@ func (r *MessageReadRepository) FindByID(ctx context.Context, workspaceID, messa
 		        created_at, updated_at
 		 FROM messages WHERE id = $1 AND workspace_id = $2`,
 		messageID, workspaceID,
-	).Scan(&msg.ID, &msg.WorkspaceID, &msg.CampaignID, &msg.CampaignCandidateID, &msg.TransactionalRequestID,
-		&msg.ContactID, &msg.RecipientEmailNormalized, &snapshotJSON,
-		&msg.TemplateID, &msg.TemplateVersionID, &msg.SenderDomainID,
-		&msg.MessageType, &msg.SourceType, &msg.Status,
-		&scheduledAt, &queuedAt, &processingStartedAt,
-		&acceptedAt, &deliveredAt, &bouncedAt, &complainedAt, &failedAt,
-		&msg.LastErrorClass, &msg.LastErrorMessage, &msg.Provider, &msg.ProviderMessageID,
-		&msg.CreatedAt, &msg.UpdatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrMessageNotFound
-		}
-		return nil, err
-	}
-
-	if snapshotJSON != nil {
-		json.Unmarshal(snapshotJSON, &msg.RecipientSnapshot)
-	}
-	msg.ScheduledAt = scheduledAt
-	msg.QueuedAt = queuedAt
-	msg.ProcessingStartedAt = processingStartedAt
-	msg.AcceptedAt = acceptedAt
-	msg.DeliveredAt = deliveredAt
-	msg.BouncedAt = bouncedAt
-	msg.ComplainedAt = complainedAt
-	msg.FailedAt = failedAt
-
-	return &msg, nil
+	))
 }
 
 func (r *MessageReadRepository) FindByIDForUpdate(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 	db := r.getDB(ctx)
-	var msg domain.Message
-	var snapshotJSON []byte
-	var scheduledAt, queuedAt, processingStartedAt, acceptedAt, deliveredAt, bouncedAt, complainedAt, failedAt *time.Time
-
-	err := db.QueryRow(ctx,
+	return scanMessageRow(db.QueryRow(ctx,
 		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
 		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
 		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
@@ -145,43 +134,12 @@ func (r *MessageReadRepository) FindByIDForUpdate(ctx context.Context, workspace
 		        created_at, updated_at
 		 FROM messages WHERE id = $1 AND workspace_id = $2 FOR UPDATE`,
 		messageID, workspaceID,
-	).Scan(&msg.ID, &msg.WorkspaceID, &msg.CampaignID, &msg.CampaignCandidateID, &msg.TransactionalRequestID,
-		&msg.ContactID, &msg.RecipientEmailNormalized, &snapshotJSON,
-		&msg.TemplateID, &msg.TemplateVersionID, &msg.SenderDomainID,
-		&msg.MessageType, &msg.SourceType, &msg.Status,
-		&scheduledAt, &queuedAt, &processingStartedAt,
-		&acceptedAt, &deliveredAt, &bouncedAt, &complainedAt, &failedAt,
-		&msg.LastErrorClass, &msg.LastErrorMessage, &msg.Provider, &msg.ProviderMessageID,
-		&msg.CreatedAt, &msg.UpdatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrMessageNotFound
-		}
-		return nil, err
-	}
-
-	if snapshotJSON != nil {
-		json.Unmarshal(snapshotJSON, &msg.RecipientSnapshot)
-	}
-	msg.ScheduledAt = scheduledAt
-	msg.QueuedAt = queuedAt
-	msg.ProcessingStartedAt = processingStartedAt
-	msg.AcceptedAt = acceptedAt
-	msg.DeliveredAt = deliveredAt
-	msg.BouncedAt = bouncedAt
-	msg.ComplainedAt = complainedAt
-	msg.FailedAt = failedAt
-
-	return &msg, nil
+	))
 }
 
 func (r *MessageReadRepository) FindByTransactionalRequestID(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error) {
 	db := r.getDB(ctx)
-	var msg domain.Message
-	var snapshotJSON []byte
-	var scheduledAt, queuedAt, processingStartedAt, acceptedAt, deliveredAt, bouncedAt, complainedAt, failedAt *time.Time
-
-	err := db.QueryRow(ctx,
+	return scanMessageRow(db.QueryRow(ctx,
 		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
 		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
 		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
@@ -192,43 +150,12 @@ func (r *MessageReadRepository) FindByTransactionalRequestID(ctx context.Context
 		        created_at, updated_at
 		 FROM messages WHERE workspace_id = $1 AND transactional_request_id = $2`,
 		workspaceID, transactionalRequestID,
-	).Scan(&msg.ID, &msg.WorkspaceID, &msg.CampaignID, &msg.CampaignCandidateID, &msg.TransactionalRequestID,
-		&msg.ContactID, &msg.RecipientEmailNormalized, &snapshotJSON,
-		&msg.TemplateID, &msg.TemplateVersionID, &msg.SenderDomainID,
-		&msg.MessageType, &msg.SourceType, &msg.Status,
-		&scheduledAt, &queuedAt, &processingStartedAt,
-		&acceptedAt, &deliveredAt, &bouncedAt, &complainedAt, &failedAt,
-		&msg.LastErrorClass, &msg.LastErrorMessage, &msg.Provider, &msg.ProviderMessageID,
-		&msg.CreatedAt, &msg.UpdatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrMessageNotFound
-		}
-		return nil, err
-	}
-
-	if snapshotJSON != nil {
-		json.Unmarshal(snapshotJSON, &msg.RecipientSnapshot)
-	}
-	msg.ScheduledAt = scheduledAt
-	msg.QueuedAt = queuedAt
-	msg.ProcessingStartedAt = processingStartedAt
-	msg.AcceptedAt = acceptedAt
-	msg.DeliveredAt = deliveredAt
-	msg.BouncedAt = bouncedAt
-	msg.ComplainedAt = complainedAt
-	msg.FailedAt = failedAt
-
-	return &msg, nil
+	))
 }
 
 func (r *MessageReadRepository) FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*domain.Message, error) {
 	db := r.getDB(ctx)
-	var msg domain.Message
-	var snapshotJSON []byte
-	var scheduledAt, queuedAt, processingStartedAt, acceptedAt, deliveredAt, bouncedAt, complainedAt, failedAt *time.Time
-
-	err := db.QueryRow(ctx,
+	return scanMessageRow(db.QueryRow(ctx,
 		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
 		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
 		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
@@ -239,34 +166,7 @@ func (r *MessageReadRepository) FindByProviderMessageID(ctx context.Context, pro
 		        created_at, updated_at
 		 FROM messages WHERE provider = $1 AND provider_message_id = $2`,
 		provider, providerMessageID,
-	).Scan(&msg.ID, &msg.WorkspaceID, &msg.CampaignID, &msg.CampaignCandidateID, &msg.TransactionalRequestID,
-		&msg.ContactID, &msg.RecipientEmailNormalized, &snapshotJSON,
-		&msg.TemplateID, &msg.TemplateVersionID, &msg.SenderDomainID,
-		&msg.MessageType, &msg.SourceType, &msg.Status,
-		&scheduledAt, &queuedAt, &processingStartedAt,
-		&acceptedAt, &deliveredAt, &bouncedAt, &complainedAt, &failedAt,
-		&msg.LastErrorClass, &msg.LastErrorMessage, &msg.Provider, &msg.ProviderMessageID,
-		&msg.CreatedAt, &msg.UpdatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrMessageNotFound
-		}
-		return nil, err
-	}
-
-	if snapshotJSON != nil {
-		json.Unmarshal(snapshotJSON, &msg.RecipientSnapshot)
-	}
-	msg.ScheduledAt = scheduledAt
-	msg.QueuedAt = queuedAt
-	msg.ProcessingStartedAt = processingStartedAt
-	msg.AcceptedAt = acceptedAt
-	msg.DeliveredAt = deliveredAt
-	msg.BouncedAt = bouncedAt
-	msg.ComplainedAt = complainedAt
-	msg.FailedAt = failedAt
-
-	return &msg, nil
+	))
 }
 
 func (r *MessageReadRepository) List(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error) {
@@ -276,54 +176,54 @@ func (r *MessageReadRepository) List(ctx context.Context, query ports.MessageLis
 	argIdx := 2
 
 	if query.CampaignID != "" {
-		where += " AND campaign_id = $" + itoa(argIdx)
+		where += " AND campaign_id = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.CampaignID)
 		argIdx++
 	}
 	if query.TransactionalRequestID != "" {
-		where += " AND transactional_request_id = $" + itoa(argIdx)
+		where += " AND transactional_request_id = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.TransactionalRequestID)
 		argIdx++
 	}
 	if query.Status != "" {
-		where += " AND status = $" + itoa(argIdx)
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.Status)
 		argIdx++
 	}
 	if query.RecipientEmailNormalized != "" {
-		where += " AND recipient_email_normalized = $" + itoa(argIdx)
+		where += " AND recipient_email_normalized = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.RecipientEmailNormalized)
 		argIdx++
 	}
 	if query.ProviderMessageID != "" {
-		where += " AND provider_message_id = $" + itoa(argIdx)
+		where += " AND provider_message_id = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.ProviderMessageID)
 		argIdx++
 	}
 	if query.From != nil {
-		where += " AND created_at >= $" + itoa(argIdx)
+		where += " AND created_at >= $" + platformpostgres.Itoa(argIdx)
 		args = append(args, *query.From)
 		argIdx++
 	}
 	if query.To != nil {
-		where += " AND created_at <= $" + itoa(argIdx)
+		where += " AND created_at <= $" + platformpostgres.Itoa(argIdx)
 		args = append(args, *query.To)
 		argIdx++
 	}
 	if query.Cursor != "" {
-		where += " AND (created_at, id) < (SELECT created_at, id FROM messages WHERE id = $" + itoa(argIdx) + ")"
+		where += " AND (created_at, id) < (SELECT created_at, id FROM messages WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
 		args = append(args, query.Cursor)
 		argIdx++
 	}
 
 	limit := query.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 	if limit > 100 {
 		limit = 100
 	}
-	where += " ORDER BY created_at DESC, id DESC LIMIT $" + itoa(argIdx)
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
 	args = append(args, limit+1)
 
 	rows, err := db.Query(ctx,
@@ -341,40 +241,8 @@ func (r *MessageReadRepository) List(ctx context.Context, query ports.MessageLis
 	}
 	defer rows.Close()
 
-	var results []domain.Message
-	for rows.Next() {
-		var msg domain.Message
-		var snapshotJSON []byte
-		var scheduledAt, queuedAt, processingStartedAt, acceptedAt, deliveredAt, bouncedAt, complainedAt, failedAt *time.Time
-
-		if err := rows.Scan(
-			&msg.ID, &msg.WorkspaceID, &msg.CampaignID, &msg.CampaignCandidateID, &msg.TransactionalRequestID,
-			&msg.ContactID, &msg.RecipientEmailNormalized, &snapshotJSON,
-			&msg.TemplateID, &msg.TemplateVersionID, &msg.SenderDomainID,
-			&msg.MessageType, &msg.SourceType, &msg.Status,
-			&scheduledAt, &queuedAt, &processingStartedAt,
-			&acceptedAt, &deliveredAt, &bouncedAt, &complainedAt, &failedAt,
-			&msg.LastErrorClass, &msg.LastErrorMessage, &msg.Provider, &msg.ProviderMessageID,
-			&msg.CreatedAt, &msg.UpdatedAt,
-		); err != nil {
-			return nil, "", err
-		}
-
-		if snapshotJSON != nil {
-			json.Unmarshal(snapshotJSON, &msg.RecipientSnapshot)
-		}
-		msg.ScheduledAt = scheduledAt
-		msg.QueuedAt = queuedAt
-		msg.ProcessingStartedAt = processingStartedAt
-		msg.AcceptedAt = acceptedAt
-		msg.DeliveredAt = deliveredAt
-		msg.BouncedAt = bouncedAt
-		msg.ComplainedAt = complainedAt
-		msg.FailedAt = failedAt
-
-		results = append(results, msg)
-	}
-	if err := rows.Err(); err != nil {
+	results, err := scanMessageRows(rows)
+	if err != nil {
 		return nil, "", err
 	}
 
@@ -412,48 +280,7 @@ func (r *MessageReadRepository) ListDueQueued(ctx context.Context, query ports.D
 	}
 	defer rows.Close()
 
-	var results []domain.Message
-	for rows.Next() {
-		var msg domain.Message
-		var snapshotJSON []byte
-		var scheduledAt, queuedAt, processingStartedAt, acceptedAt, deliveredAt, bouncedAt, complainedAt, failedAt *time.Time
-
-		if err := rows.Scan(
-			&msg.ID, &msg.WorkspaceID, &msg.CampaignID, &msg.CampaignCandidateID, &msg.TransactionalRequestID,
-			&msg.ContactID, &msg.RecipientEmailNormalized, &snapshotJSON,
-			&msg.TemplateID, &msg.TemplateVersionID, &msg.SenderDomainID,
-			&msg.MessageType, &msg.SourceType, &msg.Status,
-			&scheduledAt, &queuedAt, &processingStartedAt,
-			&acceptedAt, &deliveredAt, &bouncedAt, &complainedAt, &failedAt,
-			&msg.LastErrorClass, &msg.LastErrorMessage, &msg.Provider, &msg.ProviderMessageID,
-			&msg.CreatedAt, &msg.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-
-		if snapshotJSON != nil {
-			json.Unmarshal(snapshotJSON, &msg.RecipientSnapshot)
-		}
-		msg.ScheduledAt = scheduledAt
-		msg.QueuedAt = queuedAt
-		msg.ProcessingStartedAt = processingStartedAt
-		msg.AcceptedAt = acceptedAt
-		msg.DeliveredAt = deliveredAt
-		msg.BouncedAt = bouncedAt
-		msg.ComplainedAt = complainedAt
-		msg.FailedAt = failedAt
-
-		results = append(results, msg)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	if results == nil {
-		results = []domain.Message{}
-	}
-
-	return results, nil
+	return scanMessageRows(rows)
 }
 
 func (r *MessageReadRepository) ListDistinctWorkspacesWithDue(ctx context.Context, messageType string, now time.Time) ([]string, error) {
@@ -512,11 +339,11 @@ func (w *MessageWriteRepository) CreateMany(ctx context.Context, messages []doma
 			return nil, err
 		}
 		values = append(values, "($"+
-			itoa(idx)+",$"+itoa(idx+1)+",$"+itoa(idx+2)+",$"+itoa(idx+3)+",$"+itoa(idx+4)+",$"+itoa(idx+5)+",$"+itoa(idx+6)+",$"+itoa(idx+7)+",$"+itoa(idx+8)+",$"+itoa(idx+9)+",$"+itoa(idx+10)+",$"+itoa(idx+11)+",$"+itoa(idx+12)+",$"+itoa(idx+13)+",$"+itoa(idx+14)+",$"+itoa(idx+15)+",$"+itoa(idx+16)+",$"+itoa(idx+17)+",$"+itoa(idx+18)+",$"+itoa(idx+19)+",$"+itoa(idx+20)+",$"+itoa(idx+21)+",$"+itoa(idx+22)+",$"+itoa(idx+23)+",$"+itoa(idx+24)+",$"+itoa(idx+25)+",$"+itoa(idx+26)+",$"+itoa(idx+27)+",$"+itoa(idx+28)+")")
+			platformpostgres.Itoa(idx)+",$"+platformpostgres.Itoa(idx+1)+",$"+platformpostgres.Itoa(idx+2)+",$"+platformpostgres.Itoa(idx+3)+",$"+platformpostgres.Itoa(idx+4)+",$"+platformpostgres.Itoa(idx+5)+",$"+platformpostgres.Itoa(idx+6)+",$"+platformpostgres.Itoa(idx+7)+",$"+platformpostgres.Itoa(idx+8)+",$"+platformpostgres.Itoa(idx+9)+",$"+platformpostgres.Itoa(idx+10)+",$"+platformpostgres.Itoa(idx+11)+",$"+platformpostgres.Itoa(idx+12)+",$"+platformpostgres.Itoa(idx+13)+",$"+platformpostgres.Itoa(idx+14)+",$"+platformpostgres.Itoa(idx+15)+",$"+platformpostgres.Itoa(idx+16)+",$"+platformpostgres.Itoa(idx+17)+",$"+platformpostgres.Itoa(idx+18)+",$"+platformpostgres.Itoa(idx+19)+",$"+platformpostgres.Itoa(idx+20)+",$"+platformpostgres.Itoa(idx+21)+",$"+platformpostgres.Itoa(idx+22)+",$"+platformpostgres.Itoa(idx+23)+",$"+platformpostgres.Itoa(idx+24)+",$"+platformpostgres.Itoa(idx+25)+",$"+platformpostgres.Itoa(idx+26)+",$"+platformpostgres.Itoa(idx+27)+",$"+platformpostgres.Itoa(idx+28)+")")
 		args = append(args, msg.ID, msg.WorkspaceID,
-			nullable(msg.CampaignID), nullable(msg.CampaignCandidateID), nullable(msg.TransactionalRequestID),
-			nullable(msg.ContactID), msg.RecipientEmailNormalized, snapshotJSON,
-			nullable(msg.TemplateID), nullable(msg.TemplateVersionID), nullable(msg.SenderDomainID),
+			platformpostgres.Nullable(msg.CampaignID), platformpostgres.Nullable(msg.CampaignCandidateID), platformpostgres.Nullable(msg.TransactionalRequestID),
+			platformpostgres.Nullable(msg.ContactID), msg.RecipientEmailNormalized, snapshotJSON,
+			platformpostgres.Nullable(msg.TemplateID), platformpostgres.Nullable(msg.TemplateVersionID), platformpostgres.Nullable(msg.SenderDomainID),
 			msg.MessageType, msg.SourceType, msg.Status,
 			msg.ScheduledAt, msg.QueuedAt, msg.ProcessingStartedAt,
 			msg.AcceptedAt, msg.DeliveredAt, msg.BouncedAt, msg.ComplainedAt, msg.FailedAt,
@@ -573,9 +400,9 @@ func (w *MessageWriteRepository) Update(ctx context.Context, message domain.Mess
 		        last_error_class=$21, last_error_message=$22, provider=$23, provider_message_id=$24,
 		        updated_at=$25
 		 WHERE id=$26 AND workspace_id=$27`,
-		nullable(message.CampaignID), nullable(message.CampaignCandidateID), nullable(message.TransactionalRequestID),
-		nullable(message.ContactID), message.RecipientEmailNormalized, snapshotJSON,
-		nullable(message.TemplateID), nullable(message.TemplateVersionID), nullable(message.SenderDomainID),
+		platformpostgres.Nullable(message.CampaignID), platformpostgres.Nullable(message.CampaignCandidateID), platformpostgres.Nullable(message.TransactionalRequestID),
+		platformpostgres.Nullable(message.ContactID), message.RecipientEmailNormalized, snapshotJSON,
+		platformpostgres.Nullable(message.TemplateID), platformpostgres.Nullable(message.TemplateVersionID), platformpostgres.Nullable(message.SenderDomainID),
 		message.MessageType, message.SourceType, message.Status,
 		message.ScheduledAt, message.QueuedAt, message.ProcessingStartedAt,
 		message.AcceptedAt, message.DeliveredAt, message.BouncedAt, message.ComplainedAt, message.FailedAt,
@@ -710,30 +537,30 @@ func (w *MessageWriteRepository) MarkFailed(ctx context.Context, message domain.
 }
 
 type AttemptReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type AttemptWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewAttemptReadRepository(db DBTX) *AttemptReadRepository {
+func NewAttemptReadRepository(db platformpostgres.DBTX) *AttemptReadRepository {
 	return &AttemptReadRepository{db: db}
 }
 
-func NewAttemptWriteRepository(db DBTX) *AttemptWriteRepository {
+func NewAttemptWriteRepository(db platformpostgres.DBTX) *AttemptWriteRepository {
 	return &AttemptWriteRepository{db: db}
 }
 
-func (r *AttemptReadRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *AttemptReadRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
 
-func (w *AttemptWriteRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (w *AttemptWriteRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return w.db
@@ -768,10 +595,14 @@ func (r *AttemptReadRepository) ListByMessage(ctx context.Context, workspaceID, 
 		}
 
 		if reqJSON != nil {
-			json.Unmarshal(reqJSON, &a.RequestSnapshot)
+			if err := json.Unmarshal(reqJSON, &a.RequestSnapshot); err != nil {
+				return nil, err
+			}
 		}
 		if respJSON != nil {
-			json.Unmarshal(respJSON, &a.ResponseSnapshot)
+			if err := json.Unmarshal(respJSON, &a.ResponseSnapshot); err != nil {
+				return nil, err
+			}
 		}
 
 		results = append(results, a)
@@ -852,30 +683,30 @@ func (w *AttemptWriteRepository) Update(ctx context.Context, attempt domain.Deli
 }
 
 type RetryStateReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type RetryStateWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewRetryStateReadRepository(db DBTX) *RetryStateReadRepository {
+func NewRetryStateReadRepository(db platformpostgres.DBTX) *RetryStateReadRepository {
 	return &RetryStateReadRepository{db: db}
 }
 
-func NewRetryStateWriteRepository(db DBTX) *RetryStateWriteRepository {
+func NewRetryStateWriteRepository(db platformpostgres.DBTX) *RetryStateWriteRepository {
 	return &RetryStateWriteRepository{db: db}
 }
 
-func (r *RetryStateReadRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *RetryStateReadRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
 
-func (w *RetryStateWriteRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (w *RetryStateWriteRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return w.db
@@ -936,30 +767,30 @@ func (w *RetryStateWriteRepository) Update(ctx context.Context, state domain.Ret
 }
 
 type TransactionalRequestReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type TransactionalRequestWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewTransactionalRequestReadRepository(db DBTX) *TransactionalRequestReadRepository {
+func NewTransactionalRequestReadRepository(db platformpostgres.DBTX) *TransactionalRequestReadRepository {
 	return &TransactionalRequestReadRepository{db: db}
 }
 
-func NewTransactionalRequestWriteRepository(db DBTX) *TransactionalRequestWriteRepository {
+func NewTransactionalRequestWriteRepository(db platformpostgres.DBTX) *TransactionalRequestWriteRepository {
 	return &TransactionalRequestWriteRepository{db: db}
 }
 
-func (r *TransactionalRequestReadRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *TransactionalRequestReadRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
 
-func (w *TransactionalRequestWriteRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (w *TransactionalRequestWriteRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return w.db
@@ -985,7 +816,9 @@ func (r *TransactionalRequestReadRepository) FindByIdempotencyKey(ctx context.Co
 	}
 
 	if payloadJSON != nil {
-		json.Unmarshal(payloadJSON, &req.RequestPayload)
+		if err := json.Unmarshal(payloadJSON, &req.RequestPayload); err != nil {
+			return nil, err
+		}
 	}
 
 	return &req, nil
@@ -1011,7 +844,9 @@ func (r *TransactionalRequestReadRepository) FindByID(ctx context.Context, works
 	}
 
 	if payloadJSON != nil {
-		json.Unmarshal(payloadJSON, &req.RequestPayload)
+		if err := json.Unmarshal(payloadJSON, &req.RequestPayload); err != nil {
+			return nil, err
+		}
 	}
 
 	return &req, nil
@@ -1033,6 +868,9 @@ func (w *TransactionalRequestWriteRepository) Create(ctx context.Context, reques
 		payloadJSON, request.CreatedAt, request.UpdatedAt,
 		request.CompletedAt, request.FailedAt,
 	)
+	if platformpostgres.IsUniqueViolation(err) {
+		return domain.ErrIdempotencyKeyConflict
+	}
 	return err
 }
 
@@ -1061,15 +899,15 @@ func (w *TransactionalRequestWriteRepository) Update(ctx context.Context, reques
 }
 
 type OutboxRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewOutboxRepository(db DBTX) *OutboxRepository {
+func NewOutboxRepository(db platformpostgres.DBTX) *OutboxRepository {
 	return &OutboxRepository{db: db}
 }
 
-func (r *OutboxRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *OutboxRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
@@ -1088,32 +926,4 @@ func (r *OutboxRepository) Save(ctx context.Context, event ports.OutboxEvent) er
 		headersJSON, event.WorkspaceID, event.OccurredAt,
 	)
 	return err
-}
-
-type TransactionManager struct {
-	pool DBTX
-}
-
-func NewTransactionManager(pool DBTX) *TransactionManager {
-	return &TransactionManager{pool: pool}
-}
-
-func (tm *TransactionManager) RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	conn, ok := tm.pool.(interface {
-		Begin(ctx context.Context) (pgx.Tx, error)
-	})
-	if !ok {
-		return errors.New("transaction manager requires a pool or conn that supports Begin")
-	}
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	if err := fn(context.WithValue(ctx, txKey{}, tx)); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
 }

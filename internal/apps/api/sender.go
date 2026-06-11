@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
 )
 
 type senderHTTP struct {
@@ -137,7 +139,7 @@ func (h *senderHTTP) recordAudit(r *http.Request, input identityapp.RecordAuditI
 	input.RequestID = reqCtx.RequestID
 	input.OccurredAt = time.Now().UTC()
 	if err := h.auditRecorder.Record(r.Context(), input); err != nil {
-		// Best-effort audit; log error but don't fail the request
+		slog.Warn("failed to record audit event", "error", err)
 	}
 }
 
@@ -155,8 +157,10 @@ func writeSenderErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusUnprocessableEntity, "sender.domain_invalid", err.Error(), nil)
 	case errors.Is(err, domain.ErrProviderConfigInvalid):
 		writeError(w, r, http.StatusUnprocessableEntity, "sender.provider_config_invalid", err.Error(), nil)
+	case errors.Is(err, auth.ErrPermissionDenied):
+		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }
 

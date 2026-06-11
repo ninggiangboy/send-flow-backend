@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -49,6 +50,50 @@ const (
 	TxRequestStatusFailed     = "failed"
 )
 
+func ClassifyProviderEvent(providerEventType string) (string, bool) {
+	switch providerEventType {
+	case "delivered":
+		return MessageStatusDelivered, true
+	case "bounced":
+		return MessageStatusBounced, true
+	case "complained":
+		return MessageStatusComplained, true
+	case "delayed":
+		return MessageStatusDelayed, true
+	case "rejected":
+		return MessageStatusFailed, true
+	case "accepted", "opened", "clicked", "unsubscribed", "rendering_failed":
+		return "", false
+	default:
+		return "", false
+	}
+}
+
+func CanTransitionToStatus(currentStatus, newStatus string) bool {
+	if currentStatus == newStatus {
+		return true
+	}
+	switch currentStatus {
+	case MessageStatusBounced, MessageStatusFailed,
+		MessageStatusCancelled, MessageStatusDLQ:
+		return false
+	case MessageStatusComplained:
+		return newStatus == MessageStatusComplained
+	case MessageStatusDelivered:
+		return newStatus == MessageStatusDelivered || newStatus == MessageStatusComplained
+	case MessageStatusDelayed:
+		return newStatus != MessageStatusAccepted
+	case MessageStatusAccepted:
+		return true
+	case MessageStatusProcessing:
+		return newStatus != MessageStatusAccepted
+	case MessageStatusQueued:
+		return newStatus != MessageStatusDelivered && newStatus != MessageStatusComplained
+	default:
+		return false
+	}
+}
+
 type RecipientSnapshot struct {
 	ContactID       string         `json:"contact_id"`
 	Email           string         `json:"email"`
@@ -89,6 +134,34 @@ type Message struct {
 	ProviderMessageID        string
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+}
+
+func NewMessage(id, workspaceID, recipientEmailNormalized, messageType, sourceType string, now time.Time) (*Message, error) {
+	if id == "" {
+		return nil, errors.New("message id is required")
+	}
+	if workspaceID == "" {
+		return nil, errors.New("workspace id is required")
+	}
+	if recipientEmailNormalized == "" {
+		return nil, errors.New("recipient email is required")
+	}
+	if !ValidMessageType(messageType) {
+		return nil, errors.New("valid message type is required")
+	}
+	if !ValidMessageSourceType(sourceType) {
+		return nil, errors.New("valid source type is required")
+	}
+	return &Message{
+		ID:                       id,
+		WorkspaceID:              workspaceID,
+		RecipientEmailNormalized: recipientEmailNormalized,
+		MessageType:              messageType,
+		SourceType:               sourceType,
+		Status:                   MessageStatusQueued,
+		CreatedAt:                now,
+		UpdatedAt:                now,
+	}, nil
 }
 
 type DeliveryAttempt struct {

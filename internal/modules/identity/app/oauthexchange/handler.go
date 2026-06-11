@@ -9,6 +9,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type Handler struct {
@@ -64,7 +65,9 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 			h.log.Error("failed to find linked user", "provider", cmd.Provider, "user_id", account.UserID, "error", err)
 			return nil, nil, err
 		}
-		_ = h.deps.ExternalsWrite.TouchLogin(ctx, account.ID, cmd.Now)
+		if err := h.deps.ExternalsWrite.TouchLogin(ctx, account.ID, cmd.Now); err != nil {
+			h.log.Warn("failed to update last login", "provider", cmd.Provider, "user_id", user.ID, "error", err)
+		}
 		h.log.Info("OAuth exchange: linked existing account", "provider", cmd.Provider, "user_id", user.ID)
 	} else {
 		email, emailErr := domain.NewEmailAddress(identity.Email)
@@ -72,33 +75,36 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 			h.log.Warn("OAuth identity email invalid", "provider", cmd.Provider)
 			return nil, nil, domain.ErrUnauthorized
 		}
-		user, err = h.deps.UsersRead.FindByEmail(ctx, email.String())
-		if err != nil && !errors.Is(err, domain.ErrNotFound) {
-			h.log.Error("failed to find user by email for OAuth link", "provider", cmd.Provider, "error", err)
-			return nil, nil, err
-		}
-		if user == nil {
-			uID, err := h.deps.IDGen.New()
+		linkAccount := func(txCtx context.Context) error {
+			fetched, err := h.deps.UsersRead.FindByEmail(txCtx, email.String())
+			if err != nil && !errors.Is(err, domain.ErrNotFound) {
+				return fmt.Errorf("find user by email: %w", err)
+			}
+			if fetched == nil {
+				uID, err := h.deps.IDGen.New()
+				if err != nil {
+					return fmt.Errorf("generate user ID: %w", err)
+				}
+				u := domain.NewOAuthUser(uID, email, "oauth_"+cmd.Provider, cmd.Now)
+				if err := h.deps.UsersWrite.Create(txCtx, u); err != nil {
+					return fmt.Errorf("create user: %w", err)
+				}
+				fetched = &u
+				h.log.Info("OAuth exchange: new user created", "provider", cmd.Provider, "user_id", fetched.ID)
+			}
+			accID, err := h.deps.IDGen.New()
 			if err != nil {
-				h.log.Error("failed to generate user ID for OAuth user", "provider", cmd.Provider, "error", err)
-				return nil, nil, err
+				return fmt.Errorf("generate external account ID: %w", err)
 			}
-			u := domain.NewOAuthUser(uID, email, "oauth_"+cmd.Provider, cmd.Now)
-			if err := h.deps.UsersWrite.Create(ctx, u); err != nil {
-				h.log.Error("failed to create OAuth user", "provider", cmd.Provider, "error", err)
-				return nil, nil, err
+			acc := domain.NewExternalAuthAccount(accID, fetched.ID, cmd.Provider, identity.ProviderUserID, identity.Email, identity.EmailVerified, cmd.Now)
+			if err := h.deps.ExternalsWrite.Create(txCtx, acc); err != nil {
+				return fmt.Errorf("create external account: %w", err)
 			}
-			user = &u
-			h.log.Info("OAuth exchange: new user created", "provider", cmd.Provider, "user_id", user.ID)
+			user = fetched
+			return nil
 		}
-		accID, err := h.deps.IDGen.New()
-		if err != nil {
-			h.log.Error("failed to generate external account ID", "provider", cmd.Provider, "error", err)
-			return nil, nil, err
-		}
-		acc := domain.NewExternalAuthAccount(accID, user.ID, cmd.Provider, identity.ProviderUserID, identity.Email, identity.EmailVerified, cmd.Now)
-		if err := h.deps.ExternalsWrite.Create(ctx, acc); err != nil {
-			h.log.Error("failed to create external account", "provider", cmd.Provider, "user_id", user.ID, "error", err)
+		if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, linkAccount); err != nil {
+			h.log.Error("failed to link OAuth account", "provider", cmd.Provider, "error", err)
 			return nil, nil, err
 		}
 	}

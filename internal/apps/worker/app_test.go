@@ -20,7 +20,8 @@ func TestRuntimeRoutesUseAPIPrefix(t *testing.T) {
 			return nil
 		},
 	})
-	router := newRouter(svc, observability.NewHTTPMetrics(nil))
+	metrics, _ := observability.NewHTTPMetrics(nil)
+	router := newRouter(svc, metrics)
 
 	for _, path := range []string{"/api/healthz", "/api/readyz"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)

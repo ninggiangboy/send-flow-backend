@@ -3,33 +3,25 @@ package postgres
 import (
 	"context"
 	"errors"
-	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
 type ReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type WriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewReadRepository(db DBTX) *ReadRepository {
+func NewReadRepository(db platformpostgres.DBTX) *ReadRepository {
 	return &ReadRepository{db: db}
 }
 
-func NewWriteRepository(db DBTX) *WriteRepository {
+func NewWriteRepository(db platformpostgres.DBTX) *WriteRepository {
 	return &WriteRepository{db: db}
 }
 
@@ -135,7 +127,7 @@ func (w *WriteRepository) Create(ctx context.Context, senderDomain domain.Sender
 		`INSERT INTO sender_domains (id, workspace_id, domain, provider, status, verified_at, disabled_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		senderDomain.ID, senderDomain.WorkspaceID, senderDomain.Domain, senderDomain.Provider, senderDomain.Status, senderDomain.VerifiedAt, senderDomain.DisabledAt, senderDomain.CreatedAt, senderDomain.UpdatedAt,
 	); err != nil {
-		if isUniqueViolation(err) {
+		if platformpostgres.IsUniqueViolation(err) {
 			return domain.ErrDomainConflict
 		}
 		return err
@@ -144,7 +136,7 @@ func (w *WriteRepository) Create(ctx context.Context, senderDomain domain.Sender
 	for _, rec := range records {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO sender_domain_dns_records (id, sender_domain_id, record_type, host, expected_value, current_value, status, last_checked_at, failure_reason, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-			rec.ID, rec.SenderDomainID, rec.RecordType, rec.Host, rec.ExpectedValue, nullable(rec.CurrentValue), rec.Status, rec.LastCheckedAt, nullable(rec.FailureReason), rec.CreatedAt, rec.UpdatedAt,
+			rec.ID, rec.SenderDomainID, rec.RecordType, rec.Host, rec.ExpectedValue, platformpostgres.Nullable(rec.CurrentValue), rec.Status, rec.LastCheckedAt, platformpostgres.Nullable(rec.FailureReason), rec.CreatedAt, rec.UpdatedAt,
 		); err != nil {
 			return err
 		}
@@ -174,14 +166,21 @@ func (w *WriteRepository) ReplaceDNSRecordStatuses(ctx context.Context, senderDo
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(ctx, `DELETE FROM sender_domain_dns_records WHERE sender_domain_id = $1`, senderDomainID); err != nil {
-		return err
-	}
-
 	for _, rec := range records {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO sender_domain_dns_records (id, sender_domain_id, record_type, host, expected_value, current_value, status, last_checked_at, failure_reason, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-			rec.ID, rec.SenderDomainID, rec.RecordType, rec.Host, rec.ExpectedValue, nullable(rec.CurrentValue), rec.Status, rec.LastCheckedAt, nullable(rec.FailureReason), rec.CreatedAt, rec.UpdatedAt,
+			`INSERT INTO sender_domain_dns_records (id, sender_domain_id, record_type, host, expected_value, current_value, status, last_checked_at, failure_reason, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			ON CONFLICT (id) DO UPDATE SET
+				sender_domain_id = EXCLUDED.sender_domain_id,
+				record_type = EXCLUDED.record_type,
+				host = EXCLUDED.host,
+				expected_value = EXCLUDED.expected_value,
+				current_value = EXCLUDED.current_value,
+				status = EXCLUDED.status,
+				last_checked_at = EXCLUDED.last_checked_at,
+				failure_reason = EXCLUDED.failure_reason,
+				created_at = sender_domain_dns_records.created_at,
+				updated_at = EXCLUDED.updated_at`,
+			rec.ID, rec.SenderDomainID, rec.RecordType, rec.Host, rec.ExpectedValue, platformpostgres.Nullable(rec.CurrentValue), rec.Status, rec.LastCheckedAt, platformpostgres.Nullable(rec.FailureReason), rec.CreatedAt, rec.UpdatedAt,
 		); err != nil {
 			return err
 		}
@@ -197,26 +196,4 @@ func (w *WriteRepository) beginTx(ctx context.Context) (pgx.Tx, error) {
 		return conn.Begin(ctx)
 	}
 	return nil, errors.New("write repository requires a pool or conn that supports Begin")
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
-	}
-	return strings.Contains(strings.ToLower(err.Error()), "unique")
-}
-
-func nullable(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
-}
-
-func nullableTime(t time.Time) *time.Time {
-	if t.IsZero() {
-		return nil
-	}
-	return &t
 }

@@ -2,6 +2,13 @@ package domain
 
 import "time"
 
+var DefaultSettingsJSON = map[string]any{
+	"email_defaults": map[string]any{
+		"default_sender_domain_id": "",
+	},
+	"feature_controls": map[string]any{},
+}
+
 type EmailDefaults struct {
 	DefaultSenderDomainID string
 }

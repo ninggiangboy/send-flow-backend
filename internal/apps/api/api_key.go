@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
 	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
 )
 
 type apiKeyHTTP struct {
@@ -190,7 +192,7 @@ func (h *apiKeyHTTP) recordAudit(r *http.Request, input identityapp.RecordAuditI
 	input.RequestID = reqCtx.RequestID
 	input.OccurredAt = time.Now().UTC()
 	if err := h.auditRecorder.Record(r.Context(), input); err != nil {
-		// Best-effort audit; log error but don't fail the request
+		slog.Warn("failed to record audit event", "error", err)
 	}
 }
 
@@ -208,7 +210,9 @@ func writeAPIKeyErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusUnprocessableEntity, "api_key.config_invalid", err.Error(), nil)
 	case errors.Is(err, accessdomain.ErrPayloadInvalid):
 		writeError(w, r, http.StatusBadRequest, "auth.invalid_request_body", err.Error(), nil)
+	case errors.Is(err, auth.ErrPermissionDenied):
+		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }

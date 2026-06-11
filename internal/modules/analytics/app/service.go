@@ -47,25 +47,27 @@ type GetDeliverabilityInput struct {
 }
 
 type Options struct {
-	FactRepo       ports.EventFactRepository
-	ProjectionRepo ports.ProjectionRepository
-	TxManager      ports.TransactionManager
-	OutboxWriter   ports.OutboxWriter
-	AccessChecker  ports.WorkspaceAccessChecker
-	IDGen          func() (string, error)
-	Clock          func() time.Time
-	Logger         *slog.Logger
+	FactRepo        ports.EventFactRepository
+	ProjectionRead  ports.ProjectionReadRepository
+	ProjectionWrite ports.ProjectionWriteRepository
+	TxManager       ports.TransactionManager
+	OutboxWriter    ports.OutboxWriter
+	AccessChecker   ports.WorkspaceAccessChecker
+	IDGen           func() (string, error)
+	Clock           func() time.Time
+	Logger          *slog.Logger
 }
 
 type Service struct {
-	factRepo       ports.EventFactRepository
-	projectionRepo ports.ProjectionRepository
-	txManager      ports.TransactionManager
-	outboxWriter   ports.OutboxWriter
-	accessChecker  ports.WorkspaceAccessChecker
-	idGen          func() (string, error)
-	clock          func() time.Time
-	log            *slog.Logger
+	factRepo        ports.EventFactRepository
+	projectionRead  ports.ProjectionReadRepository
+	projectionWrite ports.ProjectionWriteRepository
+	txManager       ports.TransactionManager
+	outboxWriter    ports.OutboxWriter
+	accessChecker   ports.WorkspaceAccessChecker
+	idGen           func() (string, error)
+	clock           func() time.Time
+	log             *slog.Logger
 }
 
 func NewService(opts Options) *Service {
@@ -76,14 +78,15 @@ func NewService(opts Options) *Service {
 		opts.Logger = slog.Default()
 	}
 	return &Service{
-		factRepo:       opts.FactRepo,
-		projectionRepo: opts.ProjectionRepo,
-		txManager:      opts.TxManager,
-		outboxWriter:   opts.OutboxWriter,
-		accessChecker:  opts.AccessChecker,
-		idGen:          opts.IDGen,
-		clock:          opts.Clock,
-		log:            opts.Logger.With("service", "analytics"),
+		factRepo:        opts.FactRepo,
+		projectionRead:  opts.ProjectionRead,
+		projectionWrite: opts.ProjectionWrite,
+		txManager:       opts.TxManager,
+		outboxWriter:    opts.OutboxWriter,
+		accessChecker:   opts.AccessChecker,
+		idGen:           opts.IDGen,
+		clock:           opts.Clock,
+		log:             opts.Logger.With("service", "analytics"),
 	}
 }
 
@@ -97,7 +100,7 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 		return err
 	}
 
-	return s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	return s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		existing, err := s.factRepo.FindBySourceEventID(txCtx, input.SourceEventID)
 		if err != nil && !errors.Is(err, domain.ErrAnalyticsProjectionNotFound) {
 			s.log.Error("failed to check existing fact",
@@ -136,7 +139,7 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 			RecipientDomain:   input.RecipientDomain,
 			OccurredAt:        input.OccurredAt,
 			ReceivedAt:        input.ReceivedAt,
-			MetadataJSON:      input.Metadata,
+			Metadata:          input.Metadata,
 			CreatedAt:         now,
 		}
 
@@ -155,7 +158,7 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 			return err
 		}
 
-		if err := s.projectionRepo.IncrementWorkspaceOverview(txCtx, input.WorkspaceID, input.CanonicalType, input.OccurredAt); err != nil {
+		if err := s.projectionWrite.IncrementWorkspaceOverview(txCtx, input.WorkspaceID, input.CanonicalType, input.OccurredAt); err != nil {
 			s.log.Error("failed to increment workspace overview",
 				"workspace_id", input.WorkspaceID,
 				"event_type", input.CanonicalType,
@@ -165,7 +168,7 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 		}
 
 		if input.CampaignID != "" {
-			if err := s.projectionRepo.IncrementCampaignSummary(txCtx, input.WorkspaceID, input.CampaignID, input.CanonicalType, input.OccurredAt); err != nil {
+			if err := s.projectionWrite.IncrementCampaignSummary(txCtx, input.WorkspaceID, input.CampaignID, input.CanonicalType, input.OccurredAt); err != nil {
 				s.log.Error("failed to increment campaign summary",
 					"workspace_id", input.WorkspaceID,
 					"campaign_id", input.CampaignID,
@@ -179,7 +182,7 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 		if input.Provider != "" || input.RecipientDomain != "" {
 			prov := input.Provider
 			dom := input.RecipientDomain
-			if err := s.projectionRepo.IncrementDeliverability(txCtx, input.WorkspaceID, prov, dom, input.CanonicalType, input.OccurredAt); err != nil {
+			if err := s.projectionWrite.IncrementDeliverability(txCtx, input.WorkspaceID, prov, dom, input.CanonicalType, input.OccurredAt); err != nil {
 				s.log.Error("failed to increment deliverability projection",
 					"workspace_id", input.WorkspaceID,
 					"provider", prov,
@@ -197,8 +200,8 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 				ProjectionType: "workspace_overview",
 				ProjectionID:   input.WorkspaceID,
 				EventType:      input.CanonicalType,
-				LastEventAt:    input.OccurredAt,
-				LastUpdatedAt:  now,
+				LastEventAt:    input.OccurredAt.Format(time.RFC3339),
+				LastUpdatedAt:  now.Format(time.RFC3339),
 			})
 			if err != nil {
 				return err
@@ -244,7 +247,7 @@ func (s *Service) GetDashboardOverview(ctx context.Context, input GetDashboardOv
 		}
 	}
 
-	overview, err := s.projectionRepo.GetWorkspaceOverview(ctx, input.WorkspaceID)
+	overview, err := s.projectionRead.GetWorkspaceOverview(ctx, input.WorkspaceID)
 	if err != nil {
 		if err == domain.ErrAnalyticsProjectionNotFound {
 			return &domain.DashboardOverview{
@@ -283,7 +286,7 @@ func (s *Service) GetCampaignAnalytics(ctx context.Context, input GetCampaignAna
 		}
 	}
 
-	summary, err := s.projectionRepo.GetCampaignSummary(ctx, input.WorkspaceID, input.CampaignID)
+	summary, err := s.projectionRead.GetCampaignSummary(ctx, input.WorkspaceID, input.CampaignID)
 	if err != nil {
 		if err == domain.ErrAnalyticsProjectionNotFound {
 			return &domain.CampaignAnalytics{
@@ -339,7 +342,7 @@ func (s *Service) GetDeliverability(ctx context.Context, input GetDeliverability
 		RecipientDomain: domain.NormalizeString(input.RecipientDomain),
 	}
 
-	projections, err := s.projectionRepo.ListDeliverability(ctx, input.WorkspaceID, filter)
+	projections, err := s.projectionRead.ListDeliverability(ctx, input.WorkspaceID, filter)
 	if err != nil {
 		s.log.Error("failed to list deliverability projections",
 			"workspace_id", input.WorkspaceID,

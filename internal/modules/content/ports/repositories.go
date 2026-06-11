@@ -6,25 +6,10 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/domain"
 )
 
-type TemplateListQuery struct {
-	WorkspaceID string
-	Status      string
-	Q           string
-	Cursor      string
-	Limit       int
-}
-
-type VersionListQuery struct {
-	WorkspaceID string
-	TemplateID  string
-	Limit       int
-	Cursor      string
-}
-
 type TemplateReadRepository interface {
 	FindTemplateByID(ctx context.Context, workspaceID, templateID string) (*domain.Template, error)
-	ListTemplates(ctx context.Context, query TemplateListQuery) ([]domain.Template, string, error)
-	ListTemplateVersions(ctx context.Context, query VersionListQuery) ([]domain.TemplateVersion, string, error)
+	ListTemplates(ctx context.Context, workspaceID, status, q, cursor string, limit int) ([]domain.Template, string, error)
+	ListTemplateVersions(ctx context.Context, workspaceID, templateID, cursor string, limit int) ([]domain.TemplateVersion, string, error)
 	FindTemplateVersionByID(ctx context.Context, workspaceID, versionID string) (*domain.TemplateVersion, error)
 	FindCurrentVersion(ctx context.Context, workspaceID, templateID string) (*domain.TemplateVersion, error)
 }

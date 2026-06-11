@@ -39,11 +39,11 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.LoginResul
 		if !errors.Is(err, domain.ErrNotFound) {
 			h.log.Error("failed to lookup user by email", "error", err)
 		}
-		h.log.Warn("invalid credentials: user not found")
+		h.log.Warn("invalid credentials", "user_id", cmd.Email)
 		return nil, domain.ErrInvalidCredentials
 	}
 	if err := user.VerifyPassword(cmd.Password, h.deps.Hasher); err != nil {
-		h.log.Warn("invalid credentials: password mismatch", "user_id", user.ID)
+		h.log.Warn("invalid credentials", "user_id", user.ID)
 		return nil, domain.ErrInvalidCredentials
 	}
 	if user.MFAEnabled() {

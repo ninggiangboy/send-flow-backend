@@ -55,47 +55,47 @@ type RecordAuditInput struct {
 }
 
 type Options struct {
-	UsersRead        ports.UserReadRepository
-	UsersWrite       ports.UserWriteRepository
-	ExternalsRead    ports.ExternalAccountReadRepository
-	ExternalsWrite   ports.ExternalAccountWriteRepository
-	SessionsRead     ports.SessionReadRepository
-	SessionsWrite    ports.SessionWriteRepository
-	Hasher           domain.PasswordHasher
-	Tokens           ports.TokenManager
-	OAuthState       ports.OAuthStateStore
-	RefreshStore     ports.RefreshStore
-	AuthTokens       ports.AuthTokenRepository
-	TOTP             ports.TOTPRepository
-	Providers        []ports.OAuthProvider
-	OAuthStateTTL    time.Duration
-	MailSender         ports.Mailer
-	RateLimiter        ports.RateLimiter
-	IDGen              ports.IDGenerator
-	TokenGen           ports.TokenGenerator
-	TokenHasher        ports.TokenHasher
-	PasswordValidator  ports.PasswordValidator
-	TOTPVerifier       ports.TOTPCodeVerifier
-	TOTPSecretGen      ports.TOTPSecretGenerator
-	RecoveryCodeGen    ports.RecoveryCodeGenerator
-	FrontendBaseURL  string
-	VerificationTTL  time.Duration
-	PasswordResetTTL time.Duration
-	MFAChallengeTTL  time.Duration
-	WorkspacesRead   ports.WorkspaceReadRepository
-	WorkspacesWrite  ports.WorkspaceWriteRepository
-	RolesRead        ports.RoleReadRepository
-	RolesWrite       ports.RoleWriteRepository
-	MembershipsRead  ports.MembershipReadRepository
-	MembershipsWrite ports.MembershipWriteRepository
-	InvitationsRead  ports.InvitationReadRepository
-	InvitationsWrite ports.InvitationWriteRepository
-	SettingsRead     ports.WorkspaceSettingsReadRepository
-	SettingsWrite    ports.WorkspaceSettingsWriteRepository
-	AuditRecorder    AuditRecorder
-	Logger           *slog.Logger
-	UnitOfWork       ports.UnitOfWork
-	OutboxWriter     ports.OutboxWriter
+	UsersRead         ports.UserReadRepository
+	UsersWrite        ports.UserWriteRepository
+	ExternalsRead     ports.ExternalAccountReadRepository
+	ExternalsWrite    ports.ExternalAccountWriteRepository
+	SessionsRead      ports.SessionReadRepository
+	SessionsWrite     ports.SessionWriteRepository
+	Hasher            domain.PasswordHasher
+	Tokens            ports.TokenManager
+	OAuthState        ports.OAuthStateStore
+	RefreshStore      ports.RefreshStore
+	AuthTokens        ports.AuthTokenRepository
+	TOTP              ports.TOTPRepository
+	Providers         []ports.OAuthProvider
+	OAuthStateTTL     time.Duration
+	MailSender        ports.Mailer
+	RateLimiter       ports.RateLimiter
+	IDGen             ports.IDGenerator
+	TokenGen          ports.TokenGenerator
+	TokenHasher       ports.TokenHasher
+	PasswordValidator ports.PasswordValidator
+	TOTPVerifier      ports.TOTPCodeVerifier
+	TOTPSecretGen     ports.TOTPSecretGenerator
+	RecoveryCodeGen   ports.RecoveryCodeGenerator
+	FrontendBaseURL   string
+	VerificationTTL   time.Duration
+	PasswordResetTTL  time.Duration
+	MFAChallengeTTL   time.Duration
+	WorkspacesRead    ports.WorkspaceReadRepository
+	WorkspacesWrite   ports.WorkspaceWriteRepository
+	RolesRead         ports.RoleReadRepository
+	RolesWrite        ports.RoleWriteRepository
+	MembershipsRead   ports.MembershipReadRepository
+	MembershipsWrite  ports.MembershipWriteRepository
+	InvitationsRead   ports.InvitationReadRepository
+	InvitationsWrite  ports.InvitationWriteRepository
+	SettingsRead      ports.WorkspaceSettingsReadRepository
+	SettingsWrite     ports.WorkspaceSettingsWriteRepository
+	AuditRecorder     AuditRecorder
+	Logger            *slog.Logger
+	UnitOfWork        ports.UnitOfWork
+	OutboxWriter      ports.OutboxWriter
 }
 
 type Service struct {
@@ -116,49 +116,53 @@ func NewService(opts Options) *Service {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
+	if opts.UnitOfWork == nil {
+		panic("identity: UnitOfWork is required")
+	}
 	providerMap := map[string]ports.OAuthProvider{}
 	for _, p := range opts.Providers {
 		providerMap[p.Name()] = p
 	}
 	deps := usecase.Deps{
-		UsersRead:        opts.UsersRead,
-		UsersWrite:       opts.UsersWrite,
-		ExternalsRead:    opts.ExternalsRead,
-		ExternalsWrite:   opts.ExternalsWrite,
-		SessionsRead:     opts.SessionsRead,
-		SessionsWrite:    opts.SessionsWrite,
-		Hasher:           opts.Hasher,
-		Tokens:           opts.Tokens,
-		OAuthState:       opts.OAuthState,
-		RefreshStore:     opts.RefreshStore,
-		AuthTokens:       opts.AuthTokens,
-		TOTP:             opts.TOTP,
-		Providers:        providerMap,
-		OAuthStateTTL:    opts.OAuthStateTTL,
-		MailSender:         opts.MailSender,
-		RateLimiter:        opts.RateLimiter,
-		IDGen:              opts.IDGen,
-		TokenGen:           opts.TokenGen,
-		TokenHasher:        opts.TokenHasher,
-		PasswordValidator:  opts.PasswordValidator,
-		TOTPVerifier:       opts.TOTPVerifier,
-		TOTPSecretGen:      opts.TOTPSecretGen,
-		RecoveryCodeGen:    opts.RecoveryCodeGen,
-		FrontendBaseURL:  opts.FrontendBaseURL,
-		VerificationTTL:  opts.VerificationTTL,
-		PasswordResetTTL: opts.PasswordResetTTL,
-		MFAChallengeTTL:  opts.MFAChallengeTTL,
-		WorkspacesRead:   opts.WorkspacesRead,
-		WorkspacesWrite:  opts.WorkspacesWrite,
-		RolesRead:        opts.RolesRead,
-		RolesWrite:       opts.RolesWrite,
-		MembershipsRead:  opts.MembershipsRead,
-		MembershipsWrite: opts.MembershipsWrite,
-		InvitationsRead:  opts.InvitationsRead,
-		InvitationsWrite: opts.InvitationsWrite,
-		Logger:           opts.Logger,
-		UnitOfWork:       opts.UnitOfWork,
-		OutboxWriter:     opts.OutboxWriter,
+		UsersRead:         opts.UsersRead,
+		UsersWrite:        opts.UsersWrite,
+		ExternalsRead:     opts.ExternalsRead,
+		ExternalsWrite:    opts.ExternalsWrite,
+		SessionsRead:      opts.SessionsRead,
+		SessionsWrite:     opts.SessionsWrite,
+		Hasher:            opts.Hasher,
+		Tokens:            opts.Tokens,
+		OAuthState:        opts.OAuthState,
+		RefreshStore:      opts.RefreshStore,
+		AuthTokens:        opts.AuthTokens,
+		TOTP:              opts.TOTP,
+		Providers:         providerMap,
+		OAuthStateTTL:     opts.OAuthStateTTL,
+		MailSender:        opts.MailSender,
+		RateLimiter:       opts.RateLimiter,
+		IDGen:             opts.IDGen,
+		TokenGen:          opts.TokenGen,
+		TokenHasher:       opts.TokenHasher,
+		PasswordValidator: opts.PasswordValidator,
+		TOTPVerifier:      opts.TOTPVerifier,
+		TOTPSecretGen:     opts.TOTPSecretGen,
+		RecoveryCodeGen:   opts.RecoveryCodeGen,
+		FrontendBaseURL:   opts.FrontendBaseURL,
+		VerificationTTL:   opts.VerificationTTL,
+		PasswordResetTTL:  opts.PasswordResetTTL,
+		MFAChallengeTTL:   opts.MFAChallengeTTL,
+		WorkspacesRead:    opts.WorkspacesRead,
+		WorkspacesWrite:   opts.WorkspacesWrite,
+		RolesRead:         opts.RolesRead,
+		RolesWrite:        opts.RolesWrite,
+		MembershipsRead:   opts.MembershipsRead,
+		MembershipsWrite:  opts.MembershipsWrite,
+		InvitationsRead:   opts.InvitationsRead,
+		InvitationsWrite:  opts.InvitationsWrite,
+		SettingsWrite:     opts.SettingsWrite,
+		Logger:            opts.Logger,
+		UnitOfWork:        opts.UnitOfWork,
+		OutboxWriter:      opts.OutboxWriter,
 	}
 	newSession := usecase.BuildNewSession(deps)
 	signupH := signup.New(deps, newSession)
@@ -192,8 +196,8 @@ func NewService(opts Options) *Service {
 	listWSInvitesH := listworkspaceinvitations.New(deps)
 
 	return &Service{
-		commands:      newCommandBus(signupH, loginH, oauthStartH, oauthExchangeH, revokeH, refreshH, reqVerifyH, verifyH, forgotH, resetH, mfaLoginH, mfaSetupH, mfaEnableH, mfaDisableH, mfaRegenH, createWSH, inviteMemberH, acceptInviteH, removeMemberH, updateRoleH),
-		queries:       newQueryBus(listProviderH, getMeH, listSessionsH, authnH, listWSH, getWSH, listWSMembersH, getWSAccessH, listWSInvitesH),
+		commands:      newCommandBus(deps.Logger, signupH, loginH, oauthStartH, oauthExchangeH, revokeH, refreshH, reqVerifyH, verifyH, forgotH, resetH, mfaLoginH, mfaSetupH, mfaEnableH, mfaDisableH, mfaRegenH, createWSH, inviteMemberH, acceptInviteH, removeMemberH, updateRoleH),
+		queries:       newQueryBus(deps.Logger, listProviderH, getMeH, listSessionsH, authnH, listWSH, getWSH, listWSMembersH, getWSAccessH, listWSInvitesH),
 		deps:          deps,
 		settingsRead:  opts.SettingsRead,
 		settingsWrite: opts.SettingsWrite,

@@ -8,28 +8,17 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/ninggiangboy/send-flow/backend/internal/apps/shared"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
-	analyticspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/postgres"
 	campaignpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/infrastructure/postgres"
-	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
-	contentpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/postgres"
+	deliveryAppMappers "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/analyticsmappers"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
+	deliveryinfrastructure "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure"
 	deliverycampaign "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/campaign"
 	deliverypostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/postgres"
 	deliveryports "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
 	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
-	notificationemail "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/email"
-	notificationpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/postgres"
-	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
-	senderpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/infrastructure/postgres"
-	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
-	suppressionpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/infrastructure/postgres"
-	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/unsubscribetoken"
-	trackingpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/infrastructure/postgres"
-	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
-	webhookshttp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/infrastructure/http"
-	webhookspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/infrastructure/postgres"
+	trackingAppMappers "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/analyticsmappers"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
@@ -40,6 +29,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/observability"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 	platformredis "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -50,8 +40,14 @@ func Run(ctx context.Context) error {
 	}
 
 	log := logger.New(cfg)
-	httpMetrics := observability.NewHTTPMetrics(nil)
-	observability.RegisterFallbackProcessMetrics(nil)
+	config.WarnDevSecrets(log, cfg)
+	httpMetrics, err := observability.NewHTTPMetrics(nil)
+	if err != nil {
+		return err
+	}
+	if err := observability.RegisterFallbackProcessMetrics(nil); err != nil {
+		return err
+	}
 
 	pgClient, err := postgres.New(ctx, cfg)
 	if err != nil {
@@ -86,7 +82,7 @@ func Run(ctx context.Context) error {
 	deliveryMsgReadRepo := deliverypostgres.NewMessageReadRepository(pgReadPool)
 	deliveryMsgWriteRepo := deliverypostgres.NewMessageWriteRepository(pgWritePool)
 	deliveryOutboxRepo := deliverypostgres.NewOutboxRepository(pgWritePool)
-	deliveryTxManager := deliverypostgres.NewTransactionManager(pgWritePool)
+	deliveryTxManager := transaction.NewManager(pgWritePool)
 
 	deliveryAttemptReadRepo := deliverypostgres.NewAttemptReadRepository(pgReadPool)
 	deliveryAttemptWriteRepo := deliverypostgres.NewAttemptWriteRepository(pgWritePool)
@@ -95,39 +91,15 @@ func Run(ctx context.Context) error {
 	deliveryTxReqReadRepo := deliverypostgres.NewTransactionalRequestReadRepository(pgReadPool)
 	deliveryTxReqWriteRepo := deliverypostgres.NewTransactionalRequestWriteRepository(pgWritePool)
 
-	// Wire suppression module
-	suppressionReadRepo := suppressionpostgres.NewReadRepository(pgReadPool)
-	suppressionWriteRepo := suppressionpostgres.NewWriteRepository(pgWritePool)
-
-	suppressionSvc := suppressionapp.NewService(suppressionapp.Options{
-		EntriesRead:  suppressionReadRepo,
-		EntriesWrite: suppressionWriteRepo,
-		IDGen:        id.NewUUIDGenerator().New,
-		Logger:       log,
-	})
+	suppressionReadRepo, suppressionWriteRepo := shared.NewSuppressionRepos(pgReadPool, pgWritePool)
+	suppressionSvc := shared.NewSuppressionService(suppressionReadRepo, suppressionWriteRepo, nil, log)
 	suppressionRecipientSuppressorAdapter := newRecipientSuppressorAdapter(suppressionSvc)
 
-	// Wire content module
-	contentReadRepo := contentpostgres.NewTemplateReadRepository(pgReadPool)
-	contentWriteRepo := contentpostgres.NewTemplateWriteRepository(pgWritePool)
+	contentReadRepo, contentWriteRepo := shared.NewContentRepos(pgReadPool, pgWritePool)
+	contentSvc := shared.NewContentService(contentReadRepo, contentWriteRepo, nil, log)
 
-	contentSvc := contentapp.NewService(contentapp.Options{
-		TemplatesRead:  contentReadRepo,
-		TemplatesWrite: contentWriteRepo,
-		IDGen:          id.NewUUIDGenerator().New,
-		Logger:         log,
-	})
-
-	// Wire sender module
-	senderReadRepo := senderpostgres.NewReadRepository(pgReadPool)
-	senderWriteRepo := senderpostgres.NewWriteRepository(pgWritePool)
-
-	senderSvc := senderapp.NewService(senderapp.Options{
-		DomainsRead:  senderReadRepo,
-		DomainsWrite: senderWriteRepo,
-		IDGen:        id.NewUUIDGenerator().New,
-		Logger:       log,
-	})
+	senderReadRepo, senderWriteRepo := shared.NewSenderRepos(pgReadPool, pgWritePool)
+	senderSvc := shared.NewSenderService(senderReadRepo, senderWriteRepo, nil, nil, log)
 
 	// Create platform email sender (shared across modules)
 	emailSender, err := platformemail.NewSender(ctx, cfg)
@@ -191,27 +163,10 @@ func Run(ctx context.Context) error {
 	}
 
 	// Wire tracking module
-	trackingLinkReadRepo := trackingpostgres.NewTrackingLinkRepository(pgReadPool)
-	trackingLinkWriteRepo := trackingpostgres.NewTrackingLinkRepository(pgWritePool)
-	trackingEventReadRepo := trackingpostgres.NewTrackingEventRepository(pgReadPool)
-	trackingEventWriteRepo := trackingpostgres.NewTrackingEventRepository(pgWritePool)
-	trackingMessageResolver := newTrackingMessageResolverAdapter(deliveryMsgReadRepo)
-	trackingSuppressor := newTrackingSuppressorAdapter(suppressionSvc)
-	trackingOutboxRepo := trackingpostgres.NewOutboxRepository(pgWritePool)
-	trackingTxManager := trackingpostgres.NewTransactionManager(pgWritePool)
-	trackingSvc := trackingapp.NewService(trackingapp.Options{
-		LinkReadRepo:        trackingLinkReadRepo,
-		LinkWriteRepo:       trackingLinkWriteRepo,
-		EventReadRepo:       trackingEventReadRepo,
-		EventWriteRepo:      trackingEventWriteRepo,
-		MessageResolver:     trackingMessageResolver,
-		RecipientSuppressor: trackingSuppressor,
-		OutboxWriter:        trackingOutboxRepo,
-		TxManager:           trackingTxManager,
-		IDGen:               id.NewUUIDGenerator().New,
-		Logger:              log,
-		TokenSigner:         unsubscribetoken.NewSigner(cfg.UnsubscribeTokenSecret),
-	})
+	trackingDeps := shared.NewTrackingRepos(pgReadPool, pgWritePool)
+	trackingMessageResolver := shared.NewTrackingMessageResolverAdapter(deliveryinfrastructure.NewMessageResolver(deliveryMsgReadRepo))
+	trackingSuppressor := shared.NewTrackingSuppressorAdapter(suppressionSvc)
+	trackingSvc := shared.NewTrackingService(trackingDeps, trackingMessageResolver, trackingSuppressor, cfg.UnsubscribeTokenSecret, log)
 
 	trackingConsumer := NewTrackingProviderEventConsumer(
 		trackingSvc,
@@ -235,24 +190,17 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	// Wire analytics module
-	analyticsWritePool := pgClient.WritePool()
-	analyticsFactRepo := analyticspostgres.NewEventFactRepository(analyticsWritePool)
-	analyticsProjectionRepo := analyticspostgres.NewProjectionRepository(analyticsWritePool)
-	analyticsTxManager := analyticspostgres.NewTransactionManager(analyticsWritePool)
-	analyticsOutboxRepo := analyticspostgres.NewOutboxRepository(analyticsWritePool)
+	mapperRegistry := analyticsapp.NewMapperRegistry()
+	deliveryAppMappers.RegisterAll(mapperRegistry)
+	trackingAppMappers.RegisterAll(mapperRegistry)
 
-	analyticsSvc := analyticsapp.NewService(analyticsapp.Options{
-		FactRepo:       analyticsFactRepo,
-		ProjectionRepo: analyticsProjectionRepo,
-		TxManager:      analyticsTxManager,
-		OutboxWriter:   analyticsOutboxRepo,
-		IDGen:          id.NewUUIDGenerator().New,
-		Logger:         log,
-	})
+	analyticsOpts, _ := shared.NewAnalyticsRepos(pgClient.WritePool())
+	analyticsOpts.Logger = log
+	analyticsSvc := analyticsapp.NewService(analyticsOpts)
 
 	analyticsConsumer := NewAnalyticsEventConsumer(
 		analyticsSvc,
+		mapperRegistry,
 		log,
 		kafka.Brokers(cfg.KafkaBrokers),
 		cfg.WorkerConsumerGroupPrefix+".analytics_events",
@@ -262,25 +210,9 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	notificationMsgRead := notificationpostgres.NewMessageReadRepository(pgReadPool)
-	notificationMsgWrite := notificationpostgres.NewMessageWriteRepository(pgWritePool)
-	notificationAttemptRead := notificationpostgres.NewAttemptReadRepository(pgReadPool)
-	notificationAttemptWrite := notificationpostgres.NewAttemptWriteRepository(pgWritePool)
-	notificationOutbox := notificationpostgres.NewOutboxRepository(pgWritePool)
-	notificationTxManager := notificationpostgres.NewTransactionManager(pgWritePool)
-	notificationEmailAdapter := notificationemail.NewEmailAdapter(emailSender)
-
-	notificationSvc := notificationapp.NewService(notificationapp.Options{
-		MessagesRead:  notificationMsgRead,
-		MessagesWrite: notificationMsgWrite,
-		AttemptsRead:  notificationAttemptRead,
-		AttemptsWrite: notificationAttemptWrite,
-		OutboxWriter:  notificationOutbox,
-		TxManager:     notificationTxManager,
-		EmailSender:   notificationEmailAdapter,
-		IDGen:         id.NewUUIDGenerator().New,
-		Logger:        log,
-	})
+	notificationOpts := shared.NewNotificationRepos(pgReadPool, pgWritePool, emailSender)
+	notificationOpts.Logger = log
+	notificationSvc := notificationapp.NewService(notificationOpts)
 
 	notificationConsumer := NewNotificationEventConsumer(
 		notificationSvc,
@@ -294,29 +226,7 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	webhooksConfigRead := webhookspostgres.NewConfigReadRepository(pgReadPool)
-	webhooksConfigWrite := webhookspostgres.NewConfigWriteRepository(pgWritePool)
-	webhooksDeliveryRead := webhookspostgres.NewDeliveryReadRepository(pgReadPool)
-	webhooksDeliveryWrite := webhookspostgres.NewDeliveryWriteRepository(pgWritePool)
-	webhooksAttemptRead := webhookspostgres.NewAttemptReadRepository(pgReadPool)
-	webhooksAttemptWrite := webhookspostgres.NewAttemptWriteRepository(pgWritePool)
-	webhooksTxManager := webhookspostgres.NewTransactionManager(pgWritePool)
-	webhooksOutbox := webhookspostgres.NewOutboxRepository(pgWritePool)
-	webhooksDeliverer := webhookshttp.NewDeliverer()
-
-	webhooksSvc := webhooksapp.NewService(webhooksapp.Options{
-		ConfigRead:    webhooksConfigRead,
-		ConfigWrite:   webhooksConfigWrite,
-		DeliveryRead:  webhooksDeliveryRead,
-		DeliveryWrite: webhooksDeliveryWrite,
-		AttemptRead:   webhooksAttemptRead,
-		AttemptWrite:  webhooksAttemptWrite,
-		TxManager:     webhooksTxManager,
-		OutboxWriter:  webhooksOutbox,
-		Deliverer:     webhooksDeliverer,
-		IDGen:         id.NewUUIDGenerator().New,
-		Logger:        log,
-	})
+	webhooksSvc := shared.NewWebhooksService(pgReadPool, pgWritePool, nil, log)
 
 	webhookConsumer := NewWebhookEventConsumer(
 		webhooksSvc,
@@ -389,15 +299,15 @@ func newRouter(healthSvc *platformhealth.Service, httpMetrics *observability.HTT
 	})
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-			httpjson.Write(w, http.StatusOK, healthSvc.Live())
+			_ = httpjson.Write(w, http.StatusOK, healthSvc.Live())
 		})
 		r.Get("/readyz", func(w http.ResponseWriter, req *http.Request) {
 			ready := healthSvc.Ready(req.Context())
 			if ready.Status != "ok" {
-				httpjson.Write(w, http.StatusServiceUnavailable, ready)
+				_ = httpjson.Write(w, http.StatusServiceUnavailable, ready)
 				return
 			}
-			httpjson.Write(w, http.StatusOK, ready)
+			_ = httpjson.Write(w, http.StatusOK, ready)
 		})
 		r.Handle("/metrics", promhttp.Handler())
 	})

@@ -9,4 +9,5 @@ var (
 	ErrUnsuppressConflict = errors.New("suppression unsuppress conflict")
 	ErrScopeInvalid       = errors.New("suppression scope invalid")
 	ErrReasonInvalid      = errors.New("suppression reason invalid")
+	ErrEmailInvalid       = errors.New("suppression email invalid")
 )

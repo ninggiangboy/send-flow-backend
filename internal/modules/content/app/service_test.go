@@ -14,8 +14,8 @@ import (
 type mockTemplateRead struct {
 	ports.TemplateReadRepository
 	findByID        func(ctx context.Context, workspaceID, templateID string) (*domain.Template, error)
-	list            func(ctx context.Context, query ports.TemplateListQuery) ([]domain.Template, string, error)
-	listVersions    func(ctx context.Context, query ports.VersionListQuery) ([]domain.TemplateVersion, string, error)
+	list            func(ctx context.Context, workspaceID, status, q, cursor string, limit int) ([]domain.Template, string, error)
+	listVersions    func(ctx context.Context, workspaceID, templateID, cursor string, limit int) ([]domain.TemplateVersion, string, error)
 	findVersionByID func(ctx context.Context, workspaceID, versionID string) (*domain.TemplateVersion, error)
 	findCurrent     func(ctx context.Context, workspaceID, templateID string) (*domain.TemplateVersion, error)
 }
@@ -24,12 +24,12 @@ func (m *mockTemplateRead) FindTemplateByID(ctx context.Context, workspaceID, te
 	return m.findByID(ctx, workspaceID, templateID)
 }
 
-func (m *mockTemplateRead) ListTemplates(ctx context.Context, query ports.TemplateListQuery) ([]domain.Template, string, error) {
-	return m.list(ctx, query)
+func (m *mockTemplateRead) ListTemplates(ctx context.Context, workspaceID, status, q, cursor string, limit int) ([]domain.Template, string, error) {
+	return m.list(ctx, workspaceID, status, q, cursor, limit)
 }
 
-func (m *mockTemplateRead) ListTemplateVersions(ctx context.Context, query ports.VersionListQuery) ([]domain.TemplateVersion, string, error) {
-	return m.listVersions(ctx, query)
+func (m *mockTemplateRead) ListTemplateVersions(ctx context.Context, workspaceID, templateID, cursor string, limit int) ([]domain.TemplateVersion, string, error) {
+	return m.listVersions(ctx, workspaceID, templateID, cursor, limit)
 }
 
 func (m *mockTemplateRead) FindTemplateVersionByID(ctx context.Context, workspaceID, versionID string) (*domain.TemplateVersion, error) {
@@ -218,7 +218,7 @@ func TestPublishTemplate(t *testing.T) {
 			SourceHTML: "<p>Hello {{.name}}</p>",
 		}, nil
 	}
-	read.listVersions = func(ctx context.Context, query ports.VersionListQuery) ([]domain.TemplateVersion, string, error) {
+	read.listVersions = func(ctx context.Context, workspaceID, templateID, cursor string, limit int) ([]domain.TemplateVersion, string, error) {
 		return nil, "", nil
 	}
 	write := opts.TemplatesWrite.(*mockTemplateWrite)

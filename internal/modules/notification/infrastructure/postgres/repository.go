@@ -7,97 +7,82 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
-type txKey struct{}
-
 type MessageReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type MessageWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type AttemptReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type AttemptWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type OutboxRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-type TransactionManager struct {
-	db DBTX
-}
-
-func NewMessageReadRepository(db DBTX) *MessageReadRepository {
+func NewMessageReadRepository(db platformpostgres.DBTX) *MessageReadRepository {
 	return &MessageReadRepository{db: db}
 }
 
-func NewMessageWriteRepository(db DBTX) *MessageWriteRepository {
+func NewMessageWriteRepository(db platformpostgres.DBTX) *MessageWriteRepository {
 	return &MessageWriteRepository{db: db}
 }
 
-func NewAttemptReadRepository(db DBTX) *AttemptReadRepository {
+func NewAttemptReadRepository(db platformpostgres.DBTX) *AttemptReadRepository {
 	return &AttemptReadRepository{db: db}
 }
 
-func NewAttemptWriteRepository(db DBTX) *AttemptWriteRepository {
+func NewAttemptWriteRepository(db platformpostgres.DBTX) *AttemptWriteRepository {
 	return &AttemptWriteRepository{db: db}
 }
 
-func NewOutboxRepository(db DBTX) *OutboxRepository {
+func NewOutboxRepository(db platformpostgres.DBTX) *OutboxRepository {
 	return &OutboxRepository{db: db}
 }
 
-func NewTransactionManager(db DBTX) *TransactionManager {
-	return &TransactionManager{db: db}
-}
-
-func (r *MessageReadRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *MessageReadRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
 
-func (w *MessageWriteRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (w *MessageWriteRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return w.db
 }
 
-func (r *AttemptReadRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *AttemptReadRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
 
-func (w *AttemptWriteRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (w *AttemptWriteRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return w.db
 }
 
-func (r *OutboxRepository) getDB(ctx context.Context) DBTX {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+func (r *OutboxRepository) getDB(ctx context.Context) platformpostgres.DBTX {
+	if tx := platformpostgres.TxFromCtx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
@@ -138,47 +123,47 @@ func (r *MessageReadRepository) List(ctx context.Context, filter domain.Notifica
 	argIdx := 1
 
 	if filter.WorkspaceID != nil {
-		where += " AND workspace_id = $" + itoa(argIdx)
+		where += " AND workspace_id = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, *filter.WorkspaceID)
 		argIdx++
 	}
 	if filter.RecipientUserID != "" {
-		where += " AND recipient_user_id = $" + itoa(argIdx)
+		where += " AND recipient_user_id = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, filter.RecipientUserID)
 		argIdx++
 	}
 	if filter.Type != "" {
-		where += " AND type = $" + itoa(argIdx)
+		where += " AND type = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, filter.Type)
 		argIdx++
 	}
 	if filter.Status != "" {
-		where += " AND status = $" + itoa(argIdx)
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, filter.Status)
 		argIdx++
 	}
 	if filter.From != nil {
-		where += " AND created_at >= $" + itoa(argIdx)
+		where += " AND created_at >= $" + platformpostgres.Itoa(argIdx)
 		args = append(args, *filter.From)
 		argIdx++
 	}
 	if filter.To != nil {
-		where += " AND created_at <= $" + itoa(argIdx)
+		where += " AND created_at <= $" + platformpostgres.Itoa(argIdx)
 		args = append(args, *filter.To)
 		argIdx++
 	}
 	if filter.Cursor != "" {
-		where += " AND (created_at, id) < (SELECT created_at, id FROM notification_messages WHERE id = $" + itoa(argIdx) + ")"
+		where += " AND (created_at, id) < (SELECT created_at, id FROM notification_messages WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
 		args = append(args, filter.Cursor)
 		argIdx++
 	}
 	limit := filter.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
 	query := `SELECT id, workspace_id, type, status, recipient_email, recipient_user_id, subject, body_text, body_html, max_attempts, attempt_count, last_attempt_at, created_at, updated_at
-		FROM notification_messages WHERE 1=1 ` + where + ` ORDER BY created_at DESC, id DESC LIMIT $` + itoa(argIdx)
+		FROM notification_messages WHERE 1=1 ` + where + ` ORDER BY created_at DESC, id DESC LIMIT $` + platformpostgres.Itoa(argIdx)
 	args = append(args, limit+1)
 	argIdx++
 
@@ -348,45 +333,4 @@ func (r *OutboxRepository) Save(ctx context.Context, event ports.OutboxEvent) er
 		event.Payload, headersJSON, event.WorkspaceID, event.OccurredAt,
 	)
 	return err
-}
-
-func (tm *TransactionManager) RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	conn, ok := tm.db.(interface {
-		Begin(ctx context.Context) (pgx.Tx, error)
-	})
-	if !ok {
-		return errors.New("transaction manager requires a pool or conn that supports Begin")
-	}
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	if err := fn(context.WithValue(ctx, txKey{}, tx)); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
-}
-
-func nullable(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
-}
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var buf [12]byte
-	pos := len(buf)
-	for i > 0 {
-		pos--
-		buf[pos] = byte('0' + i%10)
-		i /= 10
-	}
-	return string(buf[pos:])
 }

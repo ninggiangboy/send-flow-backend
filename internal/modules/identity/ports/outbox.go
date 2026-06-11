@@ -2,19 +2,11 @@ package ports
 
 import (
 	"context"
-	"time"
+
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/outbox"
 )
 
-type OutboxEvent struct {
-	ID            string
-	AggregateType string
-	AggregateID   string
-	EventType     string
-	Payload       []byte
-	Headers       map[string]string
-	WorkspaceID   string
-	OccurredAt    time.Time
-}
+type OutboxEvent = outbox.Event
 
 type OutboxWriter interface {
 	Save(ctx context.Context, event OutboxEvent) error

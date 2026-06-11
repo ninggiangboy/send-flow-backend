@@ -9,6 +9,8 @@ import (
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type audienceHTTP struct {
@@ -24,7 +26,7 @@ func (h *audienceHTTP) listContacts(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	q := r.URL.Query()
-	limit := parseIntParam(q.Get("limit"), 50)
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
 	if limit > 100 {
 		limit = 100
 	}
@@ -46,17 +48,11 @@ func (h *audienceHTTP) listContacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out := make([]map[string]any, 0, len(result.Contacts))
+	out := make([]audienceContactDoc, 0, len(result.Contacts))
 	for _, c := range result.Contacts {
-		out = append(out, contactResponse(c))
+		out = append(out, newContactResponse(c))
 	}
 
-	env := envelope{Data: out, Meta: meta{RequestID: requestID(r)}}
-	if result.NextCursor != "" {
-		env.Meta = meta{RequestID: requestID(r)}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
 	if result.NextCursor != "" {
 		w.Header().Set("X-Next-Cursor", result.NextCursor)
 	}
@@ -93,7 +89,7 @@ func (h *audienceHTTP) createContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusCreated, contactResponse(result.Contact))
+	writeEnvelope(w, r, http.StatusCreated, newContactResponse(result.Contact))
 }
 
 func (h *audienceHTTP) getContact(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +103,7 @@ func (h *audienceHTTP) getContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusOK, contactResponse(result.Contact))
+	writeEnvelope(w, r, http.StatusOK, newContactResponse(result.Contact))
 }
 
 func (h *audienceHTTP) updateContact(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +142,7 @@ func (h *audienceHTTP) updateContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusOK, contactResponse(result.Contact))
+	writeEnvelope(w, r, http.StatusOK, newContactResponse(result.Contact))
 }
 
 func (h *audienceHTTP) deleteContact(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +163,7 @@ func (h *audienceHTTP) listAudienceLists(w http.ResponseWriter, r *http.Request)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	q := r.URL.Query()
-	limit := parseIntParam(q.Get("limit"), 50)
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
 	if limit > 100 {
 		limit = 100
 	}
@@ -178,11 +174,11 @@ func (h *audienceHTTP) listAudienceLists(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	out := make([]map[string]any, 0, len(result.Lists))
+	out := make([]audienceListDoc, 0, len(result.Lists))
 	for _, l := range result.Lists {
-		resp := listResponse(l)
+		resp := newListResponse(l)
 		if count, ok := result.Counts[l.ID]; ok {
-			resp["contact_count"] = count
+			resp.ContactCount = count
 		}
 		out = append(out, resp)
 	}
@@ -212,7 +208,7 @@ func (h *audienceHTTP) createAudienceList(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusCreated, listResponse(result.List))
+	writeEnvelope(w, r, http.StatusCreated, newListResponse(result.List))
 }
 
 func (h *audienceHTTP) updateAudienceListContacts(w http.ResponseWriter, r *http.Request) {
@@ -234,10 +230,10 @@ func (h *audienceHTTP) updateAudienceListContacts(w http.ResponseWriter, r *http
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusOK, map[string]any{
-		"added_count":   result.Result.AddedCount,
-		"removed_count": result.Result.RemovedCount,
-		"skipped_count": result.Result.SkippedCount,
+	writeEnvelope(w, r, http.StatusOK, listMembershipUpdateDoc{
+		AddedCount:   result.Result.AddedCount,
+		RemovedCount: result.Result.RemovedCount,
+		SkippedCount: result.Result.SkippedCount,
 	})
 }
 
@@ -246,7 +242,7 @@ func (h *audienceHTTP) listSegments(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	q := r.URL.Query()
-	limit := parseIntParam(q.Get("limit"), 50)
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
 	if limit > 100 {
 		limit = 100
 	}
@@ -257,9 +253,9 @@ func (h *audienceHTTP) listSegments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out := make([]map[string]any, 0, len(result.Segments))
+	out := make([]audienceSegmentDoc, 0, len(result.Segments))
 	for _, s := range result.Segments {
-		out = append(out, segmentResponse(s))
+		out = append(out, newSegmentResponse(s))
 	}
 
 	if result.NextCursor != "" {
@@ -286,7 +282,7 @@ func (h *audienceHTTP) createSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusCreated, segmentResponse(result.Segment))
+	writeEnvelope(w, r, http.StatusCreated, newSegmentResponse(result.Segment))
 }
 
 func (h *audienceHTTP) updateSegment(w http.ResponseWriter, r *http.Request) {
@@ -309,7 +305,7 @@ func (h *audienceHTTP) updateSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusOK, segmentResponse(result.Segment))
+	writeEnvelope(w, r, http.StatusOK, newSegmentResponse(result.Segment))
 }
 
 func (h *audienceHTTP) startAudienceImport(w http.ResponseWriter, r *http.Request) {
@@ -331,7 +327,7 @@ func (h *audienceHTTP) startAudienceImport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusCreated, importJobResponse(result.Job))
+	writeEnvelope(w, r, http.StatusCreated, newImportJobResponse(result.Job))
 }
 
 func (h *audienceHTTP) listAudienceImports(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +335,7 @@ func (h *audienceHTTP) listAudienceImports(w http.ResponseWriter, r *http.Reques
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	q := r.URL.Query()
-	limit := parseIntParam(q.Get("limit"), 50)
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
 	if limit > 100 {
 		limit = 100
 	}
@@ -350,9 +346,9 @@ func (h *audienceHTTP) listAudienceImports(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	out := make([]map[string]any, 0, len(result.Jobs))
+	out := make([]audienceImportJobDoc, 0, len(result.Jobs))
 	for _, j := range result.Jobs {
-		out = append(out, importJobResponse(j))
+		out = append(out, newImportJobResponse(j))
 	}
 
 	if result.NextCursor != "" {
@@ -372,7 +368,7 @@ func (h *audienceHTTP) getAudienceImport(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusOK, importJobResponse(result.Job))
+	writeEnvelope(w, r, http.StatusOK, newImportJobResponse(result.Job))
 }
 
 func (h *audienceHTTP) startAudienceExport(w http.ResponseWriter, r *http.Request) {
@@ -394,7 +390,7 @@ func (h *audienceHTTP) startAudienceExport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusCreated, exportJobResponse(result.Job))
+	writeEnvelope(w, r, http.StatusCreated, newExportJobResponse(result.Job))
 }
 
 func (h *audienceHTTP) getAudienceExport(w http.ResponseWriter, r *http.Request) {
@@ -408,7 +404,7 @@ func (h *audienceHTTP) getAudienceExport(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusOK, exportJobResponse(result.Job))
+	writeEnvelope(w, r, http.StatusOK, newExportJobResponse(result.Job))
 }
 
 // --- Error mapping ---
@@ -455,98 +451,9 @@ func writeAudienceErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusUnprocessableEntity, "audience.export_filter_invalid", err.Error(), nil)
 	case errors.Is(err, domain.ErrExportFormatInvalid):
 		writeError(w, r, http.StatusUnprocessableEntity, "audience.export_format_invalid", err.Error(), nil)
+	case errors.Is(err, auth.ErrPermissionDenied):
+		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
-}
-
-// --- Response mappers ---
-
-func contactResponse(c domain.Contact) map[string]any {
-	out := map[string]any{
-		"id":           c.ID,
-		"workspace_id": c.WorkspaceID,
-		"email":        c.Email,
-		"status":       string(c.Status),
-		"first_name":   c.FirstName,
-		"last_name":    c.LastName,
-		"tags":         c.Tags,
-		"attributes":   c.Attributes,
-		"created_at":   c.CreatedAt,
-		"updated_at":   c.UpdatedAt,
-	}
-	return out
-}
-
-func listResponse(l domain.AudienceList) map[string]any {
-	out := map[string]any{
-		"id":           l.ID,
-		"workspace_id": l.WorkspaceID,
-		"name":         l.Name,
-		"description":  l.Description,
-		"created_at":   l.CreatedAt,
-		"updated_at":   l.UpdatedAt,
-	}
-	return out
-}
-
-func segmentResponse(s domain.Segment) map[string]any {
-	out := map[string]any{
-		"id":           s.ID,
-		"workspace_id": s.WorkspaceID,
-		"name":         s.Name,
-		"definition":   s.DefinitionJSON,
-		"status":       string(s.Status),
-		"created_at":   s.CreatedAt,
-		"updated_at":   s.UpdatedAt,
-	}
-	return out
-}
-
-func importJobResponse(j domain.AudienceImportJob) map[string]any {
-	out := map[string]any{
-		"id":              j.ID,
-		"workspace_id":    j.WorkspaceID,
-		"source_uri":      j.SourceURI,
-		"dedupe_mode":     string(j.DedupeMode),
-		"status":          string(j.Status),
-		"processed_count": j.ProcessedCount,
-		"created_count":   j.CreatedCount,
-		"updated_count":   j.UpdatedCount,
-		"failed_count":    j.FailedCount,
-		"error_summary":   j.ErrorSummary,
-		"created_at":      j.CreatedAt,
-		"updated_at":      j.UpdatedAt,
-		"completed_at":    j.CompletedAt,
-	}
-	return out
-}
-
-func exportJobResponse(j domain.AudienceExportJob) map[string]any {
-	out := map[string]any{
-		"id":            j.ID,
-		"workspace_id":  j.WorkspaceID,
-		"format":        string(j.Format),
-		"status":        string(j.Status),
-		"artifact_uri":  j.ArtifactURI,
-		"error_summary": j.ErrorSummary,
-		"created_at":    j.CreatedAt,
-		"updated_at":    j.UpdatedAt,
-		"completed_at":  j.CompletedAt,
-	}
-	return out
-}
-
-func parseIntParam(s string, defaultVal int) int {
-	if s == "" {
-		return defaultVal
-	}
-	var n int
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return defaultVal
-		}
-		n = n*10 + int(c-'0')
-	}
-	return n
 }

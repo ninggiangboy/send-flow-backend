@@ -8,6 +8,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type Command struct {
@@ -99,16 +100,9 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		}
 		return h.deps.MembershipsWrite.UpdateRole(ctx, cmd.MembershipID, legacyRole, cmd.Now)
 	}
-	if h.deps.UnitOfWork != nil {
-		if err := h.deps.UnitOfWork.WithinTx(ctx, updateAll); err != nil {
-			h.log.Error("failed to update member role", "workspace_id", cmd.WorkspaceID, "membership_id", cmd.MembershipID, "error", err)
-			return err
-		}
-	} else {
-		if err := updateAll(ctx); err != nil {
-			h.log.Error("failed to update member role", "workspace_id", cmd.WorkspaceID, "membership_id", cmd.MembershipID, "error", err)
-			return err
-		}
+	if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, updateAll); err != nil {
+		h.log.Error("failed to update member role", "workspace_id", cmd.WorkspaceID, "membership_id", cmd.MembershipID, "error", err)
+		return err
 	}
 	h.log.Info("member role updated", "workspace_id", cmd.WorkspaceID, "membership_id", cmd.MembershipID)
 	return nil

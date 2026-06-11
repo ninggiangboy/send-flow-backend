@@ -57,52 +57,6 @@ type HandleProviderEventResult struct {
 	SuppressionEntryID string
 }
 
-type providerEventClassifier struct{}
-
-func (c *providerEventClassifier) ClassifyEventType(eventType string) (string, bool) {
-	switch eventType {
-	case "delivered":
-		return domain.MessageStatusDelivered, true
-	case "bounced":
-		return domain.MessageStatusBounced, true
-	case "complained":
-		return domain.MessageStatusComplained, true
-	case "delayed":
-		return domain.MessageStatusDelayed, true
-	case "rejected":
-		return domain.MessageStatusFailed, true
-	case "accepted", "opened", "clicked", "unsubscribed", "rendering_failed":
-		return "", false
-	default:
-		return "", false
-	}
-}
-
-func (c *providerEventClassifier) CanTransition(currentStatus, targetStatus string) bool {
-	if currentStatus == targetStatus {
-		return true
-	}
-	switch currentStatus {
-	case domain.MessageStatusBounced, domain.MessageStatusFailed,
-		domain.MessageStatusCancelled, domain.MessageStatusDLQ:
-		return false
-	case domain.MessageStatusComplained:
-		return targetStatus == domain.MessageStatusComplained
-	case domain.MessageStatusDelivered:
-		return targetStatus == domain.MessageStatusDelivered || targetStatus == domain.MessageStatusComplained
-	case domain.MessageStatusDelayed:
-		return targetStatus != domain.MessageStatusAccepted
-	case domain.MessageStatusAccepted:
-		return true
-	case domain.MessageStatusProcessing:
-		return targetStatus != domain.MessageStatusAccepted
-	case domain.MessageStatusQueued:
-		return targetStatus != domain.MessageStatusDelivered && targetStatus != domain.MessageStatusComplained
-	default:
-		return false
-	}
-}
-
 func (s *Service) HandleProviderEvent(ctx context.Context, input HandleProviderEventInput) (*HandleProviderEventResult, error) {
 	log := s.log.With(
 		"usecase", "handle_provider_event",
@@ -121,8 +75,7 @@ func (s *Service) HandleProviderEvent(ctx context.Context, input HandleProviderE
 		return nil, &NonRetryableError{Err: domain.ErrPayloadInvalid}
 	}
 
-	var classifier providerEventClassifier
-	targetStatus, recognized := classifier.ClassifyEventType(input.EventType)
+	targetStatus, recognized := domain.ClassifyProviderEvent(input.EventType)
 	if !recognized {
 		log.Info("event type not recognized for delivery state mutation, ignoring")
 		return &HandleProviderEventResult{Ignored: true}, nil
@@ -158,7 +111,7 @@ func (s *Service) HandleProviderEvent(ctx context.Context, input HandleProviderE
 
 	previousStatus := message.Status
 
-	if !classifier.CanTransition(message.Status, targetStatus) {
+	if !domain.CanTransitionToStatus(message.Status, targetStatus) {
 		log.Info("status transition not allowed",
 			"current_status", message.Status,
 			"target_status", targetStatus,
@@ -185,7 +138,7 @@ func (s *Service) HandleProviderEvent(ctx context.Context, input HandleProviderE
 
 	var result HandleProviderEventResult
 
-	if err := s.txManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		now := time.Now().UTC()
 
 		// Re-read with FOR UPDATE inside the transaction to guard against concurrent
@@ -196,7 +149,7 @@ func (s *Service) HandleProviderEvent(ctx context.Context, input HandleProviderE
 			log.Error("failed to re-read message inside transaction", "error", err)
 			return err
 		}
-		if !classifier.CanTransition(currentMessage.Status, targetStatus) {
+		if !domain.CanTransitionToStatus(currentMessage.Status, targetStatus) {
 			log.Warn("concurrent status change prevents transition, skipping",
 				"current_status", currentMessage.Status,
 				"target_status", targetStatus,
@@ -330,7 +283,11 @@ func (s *Service) HandleProviderEvent(ctx context.Context, input HandleProviderE
 		}
 
 		if outboxPayload != nil && outboxEventType != "" {
-			eventID := mustNewID(s.idGen)
+			eventID, err := s.idGen()
+			if err != nil {
+				log.Error("failed to generate event ID", "error", err)
+				return err
+			}
 
 			envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
 				EventID:       eventID,
@@ -366,7 +323,11 @@ func (s *Service) HandleProviderEvent(ctx context.Context, input HandleProviderE
 			}
 
 			if suppressionInput != nil && result.SuppressionCreated {
-				supEventID := mustNewID(s.idGen)
+				supEventID, err := s.idGen()
+				if err != nil {
+					log.Error("failed to generate suppression event ID", "error", err)
+					return err
+				}
 				supPayload := contracts.SuppressionRecipientSuppressedPayload{
 					SuppressionID:   result.SuppressionEntryID,
 					WorkspaceID:     updated.WorkspaceID,

@@ -2,9 +2,11 @@ package ports
 
 import (
 	"context"
-	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/outbox"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type MessageReadRepository interface {
@@ -26,28 +28,15 @@ type AttemptWriteRepository interface {
 	Create(ctx context.Context, attempt domain.NotificationAttempt) error
 }
 
-type OutboxEvent struct {
-	ID            string
-	AggregateType string
-	AggregateID   string
-	EventType     string
-	Payload       []byte
-	Headers       map[string]string
-	WorkspaceID   string
-	OccurredAt    time.Time
-}
+type OutboxEvent = outbox.Event
 
 type OutboxWriter interface {
 	Save(ctx context.Context, event OutboxEvent) error
 }
 
-type TransactionManager interface {
-	RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error
-}
+type TransactionManager = transaction.UnitOfWork
 
-type WorkspaceAccessChecker interface {
-	RequirePermission(ctx context.Context, workspaceID, userID, permission string) error
-}
+type WorkspaceAccessChecker = auth.WorkspaceAccessChecker
 
 type EmailSender interface {
 	SendNotificationEmail(ctx context.Context, to []string, subject, textBody, htmlBody string) error

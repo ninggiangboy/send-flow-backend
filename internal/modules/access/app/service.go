@@ -8,6 +8,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type Options struct {
@@ -118,7 +119,7 @@ func (s *Service) ListAPIKeys(ctx context.Context, input ListAPIKeysInput) (*Lis
 
 	limit := input.Limit
 	if limit <= 0 || limit > 100 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
 
 	keys, cursor, err := s.apiKeyRepo.ListByWorkspace(ctx, ports.APIKeyListQuery{

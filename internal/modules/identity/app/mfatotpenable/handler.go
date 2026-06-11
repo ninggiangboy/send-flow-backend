@@ -7,6 +7,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type Handler struct {
@@ -49,11 +50,13 @@ func (h *Handler) Execute(ctx context.Context, userID, code string, now time.Tim
 			CreatedAt: now,
 		})
 	}
-	if err := h.deps.TOTP.ReplaceRecoveryCodes(ctx, userID, records); err != nil {
-		h.log.Error("failed to save recovery codes", "user_id", userID, "error", err)
-		return nil, err
+	doEnable := func(txCtx context.Context) error {
+		if err := h.deps.TOTP.ReplaceRecoveryCodes(txCtx, userID, records); err != nil {
+			return err
+		}
+		return h.deps.UsersWrite.SetMFAEnabledAt(txCtx, userID, &now, now)
 	}
-	if err := h.deps.UsersWrite.SetMFAEnabledAt(ctx, userID, &now, now); err != nil {
+	if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, doEnable); err != nil {
 		h.log.Error("failed to enable MFA", "user_id", userID, "error", err)
 		return nil, err
 	}

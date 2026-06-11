@@ -9,6 +9,8 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type suppressionHTTP struct {
@@ -24,7 +26,7 @@ func (h *suppressionHTTP) listSuppressionEntries(w http.ResponseWriter, r *http.
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	q := r.URL.Query()
-	limit := parseIntParam(q.Get("limit"), 50)
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
 	if limit > 100 {
 		limit = 100
 	}
@@ -131,8 +133,10 @@ func writeSuppressionErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusUnprocessableEntity, "suppression.scope_invalid", err.Error(), nil)
 	case errors.Is(err, domain.ErrReasonInvalid):
 		writeError(w, r, http.StatusUnprocessableEntity, "suppression.reason_invalid", err.Error(), nil)
+	case errors.Is(err, auth.ErrPermissionDenied):
+		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "health.runtime_not_ready", "internal error", nil)
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
 	}
 }
 

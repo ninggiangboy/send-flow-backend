@@ -9,13 +9,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
 type SettingsReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewSettingsReadRepository(db DBTX) *SettingsReadRepository {
+func NewSettingsReadRepository(db platformpostgres.DBTX) *SettingsReadRepository {
 	return &SettingsReadRepository{db: db}
 }
 
@@ -25,7 +26,7 @@ func (r *SettingsReadRepository) GetByWorkspace(ctx context.Context, workspaceID
 	var updatedByUserID *string
 	var createdAt, updatedAt time.Time
 
-	err := r.db.QueryRow(ctx, `
+	err := r.getDB(ctx).QueryRow(ctx, `
 		SELECT settings_json, version, updated_by_user_id, created_at, updated_at
 		FROM workspace_settings
 		WHERE workspace_id = $1
@@ -48,10 +49,10 @@ func (r *SettingsReadRepository) GetByWorkspace(ctx context.Context, workspaceID
 }
 
 type SettingsWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewSettingsWriteRepository(db DBTX) *SettingsWriteRepository {
+func NewSettingsWriteRepository(db platformpostgres.DBTX) *SettingsWriteRepository {
 	return &SettingsWriteRepository{db: db}
 }
 
@@ -60,11 +61,11 @@ func (r *SettingsWriteRepository) CreateDefault(ctx context.Context, settings do
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `
+	_, err = r.getDB(ctx).Exec(ctx, `
 		INSERT INTO workspace_settings (workspace_id, settings_json, version, updated_by_user_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (workspace_id) DO NOTHING
-	`, settings.WorkspaceID, settingsJSON, settings.Version, nullable(settings.UpdatedByUserID), settings.CreatedAt, settings.UpdatedAt)
+	`, settings.WorkspaceID, settingsJSON, settings.Version, platformpostgres.Nullable(settings.UpdatedByUserID), settings.CreatedAt, settings.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create default settings: %w", err)
 	}
@@ -78,11 +79,11 @@ func (r *SettingsWriteRepository) Upsert(ctx context.Context, settings domain.Wo
 	}
 
 	if expectedVersion != nil {
-		result, err := r.db.Exec(ctx, `
+		result, err := r.getDB(ctx).Exec(ctx, `
 			UPDATE workspace_settings
 			SET settings_json = $1, version = version + 1, updated_by_user_id = $2, updated_at = $3
 			WHERE workspace_id = $4 AND version = $5
-		`, settingsJSON, nullable(settings.UpdatedByUserID), settings.UpdatedAt, settings.WorkspaceID, *expectedVersion)
+		`, settingsJSON, platformpostgres.Nullable(settings.UpdatedByUserID), settings.UpdatedAt, settings.WorkspaceID, *expectedVersion)
 		if err != nil {
 			return fmt.Errorf("upsert settings with version check: %w", err)
 		}
@@ -91,12 +92,12 @@ func (r *SettingsWriteRepository) Upsert(ctx context.Context, settings domain.Wo
 		}
 	} else {
 		var version int64
-		err = r.db.QueryRow(ctx, `
+		err = r.getDB(ctx).QueryRow(ctx, `
 			INSERT INTO workspace_settings (workspace_id, settings_json, version, updated_by_user_id, created_at, updated_at)
 			VALUES ($1, $2, 1, $3, $4, $5)
 			ON CONFLICT (workspace_id) DO NOTHING
 			RETURNING version
-		`, settings.WorkspaceID, settingsJSON, nullable(settings.UpdatedByUserID), settings.CreatedAt, settings.UpdatedAt).Scan(&version)
+		`, settings.WorkspaceID, settingsJSON, platformpostgres.Nullable(settings.UpdatedByUserID), settings.CreatedAt, settings.UpdatedAt).Scan(&version)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return domain.ErrSettingsVersionConflict

@@ -8,94 +8,89 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
+	platformpostgres "github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 )
 
-type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
 type ContactReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type ContactWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type ListReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type ListWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type SegmentReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type SegmentWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type ImportJobReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type ImportJobWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type ExportJobReadRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
 type ExportJobWriteRepository struct {
-	db DBTX
+	db platformpostgres.DBTX
 }
 
-func NewContactReadRepository(db DBTX) *ContactReadRepository {
+func NewContactReadRepository(db platformpostgres.DBTX) *ContactReadRepository {
 	return &ContactReadRepository{db: db}
 }
 
-func NewContactWriteRepository(db DBTX) *ContactWriteRepository {
+func NewContactWriteRepository(db platformpostgres.DBTX) *ContactWriteRepository {
 	return &ContactWriteRepository{db: db}
 }
 
-func NewListReadRepository(db DBTX) *ListReadRepository {
+func NewListReadRepository(db platformpostgres.DBTX) *ListReadRepository {
 	return &ListReadRepository{db: db}
 }
 
-func NewListWriteRepository(db DBTX) *ListWriteRepository {
+func NewListWriteRepository(db platformpostgres.DBTX) *ListWriteRepository {
 	return &ListWriteRepository{db: db}
 }
 
-func NewSegmentReadRepository(db DBTX) *SegmentReadRepository {
+func NewSegmentReadRepository(db platformpostgres.DBTX) *SegmentReadRepository {
 	return &SegmentReadRepository{db: db}
 }
 
-func NewSegmentWriteRepository(db DBTX) *SegmentWriteRepository {
+func NewSegmentWriteRepository(db platformpostgres.DBTX) *SegmentWriteRepository {
 	return &SegmentWriteRepository{db: db}
 }
 
-func NewImportJobReadRepository(db DBTX) *ImportJobReadRepository {
+func NewImportJobReadRepository(db platformpostgres.DBTX) *ImportJobReadRepository {
 	return &ImportJobReadRepository{db: db}
 }
 
-func NewImportJobWriteRepository(db DBTX) *ImportJobWriteRepository {
+func NewImportJobWriteRepository(db platformpostgres.DBTX) *ImportJobWriteRepository {
 	return &ImportJobWriteRepository{db: db}
 }
 
-func NewExportJobReadRepository(db DBTX) *ExportJobReadRepository {
+func NewExportJobReadRepository(db platformpostgres.DBTX) *ExportJobReadRepository {
 	return &ExportJobReadRepository{db: db}
 }
 
-func NewExportJobWriteRepository(db DBTX) *ExportJobWriteRepository {
+func NewExportJobWriteRepository(db platformpostgres.DBTX) *ExportJobWriteRepository {
 	return &ExportJobWriteRepository{db: db}
 }
 
@@ -151,34 +146,37 @@ func (r *ContactReadRepository) ListContacts(ctx context.Context, query ports.Co
 	argIdx := 2
 
 	if query.Status != "" {
-		where += " AND status = $" + itoa(argIdx)
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.Status)
 		argIdx++
 	}
 
 	if query.Q != "" {
-		where += " AND (email_normalized LIKE $" + itoa(argIdx) + " OR COALESCE(first_name, '') LIKE $" + itoa(argIdx) + " OR COALESCE(last_name, '') LIKE $" + itoa(argIdx) + ")"
-		args = append(args, "%"+strings.ToLower(query.Q)+"%")
+		pattern := strings.ReplaceAll(query.Q, "%", "\\%")
+		pattern = strings.ReplaceAll(pattern, "_", "\\_")
+		likePattern := "%" + strings.ToLower(pattern) + "%"
+		where += " AND (email_normalized LIKE $" + platformpostgres.Itoa(argIdx) + " ESCAPE '\\' OR COALESCE(first_name, '') LIKE $" + platformpostgres.Itoa(argIdx) + " ESCAPE '\\' OR COALESCE(last_name, '') LIKE $" + platformpostgres.Itoa(argIdx) + " ESCAPE '\\')"
+		args = append(args, likePattern)
 		argIdx++
 	}
 
 	if query.ListID != "" {
-		where += " AND id IN (SELECT contact_id FROM audience_list_memberships WHERE workspace_id = $1 AND list_id = $" + itoa(argIdx) + ")"
+		where += " AND id IN (SELECT contact_id FROM audience_list_memberships WHERE workspace_id = $1 AND list_id = $" + platformpostgres.Itoa(argIdx) + ")"
 		args = append(args, query.ListID)
 		argIdx++
 	}
 
 	if query.Cursor != "" {
-		where += " AND (created_at, id) < (SELECT created_at, id FROM contacts WHERE id = $" + itoa(argIdx) + ")"
+		where += " AND (created_at, id) < (SELECT created_at, id FROM contacts WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
 		args = append(args, query.Cursor)
 		argIdx++
 	}
 
 	limit := query.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
-	where += " ORDER BY created_at DESC, id DESC LIMIT $" + itoa(argIdx)
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
 	args = append(args, limit+1)
 
 	sql := "SELECT id, workspace_id, email, email_normalized, COALESCE(first_name, ''), COALESCE(last_name, ''), status, tags, attributes, created_at, updated_at, archived_at FROM contacts " + where
@@ -233,10 +231,10 @@ func (w *ContactWriteRepository) CreateContact(ctx context.Context, c domain.Con
 	}
 	_, err = w.db.Exec(ctx,
 		`INSERT INTO contacts (id, workspace_id, email, email_normalized, first_name, last_name, status, tags, attributes, created_at, updated_at, archived_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-		c.ID, c.WorkspaceID, c.Email, c.EmailNormalized, nullable(c.FirstName), nullable(c.LastName), string(c.Status), tagsJSON, attrsJSON, c.CreatedAt, c.UpdatedAt, c.ArchivedAt,
+		c.ID, c.WorkspaceID, c.Email, c.EmailNormalized, platformpostgres.Nullable(c.FirstName), platformpostgres.Nullable(c.LastName), string(c.Status), tagsJSON, attrsJSON, c.CreatedAt, c.UpdatedAt, c.ArchivedAt,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if platformpostgres.IsUniqueViolation(err) {
 			return domain.ErrContactEmailConflict
 		}
 		return err
@@ -255,10 +253,10 @@ func (w *ContactWriteRepository) UpdateContact(ctx context.Context, c domain.Con
 	}
 	tag, err := w.db.Exec(ctx,
 		`UPDATE contacts SET email=$1, email_normalized=$2, first_name=$3, last_name=$4, status=$5, tags=$6, attributes=$7, updated_at=$8 WHERE id=$9 AND workspace_id=$10`,
-		c.Email, c.EmailNormalized, nullable(c.FirstName), nullable(c.LastName), string(c.Status), tagsJSON, attrsJSON, c.UpdatedAt, c.ID, c.WorkspaceID,
+		c.Email, c.EmailNormalized, platformpostgres.Nullable(c.FirstName), platformpostgres.Nullable(c.LastName), string(c.Status), tagsJSON, attrsJSON, c.UpdatedAt, c.ID, c.WorkspaceID,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if platformpostgres.IsUniqueViolation(err) {
 			return domain.ErrContactEmailConflict
 		}
 		return err
@@ -314,16 +312,16 @@ func (r *ListReadRepository) ListLists(ctx context.Context, query ports.ListList
 	argIdx := 2
 
 	if query.Cursor != "" {
-		where += " AND (created_at, id) < (SELECT created_at, id FROM audience_lists WHERE id = $" + itoa(argIdx) + ")"
+		where += " AND (created_at, id) < (SELECT created_at, id FROM audience_lists WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
 		args = append(args, query.Cursor)
 		argIdx++
 	}
 
 	limit := query.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
-	where += " ORDER BY created_at DESC, id DESC LIMIT $" + itoa(argIdx)
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
 	args = append(args, limit+1)
 
 	rows, err := r.db.Query(ctx,
@@ -368,7 +366,7 @@ func (r *ListReadRepository) CountContactsByList(ctx context.Context, workspaceI
 	args := []any{workspaceID}
 	placeholders := make([]string, len(listIDs))
 	for i, id := range listIDs {
-		placeholders[i] = "$" + itoa(i+2)
+		placeholders[i] = "$" + platformpostgres.Itoa(i+2)
 		args = append(args, id)
 	}
 
@@ -405,10 +403,10 @@ func (w *ListWriteRepository) CreateList(ctx context.Context, l domain.AudienceL
 	}
 	_, err = w.db.Exec(ctx,
 		`INSERT INTO audience_lists (id, workspace_id, name, description, metadata, created_at, updated_at, archived_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		l.ID, l.WorkspaceID, l.Name, nullable(l.Description), metadataJSON, l.CreatedAt, l.UpdatedAt, l.ArchivedAt,
+		l.ID, l.WorkspaceID, l.Name, platformpostgres.Nullable(l.Description), metadataJSON, l.CreatedAt, l.UpdatedAt, l.ArchivedAt,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if platformpostgres.IsUniqueViolation(err) {
 			return domain.ErrListNameConflict
 		}
 		return err
@@ -537,22 +535,22 @@ func (r *SegmentReadRepository) ListSegments(ctx context.Context, query ports.Se
 	argIdx := 2
 
 	if query.Status != "" {
-		where += " AND status = $" + itoa(argIdx)
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.Status)
 		argIdx++
 	}
 
 	if query.Cursor != "" {
-		where += " AND (created_at, id) < (SELECT created_at, id FROM segments WHERE id = $" + itoa(argIdx) + ")"
+		where += " AND (created_at, id) < (SELECT created_at, id FROM segments WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
 		args = append(args, query.Cursor)
 		argIdx++
 	}
 
 	limit := query.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
-	where += " ORDER BY created_at DESC, id DESC LIMIT $" + itoa(argIdx)
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
 	args = append(args, limit+1)
 
 	rows, err := r.db.Query(ctx,
@@ -601,7 +599,7 @@ func (w *SegmentWriteRepository) CreateSegment(ctx context.Context, s domain.Seg
 		s.ID, s.WorkspaceID, s.Name, defJSON, string(s.Status), s.CreatedAt, s.UpdatedAt,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if platformpostgres.IsUniqueViolation(err) {
 			return domain.ErrSegmentNameConflict
 		}
 		return err
@@ -619,7 +617,7 @@ func (w *SegmentWriteRepository) UpdateSegment(ctx context.Context, s domain.Seg
 		s.Name, defJSON, string(s.Status), s.UpdatedAt, s.ID, s.WorkspaceID,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if platformpostgres.IsUniqueViolation(err) {
 			return domain.ErrSegmentNameConflict
 		}
 		return err
@@ -657,22 +655,22 @@ func (r *ImportJobReadRepository) ListImportJobs(ctx context.Context, query port
 	argIdx := 2
 
 	if query.Status != "" {
-		where += " AND status = $" + itoa(argIdx)
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.Status)
 		argIdx++
 	}
 
 	if query.Cursor != "" {
-		where += " AND (created_at, id) < (SELECT created_at, id FROM audience_import_jobs WHERE id = $" + itoa(argIdx) + ")"
+		where += " AND (created_at, id) < (SELECT created_at, id FROM audience_import_jobs WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
 		args = append(args, query.Cursor)
 		argIdx++
 	}
 
 	limit := query.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = constants.DefaultPageSize
 	}
-	where += " ORDER BY created_at DESC, id DESC LIMIT $" + itoa(argIdx)
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
 	args = append(args, limit+1)
 
 	rows, err := r.db.Query(ctx,
@@ -718,7 +716,7 @@ func (w *ImportJobWriteRepository) CreateImportJob(ctx context.Context, j domain
 	}
 	_, err = w.db.Exec(ctx,
 		`INSERT INTO audience_import_jobs (id, workspace_id, source_uri, dedupe_mode, status, processed_count, created_count, updated_count, failed_count, error_summary, metadata, created_at, updated_at, completed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-		j.ID, j.WorkspaceID, j.SourceURI, string(j.DedupeMode), string(j.Status), j.ProcessedCount, j.CreatedCount, j.UpdatedCount, j.FailedCount, nullable(j.ErrorSummary), metadataJSON, j.CreatedAt, j.UpdatedAt, j.CompletedAt,
+		j.ID, j.WorkspaceID, j.SourceURI, string(j.DedupeMode), string(j.Status), j.ProcessedCount, j.CreatedCount, j.UpdatedCount, j.FailedCount, platformpostgres.Nullable(j.ErrorSummary), metadataJSON, j.CreatedAt, j.UpdatedAt, j.CompletedAt,
 	)
 	return err
 }
@@ -760,7 +758,7 @@ func (w *ExportJobWriteRepository) CreateExportJob(ctx context.Context, j domain
 	}
 	_, err = w.db.Exec(ctx,
 		`INSERT INTO audience_export_jobs (id, workspace_id, filters_json, selected_fields, format, status, artifact_uri, error_summary, created_at, updated_at, completed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		j.ID, j.WorkspaceID, filtersJSON, fieldsJSON, string(j.Format), string(j.Status), nullable(j.ArtifactURI), nullable(j.ErrorSummary), j.CreatedAt, j.UpdatedAt, j.CompletedAt,
+		j.ID, j.WorkspaceID, filtersJSON, fieldsJSON, string(j.Format), string(j.Status), platformpostgres.Nullable(j.ArtifactURI), platformpostgres.Nullable(j.ErrorSummary), j.CreatedAt, j.UpdatedAt, j.CompletedAt,
 	)
 	return err
 }
@@ -774,42 +772,4 @@ func (w *ListWriteRepository) beginTx(ctx context.Context) (pgx.Tx, error) {
 		return conn.Begin(ctx)
 	}
 	return nil, errors.New("write repository requires a pool or conn that supports Begin")
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
-	}
-	return strings.Contains(strings.ToLower(err.Error()), "unique")
-}
-
-func nullable(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
-}
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var buf [12]byte
-	pos := len(buf)
-	neg := false
-	if i < 0 {
-		neg = true
-		i = -i
-	}
-	for i > 0 {
-		pos--
-		buf[pos] = byte('0' + i%10)
-		i /= 10
-	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
 }
