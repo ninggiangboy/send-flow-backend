@@ -5,7 +5,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
+	analyticsclickhouse "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/clickhouse"
 	analyticspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/postgres"
+	platformclickhouse "github.com/ninggiangboy/send-flow/backend/internal/platform/clickhouse"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
 	contentpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/postgres"
 	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
@@ -75,16 +77,19 @@ func NewSenderService(readRepo *senderpostgres.ReadRepository, writeRepo *sender
 	})
 }
 
-func NewAnalyticsRepos(writePool *pgxpool.Pool) (analyticsapp.Options, error) {
-	projRepo := analyticspostgres.NewProjectionRepository(writePool)
-	return analyticsapp.Options{
+func NewAnalyticsRepos(writePool *pgxpool.Pool, chClient *platformclickhouse.Client) analyticsapp.Options {
+	opts := analyticsapp.Options{
 		FactRepo:        analyticspostgres.NewEventFactRepository(writePool),
-		ProjectionRead:  projRepo,
-		ProjectionWrite: projRepo,
+		ProjectionRead:  analyticspostgres.NewProjectionRepository(writePool),
+		ProjectionWrite: analyticspostgres.NewProjectionRepository(writePool),
 		TxManager:       transaction.NewManager(writePool),
 		OutboxWriter:    analyticspostgres.NewOutboxRepository(writePool),
 		IDGen:           id.NewUUIDGenerator().New,
-	}, nil
+	}
+	if chClient != nil {
+		opts.ClickHouseFactRepo = analyticsclickhouse.NewFactRepository(chClient.Conn())
+	}
+	return opts
 }
 
 func NewNotificationRepos(pgReadPool, pgWritePool *pgxpool.Pool, emailSender email.Sender) notificationapp.Options {

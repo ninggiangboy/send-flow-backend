@@ -47,27 +47,29 @@ type GetDeliverabilityInput struct {
 }
 
 type Options struct {
-	FactRepo        ports.EventFactRepository
-	ProjectionRead  ports.ProjectionReadRepository
-	ProjectionWrite ports.ProjectionWriteRepository
-	TxManager       ports.TransactionManager
-	OutboxWriter    ports.OutboxWriter
-	AccessChecker   ports.WorkspaceAccessChecker
-	IDGen           func() (string, error)
-	Clock           func() time.Time
-	Logger          *slog.Logger
+	FactRepo            ports.EventFactRepository
+	ClickHouseFactRepo  ports.EventFactRepository
+	ProjectionRead      ports.ProjectionReadRepository
+	ProjectionWrite     ports.ProjectionWriteRepository
+	TxManager           ports.TransactionManager
+	OutboxWriter        ports.OutboxWriter
+	AccessChecker       ports.WorkspaceAccessChecker
+	IDGen               func() (string, error)
+	Clock               func() time.Time
+	Logger              *slog.Logger
 }
 
 type Service struct {
-	factRepo        ports.EventFactRepository
-	projectionRead  ports.ProjectionReadRepository
-	projectionWrite ports.ProjectionWriteRepository
-	txManager       ports.TransactionManager
-	outboxWriter    ports.OutboxWriter
-	accessChecker   ports.WorkspaceAccessChecker
-	idGen           func() (string, error)
-	clock           func() time.Time
-	log             *slog.Logger
+	factRepo            ports.EventFactRepository
+	clickHouseFactRepo  ports.EventFactRepository
+	projectionRead      ports.ProjectionReadRepository
+	projectionWrite     ports.ProjectionWriteRepository
+	txManager           ports.TransactionManager
+	outboxWriter        ports.OutboxWriter
+	accessChecker       ports.WorkspaceAccessChecker
+	idGen               func() (string, error)
+	clock               func() time.Time
+	log                 *slog.Logger
 }
 
 func NewService(opts Options) *Service {
@@ -78,15 +80,16 @@ func NewService(opts Options) *Service {
 		opts.Logger = slog.Default()
 	}
 	return &Service{
-		factRepo:        opts.FactRepo,
-		projectionRead:  opts.ProjectionRead,
-		projectionWrite: opts.ProjectionWrite,
-		txManager:       opts.TxManager,
-		outboxWriter:    opts.OutboxWriter,
-		accessChecker:   opts.AccessChecker,
-		idGen:           opts.IDGen,
-		clock:           opts.Clock,
-		log:             opts.Logger.With("service", "analytics"),
+		factRepo:            opts.FactRepo,
+		clickHouseFactRepo:  opts.ClickHouseFactRepo,
+		projectionRead:      opts.ProjectionRead,
+		projectionWrite:     opts.ProjectionWrite,
+		txManager:           opts.TxManager,
+		outboxWriter:        opts.OutboxWriter,
+		accessChecker:       opts.AccessChecker,
+		idGen:               opts.IDGen,
+		clock:               opts.Clock,
+		log:                 opts.Logger.With("service", "analytics"),
 	}
 }
 
@@ -100,7 +103,10 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 		return err
 	}
 
-	return s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
+	var fact domain.EmailEventFact
+	var created bool
+
+	txErr := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		existing, err := s.factRepo.FindBySourceEventID(txCtx, input.SourceEventID)
 		if err != nil && !errors.Is(err, domain.ErrAnalyticsProjectionNotFound) {
 			s.log.Error("failed to check existing fact",
@@ -125,7 +131,7 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 		}
 		now := s.clock()
 
-		fact := domain.EmailEventFact{
+		fact = domain.EmailEventFact{
 			ID:                factID,
 			SourceEventID:     input.SourceEventID,
 			SourceEventType:   input.SourceEventType,
@@ -157,6 +163,8 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 			)
 			return err
 		}
+
+		created = true
 
 		if err := s.projectionWrite.IncrementWorkspaceOverview(txCtx, input.WorkspaceID, input.CanonicalType, input.OccurredAt); err != nil {
 			s.log.Error("failed to increment workspace overview",
@@ -238,6 +246,29 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 
 		return nil
 	})
+	if txErr != nil {
+		return txErr
+	}
+
+	if s.clickHouseFactRepo != nil && created {
+		chErr := s.clickHouseFactRepo.Create(ctx, fact)
+		if chErr != nil {
+			if errors.Is(chErr, domain.ErrAnalyticsEventDuplicate) {
+				s.log.Debug("duplicate analytics event in clickhouse, skipping",
+					"source_event_id", input.SourceEventID,
+				)
+				return nil
+			}
+			s.log.Error("failed to write analytics fact to clickhouse",
+				"source_event_id", input.SourceEventID,
+				"workspace_id", input.WorkspaceID,
+				"error", chErr,
+			)
+			return chErr
+		}
+	}
+
+	return nil
 }
 
 func (s *Service) GetDashboardOverview(ctx context.Context, input GetDashboardOverviewInput) (*domain.DashboardOverview, error) {

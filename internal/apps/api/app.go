@@ -45,6 +45,7 @@ import (
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
 	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
 	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/clickhouse"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
@@ -103,6 +104,15 @@ func Run(ctx context.Context) error {
 	emailSender, err := platformemail.NewSender(ctx, cfg)
 	if err != nil {
 		return err
+	}
+
+	var clickHouseClient *clickhouse.Client
+	if cfg.ClickHouseEnabled() {
+		clickHouseClient, err = clickhouse.New(ctx, cfg.ClickHouseDSN)
+		if err != nil {
+			return err
+		}
+		defer clickHouseClient.Close()
 	}
 
 	var objectStorageClient objectstorage.ObjectStorage
@@ -182,7 +192,14 @@ func Run(ctx context.Context) error {
 		PostgresCheck:     pgClient.Ping,
 		PostgresReadCheck: pgClient.PingRead,
 		RedisCheck:        redisClient.Ping,
-		KafkaEnabled:      cfg.KafkaEnabled(),
+		ClickHouseEnabled: cfg.ClickHouseEnabled(),
+		ClickHouseCheck: func(ctx context.Context) error {
+			if clickHouseClient == nil {
+				return nil
+			}
+			return clickHouseClient.Ping(ctx)
+		},
+		KafkaEnabled: cfg.KafkaEnabled(),
 		ObjectStorageCheck: func(ctx context.Context) error {
 			if objectStorageClient == nil {
 				return nil
@@ -323,7 +340,7 @@ func Run(ctx context.Context) error {
 		Logger:                log,
 	})
 
-	analyticsOpts, _ := shared.NewAnalyticsRepos(pgClient.WritePool())
+	analyticsOpts := shared.NewAnalyticsRepos(pgClient.WritePool(), clickHouseClient)
 	analyticsOpts.AccessChecker = newWorkspaceAccessAdapter(authSvc)
 	analyticsOpts.Logger = log
 	analyticsSvc := analyticsapp.NewService(analyticsOpts)

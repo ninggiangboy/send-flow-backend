@@ -5,7 +5,7 @@ LOG_DIR := ./deployments/local/logs
 LOGROTATE_CONF := ./deployments/local/logrotate.sendflow.conf
 ENV_FILE := ./.env
 
-.PHONY: dev-up dev-down dev-logs connector-up start api worker build format test migrate-up migrate-down logs-clean logs-rotate
+.PHONY: dev-up dev-down dev-logs connector-up start api worker build format test migrate-up migrate-down clickhouse-migrate-up clickhouse-migrate-down logs-clean logs-rotate
 
 dev-up:
 	docker compose -f $(LOCAL_COMPOSE) up -d
@@ -33,6 +33,7 @@ build:
 	mkdir -p ./bin
 	go build -o ./bin/api ./cmd/api
 	go build -o ./bin/worker ./cmd/worker
+	go build -o ./bin/clickhouse-migrate ./cmd/clickhouse-migrate
 
 format:
 	gofmt -w ./cmd ./internal
@@ -48,6 +49,12 @@ migrate-up:
 
 migrate-down:
 	sh -c 'if [ -f $(ENV_FILE) ]; then set -a; . $(ENV_FILE); set +a; fi; go run github.com/pressly/goose/v3/cmd/goose@v3.22.1 -dir ./migrations postgres "$$DATABASE_URL" down'
+
+clickhouse-migrate-up:
+	sh -c 'if [ -f $(ENV_FILE) ]; then set -a; . $(ENV_FILE); set +a; fi; go run ./cmd/clickhouse-migrate 2>&1'
+
+clickhouse-migrate-down:
+	@echo "ClickHouse rollback not yet implemented; drop and re-run migrate-up to rebuild schema"
 
 logs-clean:
 	sh -c 'mkdir -p $(LOG_DIR); : > $(LOG_DIR)/api.log; : > $(LOG_DIR)/worker.log'

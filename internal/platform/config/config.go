@@ -25,6 +25,7 @@ type Config struct {
 	RedisPassword   string
 	RedisDB         int
 	KafkaBrokers    string
+	ClickHouseDSN   string
 	EmailProvider   string
 	FrontendBaseURL string
 	SMTP            SMTPConfig
@@ -107,6 +108,7 @@ type SESConfig struct {
 func LoadFromEnv() (Config, error) {
 	cfg := Config{
 		AppName:         getenv("APP_NAME", "send-flow-backend"),
+		ClickHouseDSN:   os.Getenv("CLICKHOUSE_DSN"),
 		AppEnv:          getenv("APP_ENV", "local"),
 		HTTPAddr:        getenv("HTTP_ADDR", ":8081"),
 		LogLevel:        getenv("LOG_LEVEL", "info"),
@@ -340,6 +342,10 @@ func (c Config) Validate() error {
 		return errors.New("OBJECT_STORAGE_ENDPOINT is required when audience import/export processors are enabled")
 	}
 	return nil
+}
+
+func (c Config) ClickHouseEnabled() bool {
+	return c.ClickHouseDSN != ""
 }
 
 func (c Config) KafkaEnabled() bool {

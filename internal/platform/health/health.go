@@ -12,9 +12,11 @@ type Options struct {
 	PostgresCheck        Checker
 	PostgresReadCheck    Checker
 	RedisCheck           Checker
+	ClickHouseCheck      Checker
 	ObjectStorageCheck   Checker
 	KafkaEnabled         bool
 	ObjectStorageEnabled bool
+	ClickHouseEnabled    bool
 }
 
 type Service struct {
@@ -51,6 +53,7 @@ func (s *Service) Ready(ctx context.Context) Readiness {
 		"postgres":       "unknown",
 		"postgres_read":  "unknown",
 		"redis":          "unknown",
+		"clickhouse":     "disabled",
 		"kafka":          "disabled",
 		"object_storage": "disabled",
 	}
@@ -82,6 +85,17 @@ func (s *Service) Ready(ctx context.Context) Readiness {
 		}
 	}
 
+	if s.opts.ClickHouseEnabled {
+		deps["clickhouse"] = "configured"
+		if s.opts.ClickHouseCheck != nil {
+			if err := s.opts.ClickHouseCheck(ctx); err != nil {
+				status = "degraded"
+				deps["clickhouse"] = "down"
+			} else {
+				deps["clickhouse"] = "up"
+			}
+		}
+	}
 	if s.opts.KafkaEnabled {
 		deps["kafka"] = "configured"
 	}
