@@ -166,6 +166,58 @@ func TestAnalyticsEventConsumer_MalformedPayload(t *testing.T) {
 	}
 }
 
+func TestAnalyticsEventConsumer_ClickHouseFailureIsRetryable(t *testing.T) {
+	chErr := errors.New("clickhouse connection refused")
+	registry := analyticsapp.NewMapperRegistry()
+	registry.Register("test.event.v1", func(envelope events.Envelope) (*analyticsapp.MappedEvent, error) {
+		return &analyticsapp.MappedEvent{
+			Input: analyticsapp.IngestEmailEventFactInput{
+				SourceEventID:   envelope.EventID,
+				SourceEventType: envelope.EventType,
+				WorkspaceID:     envelope.WorkspaceID,
+				CampaignID:      "camp-1",
+				MessageID:       "msg-1",
+				CanonicalType:   "delivered",
+				OccurredAt:      time.Now().UTC(),
+				ReceivedAt:      time.Now().UTC(),
+			},
+		}, nil
+	})
+
+	svc := analyticsapp.NewService(analyticsapp.Options{
+		FactRepo: &mockAnalyticsFactRepo{
+			findBySourceEventID: func(_ context.Context, _ string) (*analyticsdomain.EmailEventFact, error) {
+				return nil, nil
+			},
+			create: func(_ context.Context, _ analyticsdomain.EmailEventFact) error {
+				return nil
+			},
+		},
+		ClickHouseFactRepo: &mockAnalyticsFactRepo{
+			create: func(_ context.Context, _ analyticsdomain.EmailEventFact) error {
+				return chErr
+			},
+		},
+		ProjectionWrite: &mockAnalyticsProjWrite{
+			incrementWorkspaceOverview: func(_ context.Context, _, _ string, _ time.Time) error { return nil },
+			incrementCampaignSummary:   func(_ context.Context, _, _, _ string, _ time.Time) error { return nil },
+		},
+		TxManager: &mockAnalyticsTxManager{
+			withinTx: func(_ context.Context, fn func(context.Context) error) error { return fn(context.Background()) },
+		},
+		IDGen:  func() (string, error) { return "id-1", nil },
+		Clock:  time.Now,
+		Logger: testConsumerLogger(),
+	})
+	consumer := testAnalyticsEventConsumer(svc, registry)
+	rawPayload := validAnalyticsEnvelope(t, "test.event.v1")
+
+	err := consumer.HandleEvent(context.Background(), "evt-1", rawPayload)
+	if err == nil {
+		t.Fatal("expected retryable error for ClickHouse failure")
+	}
+}
+
 func TestAnalyticsEventConsumer_EventMissingWorkspaceID(t *testing.T) {
 	registry := analyticsapp.NewMapperRegistry()
 	registry.Register("test.event.v1", func(envelope events.Envelope) (*analyticsapp.MappedEvent, error) {

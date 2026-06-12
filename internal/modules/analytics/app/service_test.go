@@ -84,6 +84,26 @@ func (s *stubAccessChecker) RequirePermission(ctx context.Context, workspaceID, 
 	return s.RequirePermissionFunc(ctx, workspaceID, userID, permission)
 }
 
+type stubCampaignQueryRepo struct {
+	GetCampaignFunnelFunc      func(ctx context.Context, workspaceID, campaignID string, from, to time.Time) (*domain.CampaignFunnel, error)
+	GetCampaignTimeSeriesFunc  func(ctx context.Context, workspaceID, campaignID string, from, to time.Time, interval, eventType string) (*domain.CampaignTimeSeriesResult, error)
+	GetCampaignBreakdownFunc   func(ctx context.Context, workspaceID, campaignID string, from, to time.Time, groupBy string) (*domain.CampaignBreakdownResult, error)
+	GetCampaignEventsFunc      func(ctx context.Context, filter domain.CampaignQueryFilter) (*domain.CampaignEventsResult, error)
+}
+
+func (s *stubCampaignQueryRepo) GetCampaignFunnel(ctx context.Context, workspaceID, campaignID string, from, to time.Time) (*domain.CampaignFunnel, error) {
+	return s.GetCampaignFunnelFunc(ctx, workspaceID, campaignID, from, to)
+}
+func (s *stubCampaignQueryRepo) GetCampaignTimeSeries(ctx context.Context, workspaceID, campaignID string, from, to time.Time, interval, eventType string) (*domain.CampaignTimeSeriesResult, error) {
+	return s.GetCampaignTimeSeriesFunc(ctx, workspaceID, campaignID, from, to, interval, eventType)
+}
+func (s *stubCampaignQueryRepo) GetCampaignBreakdown(ctx context.Context, workspaceID, campaignID string, from, to time.Time, groupBy string) (*domain.CampaignBreakdownResult, error) {
+	return s.GetCampaignBreakdownFunc(ctx, workspaceID, campaignID, from, to, groupBy)
+}
+func (s *stubCampaignQueryRepo) GetCampaignEvents(ctx context.Context, filter domain.CampaignQueryFilter) (*domain.CampaignEventsResult, error) {
+	return s.GetCampaignEventsFunc(ctx, filter)
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -109,6 +129,20 @@ func newTestService(
 		Clock:           func() time.Time { return fixedTime },
 		Logger:          slog.Default(),
 	})
+}
+
+func newTestServiceWithQuery(
+	factRepo ports.EventFactRepository,
+	projRead ports.ProjectionReadRepository,
+	projWrite ports.ProjectionWriteRepository,
+	campaignQuery ports.CampaignQueryRepository,
+	txMgr ports.TransactionManager,
+	outbox ports.OutboxWriter,
+	checker ports.WorkspaceAccessChecker,
+) *Service {
+	s := newTestService(factRepo, projRead, projWrite, txMgr, outbox, checker)
+	s.campaignQueryRepo = campaignQuery
+	return s
 }
 
 // ---------------------------------------------------------------------------
@@ -691,6 +725,443 @@ func TestGetDeliverability_RepoError(t *testing.T) {
 
 	_, err := svc.GetDeliverability(context.Background(), GetDeliverabilityInput{
 		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != repoErr {
+		t.Fatalf("expected repo error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetCampaignFunnel
+// ---------------------------------------------------------------------------
+
+func TestGetCampaignFunnel_Success(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil,
+		&stubCampaignQueryRepo{
+			GetCampaignFunnelFunc: func(_ context.Context, _, _ string, _, _ time.Time) (*domain.CampaignFunnel, error) {
+				return &domain.CampaignFunnel{
+					Status:        "ready",
+					WorkspaceID:   "ws-1",
+					CampaignID:    "camp-1",
+					DeliveredCount: 100,
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetCampaignFunnel(context.Background(), GetCampaignFunnelInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if result.DeliveredCount != 100 {
+		t.Fatalf("expected 100 delivered, got %d", result.DeliveredCount)
+	}
+}
+
+func TestGetCampaignFunnel_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetCampaignFunnel(context.Background(), GetCampaignFunnelInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetCampaignFunnel_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetCampaignFunnel(context.Background(), GetCampaignFunnelInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestGetCampaignFunnel_InvalidTimeRange(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil,
+		&stubCampaignQueryRepo{},
+		nil, nil, nil,
+	)
+
+	from := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	_, err := svc.GetCampaignFunnel(context.Background(), GetCampaignFunnelInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+		From:        from,
+		To:          to,
+	})
+	if err == nil {
+		t.Fatal("expected time range error")
+	}
+}
+
+func TestGetCampaignFunnel_RepoError(t *testing.T) {
+	repoErr := errors.New("clickhouse down")
+	svc := newTestServiceWithQuery(
+		nil, nil, nil,
+		&stubCampaignQueryRepo{
+			GetCampaignFunnelFunc: func(_ context.Context, _, _ string, _, _ time.Time) (*domain.CampaignFunnel, error) {
+				return nil, repoErr
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetCampaignFunnel(context.Background(), GetCampaignFunnelInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err != repoErr {
+		t.Fatalf("expected repo error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetCampaignTimeSeries
+// ---------------------------------------------------------------------------
+
+func TestGetCampaignTimeSeries_Success(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil,
+		&stubCampaignQueryRepo{
+			GetCampaignTimeSeriesFunc: func(_ context.Context, _, _ string, _, _ time.Time, _, _ string) (*domain.CampaignTimeSeriesResult, error) {
+				return &domain.CampaignTimeSeriesResult{
+					Status:      "ready",
+					WorkspaceID: "ws-1",
+					CampaignID:  "camp-1",
+					Buckets: []domain.CampaignTimeSeriesBucket{
+						{BucketStart: fixedTime, EventType: "delivered", Count: 50},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetCampaignTimeSeries(context.Background(), GetCampaignTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+		Interval:    "day",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Buckets) != 1 {
+		t.Fatalf("expected 1 bucket, got %d", len(result.Buckets))
+	}
+}
+
+func TestGetCampaignTimeSeries_InvalidInterval(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil,
+		&stubCampaignQueryRepo{},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetCampaignTimeSeries(context.Background(), GetCampaignTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+		Interval:    "month",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid interval")
+	}
+}
+
+func TestGetCampaignTimeSeries_UnknownEventType(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil,
+		&stubCampaignQueryRepo{},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetCampaignTimeSeries(context.Background(), GetCampaignTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+		Interval:    "day",
+		EventType:   "unknown",
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown event_type")
+	}
+}
+
+func TestGetCampaignTimeSeries_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetCampaignTimeSeries(context.Background(), GetCampaignTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetCampaignTimeSeries_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetCampaignTimeSeries(context.Background(), GetCampaignTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetCampaignBreakdown
+// ---------------------------------------------------------------------------
+
+func TestGetCampaignBreakdown_Success(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil,
+		&stubCampaignQueryRepo{
+			GetCampaignBreakdownFunc: func(_ context.Context, _, _ string, _, _ time.Time, _ string) (*domain.CampaignBreakdownResult, error) {
+				return &domain.CampaignBreakdownResult{
+					Status:      "ready",
+					WorkspaceID: "ws-1",
+					CampaignID:  "camp-1",
+					GroupBy:     "event_type",
+					Rows: []domain.CampaignBreakdownRow{
+						{GroupKey: "sendgrid", EventType: "delivered", Count: 100},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetCampaignBreakdown(context.Background(), GetCampaignBreakdownInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+		GroupBy:     "event_type",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+}
+
+func TestGetCampaignBreakdown_InvalidGroup(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil,
+		&stubCampaignQueryRepo{},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetCampaignBreakdown(context.Background(), GetCampaignBreakdownInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+		GroupBy:     "unknown",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid group_by")
+	}
+}
+
+func TestGetCampaignBreakdown_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetCampaignBreakdown(context.Background(), GetCampaignBreakdownInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetCampaignBreakdown_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetCampaignBreakdown(context.Background(), GetCampaignBreakdownInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetCampaignEvents
+// ---------------------------------------------------------------------------
+
+func TestGetCampaignEvents_Success(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil,
+		&stubCampaignQueryRepo{
+			GetCampaignEventsFunc: func(_ context.Context, _ domain.CampaignQueryFilter) (*domain.CampaignEventsResult, error) {
+				return &domain.CampaignEventsResult{
+					Status:      "ready",
+					WorkspaceID: "ws-1",
+					CampaignID:  "camp-1",
+					Events: []domain.CampaignEventRow{
+						{SourceEventID: "evt-1", EventType: "delivered"},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetCampaignEvents(context.Background(), GetCampaignEventsInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+		Limit:       50,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(result.Events))
+	}
+}
+
+func TestGetCampaignEvents_DefaultLimit(t *testing.T) {
+	var capturedFilter domain.CampaignQueryFilter
+
+	svc := newTestServiceWithQuery(
+		nil, nil, nil,
+		&stubCampaignQueryRepo{
+			GetCampaignEventsFunc: func(_ context.Context, filter domain.CampaignQueryFilter) (*domain.CampaignEventsResult, error) {
+				capturedFilter = filter
+				return &domain.CampaignEventsResult{
+					Status:      "ready",
+					WorkspaceID: "ws-1",
+					CampaignID:  "camp-1",
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetCampaignEvents(context.Background(), GetCampaignEventsInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedFilter.Limit != 50 {
+		t.Fatalf("expected default limit 50, got %d", capturedFilter.Limit)
+	}
+}
+
+func TestGetCampaignEvents_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetCampaignEvents(context.Background(), GetCampaignEventsInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetCampaignEvents_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetCampaignEvents(context.Background(), GetCampaignEventsInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestGetCampaignEvents_RepoError(t *testing.T) {
+	repoErr := errors.New("query failed")
+	svc := newTestServiceWithQuery(
+		nil, nil, nil,
+		&stubCampaignQueryRepo{
+			GetCampaignEventsFunc: func(_ context.Context, _ domain.CampaignQueryFilter) (*domain.CampaignEventsResult, error) {
+				return nil, repoErr
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetCampaignEvents(context.Background(), GetCampaignEventsInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
 		UserID:      "user-1",
 	})
 	if err != repoErr {
