@@ -52,6 +52,21 @@ type ProjectionRepository interface {
 
 type TransactionManager = transaction.UnitOfWork
 
+type ForensicQueryRepository interface {
+	SearchEvents(ctx context.Context, f domain.ForensicQueryFilter) (*domain.ForensicEventsResult, error)
+	GetMessageTimeline(ctx context.Context, workspaceID, messageID string) (*domain.MessageTimelineResult, error)
+	GetProviderEventTrace(ctx context.Context, workspaceID, providerEventID string) (*domain.ProviderEventTrace, error)
+	GetCampaignIncidentTimeline(ctx context.Context, workspaceID, campaignID string, from, to time.Time) (*domain.CampaignIncidentTimelineResult, error)
+}
+
+type OperationsQueryRepository interface {
+	GetOutboxLag(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.OutboxLagResult, error)
+	GetConsumerFailures(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.ConsumerFailureResult, error)
+	GetDLQVolume(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.DLQResult, error)
+	GetWebhookDeliveryTimeSeries(ctx context.Context, workspaceID string, from, to time.Time, status string, interval string) (*domain.WebhookDeliveryTimeSeriesResult, error)
+	GetWebhookReliability(ctx context.Context, workspaceID string, from, to time.Time, target string) (*domain.WebhookReliabilityResult, error)
+}
+
 type OutboxWriter interface {
 	Save(ctx context.Context, event OutboxEvent) error
 }

@@ -2434,6 +2434,16 @@ type analyticsCampaignPathInput struct {
 	CampaignID  string `path:"campaign_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Campaign ID."`
 }
 
+type analyticsMessagePathInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	MessageID   string `path:"message_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Message ID."`
+}
+
+type analyticsProviderEventPathInput struct {
+	WorkspaceID     string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	ProviderEventID string `path:"provider_event_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Provider event ID."`
+}
+
 func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
 	huma.Register(api, protectedOperation(huma.Operation{
 		OperationID: "get-analytics-overview",
@@ -2565,6 +2575,114 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
 		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverabilityIncidents)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "search-events",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/events",
+		Tags:        []string{"Analytics"},
+		Summary:     "Search analytics events across the workspace",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.searchEvents)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-message-timeline",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/messages/{message_id}/timeline",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get message event timeline",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsMessagePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getMessageTimeline)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-provider-event-trace",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/provider-events/{provider_event_id}",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get provider event trace",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsProviderEventPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getProviderEventTrace)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-campaign-incident-timeline",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}/incident-timeline",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get campaign incident timeline",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignIncidentTimeline)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-operations-outbox-lag",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/operations/outbox-lag",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get outbox lag analytics",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getOutboxLag)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-operations-consumer-failures",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/operations/consumer-failures",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get consumer failure analytics",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getConsumerFailures)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-operations-dlq-volume",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/operations/dlq",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get dead letter queue volume analytics",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDLQVolume)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-webhook-delivery-timeseries",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/webhooks/delivery-timeseries",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get webhook delivery time series",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getWebhookDeliveryTimeSeries)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-webhook-reliability",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/webhooks/reliability",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get webhook delivery reliability",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getWebhookReliability)
 	})
 }
 

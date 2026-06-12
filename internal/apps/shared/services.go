@@ -90,6 +90,8 @@ func NewAnalyticsRepos(writePool *pgxpool.Pool, chClient *platformclickhouse.Cli
 		opts.ClickHouseFactRepo = analyticsclickhouse.NewFactRepository(chClient.Conn())
 		opts.CampaignQueryRepo = analyticsclickhouse.NewCampaignRepository(chClient.Conn())
 		opts.DeliverabilityQueryRepo = analyticsclickhouse.NewDeliverabilityRepository(chClient.Conn())
+		opts.ForensicQueryRepo = analyticsclickhouse.NewForensicsRepository(chClient.Conn())
+		opts.OperationsQueryRepo = analyticsclickhouse.NewOperationsRepository(chClient.Conn())
 	}
 	return opts
 }

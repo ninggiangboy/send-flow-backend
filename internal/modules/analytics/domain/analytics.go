@@ -341,11 +341,11 @@ func (f DeliverabilityQueryFilter) Validate() error {
 }
 
 type DeliverabilityTimeSeriesBucket struct {
-	BucketStart   time.Time `json:"bucket_start"`
-	Provider      string    `json:"provider,omitempty"`
-	RecipientDomain string `json:"recipient_domain,omitempty"`
-	EventType     string    `json:"event_type"`
-	Count         int64     `json:"count"`
+	BucketStart     time.Time `json:"bucket_start"`
+	Provider        string    `json:"provider,omitempty"`
+	RecipientDomain string    `json:"recipient_domain,omitempty"`
+	EventType       string    `json:"event_type"`
+	Count           int64     `json:"count"`
 }
 
 type DeliverabilityTimeSeriesResult struct {
@@ -365,9 +365,9 @@ type DeliverabilityBreakdownRow struct {
 }
 
 type DeliverabilityBreakdownResult struct {
-	Status      string                        `json:"status"`
-	WorkspaceID string                        `json:"workspace_id"`
-	GroupBy     string                        `json:"group_by"`
+	Status      string                       `json:"status"`
+	WorkspaceID string                       `json:"workspace_id"`
+	GroupBy     string                       `json:"group_by"`
 	Rows        []DeliverabilityBreakdownRow `json:"rows"`
 }
 
@@ -383,18 +383,18 @@ type DeliverabilityLatencyRow struct {
 }
 
 type DeliverabilityLatencyResult struct {
-	Status      string                      `json:"status"`
-	WorkspaceID string                      `json:"workspace_id"`
+	Status      string                     `json:"status"`
+	WorkspaceID string                     `json:"workspace_id"`
 	Rows        []DeliverabilityLatencyRow `json:"rows"`
 }
 
 type DeliverabilityIncidentRow struct {
-	Provider        string `json:"provider"`
-	RecipientDomain string `json:"recipient_domain,omitempty"`
-	EventType       string `json:"event_type"`
-	IncidentStart   string `json:"incident_start"`
-	IncidentEnd     string `json:"incident_end,omitempty"`
-	EventCount      int64  `json:"event_count"`
+	Provider        string  `json:"provider"`
+	RecipientDomain string  `json:"recipient_domain,omitempty"`
+	EventType       string  `json:"event_type"`
+	IncidentStart   string  `json:"incident_start"`
+	IncidentEnd     string  `json:"incident_end,omitempty"`
+	EventCount      int64   `json:"event_count"`
 	Rate            float64 `json:"rate"`
 }
 
@@ -411,4 +411,199 @@ func ComputeRate(numerator, denominator int64) float64 {
 		return 0
 	}
 	return float64(numerator) / float64(denominator) * 100
+}
+
+type ForensicQueryFilter struct {
+	WorkspaceID string
+	From        time.Time
+	To          time.Time
+	EventType   string
+	Provider    string
+	Domain      string
+	CampaignID  string
+	MessageID   string
+	Limit       int
+	Cursor      string
+}
+
+func (f ForensicQueryFilter) Validate() error {
+	if strings.TrimSpace(f.WorkspaceID) == "" {
+		return fmt.Errorf("%w: workspace_id is required", ErrAnalyticsQueryInvalid)
+	}
+	if f.From.IsZero() && f.To.IsZero() && f.MessageID == "" {
+		return fmt.Errorf("%w: search must be bounded by time range or message_id", ErrAnalyticsQueryInvalid)
+	}
+	if err := ValidateTimeRange(f.From, f.To); err != nil {
+		return err
+	}
+	if f.EventType != "" && !KnownEventTypes[f.EventType] {
+		return fmt.Errorf("%w: unsupported event_type %q", ErrAnalyticsQueryInvalid, f.EventType)
+	}
+	if f.Limit <= 0 || f.Limit > 100 {
+		return fmt.Errorf("%w: limit must be between 1 and 100", ErrAnalyticsQueryInvalid)
+	}
+	return nil
+}
+
+type ForensicEventRow struct {
+	SourceEventID     string `json:"source_event_id"`
+	SourceEventType   string `json:"source_event_type"`
+	WorkspaceID       string `json:"workspace_id"`
+	CampaignID        string `json:"campaign_id,omitempty"`
+	MessageID         string `json:"message_id,omitempty"`
+	Provider          string `json:"provider,omitempty"`
+	ProviderMessageID string `json:"provider_message_id,omitempty"`
+	ProviderEventID   string `json:"provider_event_id,omitempty"`
+	EventType         string `json:"event_type"`
+	RecipientDomain   string `json:"recipient_domain,omitempty"`
+	OccurredAt        string `json:"occurred_at"`
+	ReceivedAt        string `json:"received_at"`
+}
+
+type ForensicEventsResult struct {
+	Status      string             `json:"status"`
+	WorkspaceID string             `json:"workspace_id"`
+	Events      []ForensicEventRow `json:"events"`
+	NextCursor  string             `json:"next_cursor,omitempty"`
+	TotalCount  int64              `json:"total_count,omitempty"`
+}
+
+type MessageTimelineRow struct {
+	SourceEventID     string `json:"source_event_id"`
+	SourceEventType   string `json:"source_event_type"`
+	EventType         string `json:"event_type"`
+	Provider          string `json:"provider,omitempty"`
+	ProviderMessageID string `json:"provider_message_id,omitempty"`
+	ProviderEventID   string `json:"provider_event_id,omitempty"`
+	CampaignID        string `json:"campaign_id,omitempty"`
+	RecipientDomain   string `json:"recipient_domain,omitempty"`
+	OccurredAt        string `json:"occurred_at"`
+	ReceivedAt        string `json:"received_at"`
+}
+
+type MessageTimelineResult struct {
+	Status      string               `json:"status"`
+	WorkspaceID string               `json:"workspace_id"`
+	MessageID   string               `json:"message_id"`
+	Events      []MessageTimelineRow `json:"events"`
+}
+
+type ProviderEventTrace struct {
+	Status            string `json:"status"`
+	ProviderEventID   string `json:"provider_event_id"`
+	WorkspaceID       string `json:"workspace_id,omitempty"`
+	CampaignID        string `json:"campaign_id,omitempty"`
+	MessageID         string `json:"message_id,omitempty"`
+	Provider          string `json:"provider,omitempty"`
+	ProviderMessageID string `json:"provider_message_id,omitempty"`
+}
+
+type CampaignIncidentTimelineRow struct {
+	SourceEventID   string `json:"source_event_id"`
+	SourceEventType string `json:"source_event_type"`
+	EventType       string `json:"event_type"`
+	MessageID       string `json:"message_id,omitempty"`
+	Provider        string `json:"provider,omitempty"`
+	RecipientDomain string `json:"recipient_domain,omitempty"`
+	OccurredAt      string `json:"occurred_at"`
+}
+
+type CampaignIncidentTimelineResult struct {
+	Status      string                        `json:"status"`
+	WorkspaceID string                        `json:"workspace_id"`
+	CampaignID  string                        `json:"campaign_id"`
+	Events      []CampaignIncidentTimelineRow `json:"events"`
+}
+
+type OperationsQueryFilter struct {
+	WorkspaceID string
+	From        time.Time
+	To          time.Time
+	Source      string
+	Status      string
+	OperationType string
+	Limit       int
+	Cursor      string
+}
+
+func (f OperationsQueryFilter) Validate() error {
+	if strings.TrimSpace(f.WorkspaceID) == "" {
+		return fmt.Errorf("%w: workspace_id is required", ErrAnalyticsQueryInvalid)
+	}
+	if err := ValidateTimeRange(f.From, f.To); err != nil {
+		return err
+	}
+	if f.Limit <= 0 || f.Limit > 100 {
+		return fmt.Errorf("%w: limit must be between 1 and 100", ErrAnalyticsQueryInvalid)
+	}
+	return nil
+}
+
+type OutboxLagRow struct {
+	Source      string `json:"source"`
+	EventType   string `json:"event_type"`
+	LagSeconds  float64 `json:"lag_seconds"`
+	Count       int64   `json:"count"`
+	BucketStart string  `json:"bucket_start"`
+}
+
+type OutboxLagResult struct {
+	Status      string         `json:"status"`
+	WorkspaceID string         `json:"workspace_id"`
+	Rows        []OutboxLagRow `json:"rows"`
+}
+
+type ConsumerFailureRow struct {
+	Source      string `json:"source"`
+	Consumer    string `json:"consumer"`
+	ErrorType   string `json:"error_type"`
+	Count       int64  `json:"count"`
+	BucketStart string `json:"bucket_start"`
+}
+
+type ConsumerFailureResult struct {
+	Status      string               `json:"status"`
+	WorkspaceID string               `json:"workspace_id"`
+	Rows        []ConsumerFailureRow `json:"rows"`
+}
+
+type DLQRow struct {
+	Source      string `json:"source"`
+	EventType   string `json:"event_type"`
+	Count       int64  `json:"count"`
+	BucketStart string `json:"bucket_start"`
+}
+
+type DLQResult struct {
+	Status      string   `json:"status"`
+	WorkspaceID string   `json:"workspace_id"`
+	Rows        []DLQRow `json:"rows"`
+}
+
+type WebhookDeliveryTimeSeriesBucket struct {
+	BucketStart string `json:"bucket_start"`
+	Status      string `json:"status"`
+	Count       int64  `json:"count"`
+}
+
+type WebhookDeliveryTimeSeriesResult struct {
+	Status      string                              `json:"status"`
+	WorkspaceID string                              `json:"workspace_id"`
+	Buckets     []WebhookDeliveryTimeSeriesBucket `json:"buckets"`
+}
+
+type WebhookReliabilityRow struct {
+	Source      string  `json:"source"`
+	Target      string  `json:"target,omitempty"`
+	TotalCount  int64   `json:"total_count"`
+	Succeeded   int64   `json:"succeeded"`
+	Failed      int64   `json:"failed"`
+	Retried     int64   `json:"retried"`
+	SuccessRate float64 `json:"success_rate"`
+}
+
+type WebhookReliabilityResult struct {
+	Status      string                  `json:"status"`
+	WorkspaceID string                  `json:"workspace_id"`
+	Rows        []WebhookReliabilityRow `json:"rows"`
 }

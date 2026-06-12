@@ -245,9 +245,9 @@ type deliverabilityBreakdownRowDoc struct {
 }
 
 type deliverabilityBreakdownResponseDoc struct {
-	Status      string                           `json:"status"`
-	WorkspaceID string                           `json:"workspace_id"`
-	GroupBy     string                           `json:"group_by"`
+	Status      string                          `json:"status"`
+	WorkspaceID string                          `json:"workspace_id"`
+	GroupBy     string                          `json:"group_by"`
 	Rows        []deliverabilityBreakdownRowDoc `json:"rows"`
 }
 
@@ -263,8 +263,8 @@ type deliverabilityLatencyRowDoc struct {
 }
 
 type deliverabilityLatencyResponseDoc struct {
-	Status      string                         `json:"status"`
-	WorkspaceID string                         `json:"workspace_id"`
+	Status      string                        `json:"status"`
+	WorkspaceID string                        `json:"workspace_id"`
 	Rows        []deliverabilityLatencyRowDoc `json:"rows"`
 }
 
@@ -355,6 +355,75 @@ type campaignEventsResponseDoc struct {
 	CampaignID  string                `json:"campaign_id"`
 	Events      []campaignEventRowDoc `json:"events"`
 	NextCursor  string                `json:"next_cursor,omitempty"`
+}
+
+type forensicEventRowDoc struct {
+	SourceEventID     string `json:"source_event_id"`
+	SourceEventType   string `json:"source_event_type"`
+	WorkspaceID       string `json:"workspace_id"`
+	CampaignID        string `json:"campaign_id,omitempty"`
+	MessageID         string `json:"message_id,omitempty"`
+	Provider          string `json:"provider,omitempty"`
+	ProviderMessageID string `json:"provider_message_id,omitempty"`
+	ProviderEventID   string `json:"provider_event_id,omitempty"`
+	EventType         string `json:"event_type"`
+	RecipientDomain   string `json:"recipient_domain,omitempty"`
+	OccurredAt        string `json:"occurred_at"`
+	ReceivedAt        string `json:"received_at"`
+}
+
+type forensicEventsResponseDoc struct {
+	Status      string                `json:"status"`
+	WorkspaceID string                `json:"workspace_id"`
+	Events      []forensicEventRowDoc `json:"events"`
+	NextCursor  string                `json:"next_cursor,omitempty"`
+}
+
+type messageTimelineRowDoc struct {
+	SourceEventID     string `json:"source_event_id"`
+	SourceEventType   string `json:"source_event_type"`
+	EventType         string `json:"event_type"`
+	Provider          string `json:"provider,omitempty"`
+	ProviderMessageID string `json:"provider_message_id,omitempty"`
+	ProviderEventID   string `json:"provider_event_id,omitempty"`
+	CampaignID        string `json:"campaign_id,omitempty"`
+	RecipientDomain   string `json:"recipient_domain,omitempty"`
+	OccurredAt        string `json:"occurred_at"`
+	ReceivedAt        string `json:"received_at"`
+}
+
+type messageTimelineResponseDoc struct {
+	Status      string                  `json:"status"`
+	WorkspaceID string                  `json:"workspace_id"`
+	MessageID   string                  `json:"message_id"`
+	Events      []messageTimelineRowDoc `json:"events"`
+}
+
+type providerEventTraceResponseDoc struct {
+	Status            string `json:"status"`
+	ProviderEventID   string `json:"provider_event_id"`
+	WorkspaceID       string `json:"workspace_id,omitempty"`
+	CampaignID        string `json:"campaign_id,omitempty"`
+	MessageID         string `json:"message_id,omitempty"`
+	Provider          string `json:"provider,omitempty"`
+	ProviderMessageID string `json:"provider_message_id,omitempty"`
+}
+
+type campaignIncidentTimelineRowDoc struct {
+	SourceEventID   string `json:"source_event_id"`
+	SourceEventType string `json:"source_event_type"`
+	EventType       string `json:"event_type"`
+	MessageID       string `json:"message_id,omitempty"`
+	Provider        string `json:"provider,omitempty"`
+	RecipientDomain string `json:"recipient_domain,omitempty"`
+	OccurredAt      string `json:"occurred_at"`
+}
+
+type campaignIncidentTimelineResponseDoc struct {
+	Status      string                           `json:"status"`
+	WorkspaceID string                           `json:"workspace_id"`
+	CampaignID  string                           `json:"campaign_id"`
+	Events      []campaignIncidentTimelineRowDoc `json:"events"`
 }
 
 func (h *analyticsHTTP) getCampaignFunnel(w http.ResponseWriter, r *http.Request) {
@@ -594,6 +663,201 @@ func (h *analyticsHTTP) getCampaignEvents(w http.ResponseWriter, r *http.Request
 	writeEnvelope(w, r, http.StatusOK, resp)
 }
 
+func (h *analyticsHTTP) searchEvents(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+	eventType := q.Get("event_type")
+	provider := q.Get("provider")
+	domain := q.Get("recipient_domain")
+	campaignID := q.Get("campaign_id")
+	messageID := q.Get("message_id")
+	cursor := q.Get("cursor")
+
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	result, err := h.svc.SearchEvents(r.Context(), analyticsapp.SearchEventsInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+		EventType:   eventType,
+		Provider:    provider,
+		Domain:      domain,
+		CampaignID:  campaignID,
+		MessageID:   messageID,
+		Limit:       limit,
+		Cursor:      cursor,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	events := make([]forensicEventRowDoc, 0, len(result.Events))
+	for _, e := range result.Events {
+		events = append(events, forensicEventRowDoc{
+			SourceEventID:     e.SourceEventID,
+			SourceEventType:   e.SourceEventType,
+			WorkspaceID:       e.WorkspaceID,
+			CampaignID:        e.CampaignID,
+			MessageID:         e.MessageID,
+			Provider:          e.Provider,
+			ProviderMessageID: e.ProviderMessageID,
+			ProviderEventID:   e.ProviderEventID,
+			EventType:         e.EventType,
+			RecipientDomain:   e.RecipientDomain,
+			OccurredAt:        e.OccurredAt,
+			ReceivedAt:        e.ReceivedAt,
+		})
+	}
+
+	resp := forensicEventsResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Events:      events,
+		NextCursor:  result.NextCursor,
+	}
+
+	writeEnvelope(w, r, http.StatusOK, resp)
+}
+
+func (h *analyticsHTTP) getMessageTimeline(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	messageID := chi.URLParam(r, "message_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+
+	result, err := h.svc.GetMessageTimeline(r.Context(), analyticsapp.GetMessageTimelineInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		MessageID:   messageID,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	events := make([]messageTimelineRowDoc, 0, len(result.Events))
+	for _, e := range result.Events {
+		events = append(events, messageTimelineRowDoc{
+			SourceEventID:     e.SourceEventID,
+			SourceEventType:   e.SourceEventType,
+			EventType:         e.EventType,
+			Provider:          e.Provider,
+			ProviderMessageID: e.ProviderMessageID,
+			ProviderEventID:   e.ProviderEventID,
+			CampaignID:        e.CampaignID,
+			RecipientDomain:   e.RecipientDomain,
+			OccurredAt:        e.OccurredAt,
+			ReceivedAt:        e.ReceivedAt,
+		})
+	}
+
+	resp := messageTimelineResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		MessageID:   result.MessageID,
+		Events:      events,
+	}
+
+	writeEnvelope(w, r, http.StatusOK, resp)
+}
+
+func (h *analyticsHTTP) getProviderEventTrace(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	providerEventID := chi.URLParam(r, "provider_event_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+
+	result, err := h.svc.GetProviderEventTrace(r.Context(), analyticsapp.GetProviderEventTraceInput{
+		WorkspaceID:     workspaceID,
+		UserID:          userID,
+		ProviderEventID: providerEventID,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	if result == nil {
+		writeError(w, r, http.StatusNotFound, "analytics.projection_not_found", "provider event not found", nil)
+		return
+	}
+
+	resp := providerEventTraceResponseDoc{
+		Status:            result.Status,
+		ProviderEventID:   result.ProviderEventID,
+		WorkspaceID:       result.WorkspaceID,
+		CampaignID:        result.CampaignID,
+		MessageID:         result.MessageID,
+		Provider:          result.Provider,
+		ProviderMessageID: result.ProviderMessageID,
+	}
+
+	writeEnvelope(w, r, http.StatusOK, resp)
+}
+
+func (h *analyticsHTTP) getCampaignIncidentTimeline(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	campaignID := chi.URLParam(r, "campaign_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+
+	result, err := h.svc.GetCampaignIncidentTimeline(r.Context(), analyticsapp.GetCampaignIncidentTimelineInput{
+		WorkspaceID: workspaceID,
+		CampaignID:  campaignID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	events := make([]campaignIncidentTimelineRowDoc, 0, len(result.Events))
+	for _, e := range result.Events {
+		events = append(events, campaignIncidentTimelineRowDoc{
+			SourceEventID:   e.SourceEventID,
+			SourceEventType: e.SourceEventType,
+			EventType:       e.EventType,
+			MessageID:       e.MessageID,
+			Provider:        e.Provider,
+			RecipientDomain: e.RecipientDomain,
+			OccurredAt:      e.OccurredAt,
+		})
+	}
+
+	resp := campaignIncidentTimelineResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		CampaignID:  result.CampaignID,
+		Events:      events,
+	}
+
+	writeEnvelope(w, r, http.StatusOK, resp)
+}
+
 func (h *analyticsHTTP) getDeliverabilityTimeSeries(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspace_id")
 	userID, _ := r.Context().Value(ctxUserID).(string)
@@ -803,6 +1067,299 @@ func (h *analyticsHTTP) getDeliverabilityIncidents(w http.ResponseWriter, r *htt
 	}
 
 	writeEnvelope(w, r, http.StatusOK, resp)
+}
+
+type outboxLagRowDoc struct {
+	Source      string  `json:"source"`
+	EventType   string  `json:"event_type"`
+	LagSeconds  float64 `json:"lag_seconds"`
+	Count       int64   `json:"count"`
+	BucketStart string  `json:"bucket_start"`
+}
+
+type outboxLagResponseDoc struct {
+	Status      string           `json:"status"`
+	WorkspaceID string           `json:"workspace_id"`
+	Rows        []outboxLagRowDoc `json:"rows"`
+}
+
+type consumerFailureRowDoc struct {
+	Source      string `json:"source"`
+	Consumer    string `json:"consumer"`
+	ErrorType   string `json:"error_type"`
+	Count       int64  `json:"count"`
+	BucketStart string `json:"bucket_start"`
+}
+
+type consumerFailureResponseDoc struct {
+	Status      string                 `json:"status"`
+	WorkspaceID string                 `json:"workspace_id"`
+	Rows        []consumerFailureRowDoc `json:"rows"`
+}
+
+type dlqRowDoc struct {
+	Source      string `json:"source"`
+	EventType   string `json:"event_type"`
+	Count       int64  `json:"count"`
+	BucketStart string `json:"bucket_start"`
+}
+
+type dlqResponseDoc struct {
+	Status      string     `json:"status"`
+	WorkspaceID string     `json:"workspace_id"`
+	Rows        []dlqRowDoc `json:"rows"`
+}
+
+type webhookDeliveryTimeSeriesBucketDoc struct {
+	BucketStart string `json:"bucket_start"`
+	Status      string `json:"status"`
+	Count       int64  `json:"count"`
+}
+
+type webhookDeliveryTimeSeriesResponseDoc struct {
+	Status      string                               `json:"status"`
+	WorkspaceID string                               `json:"workspace_id"`
+	Buckets     []webhookDeliveryTimeSeriesBucketDoc `json:"buckets"`
+}
+
+type webhookReliabilityRowDoc struct {
+	Source      string  `json:"source"`
+	Target      string  `json:"target,omitempty"`
+	TotalCount  int64   `json:"total_count"`
+	Succeeded   int64   `json:"succeeded"`
+	Failed      int64   `json:"failed"`
+	Retried     int64   `json:"retried"`
+	SuccessRate float64 `json:"success_rate"`
+}
+
+type webhookReliabilityResponseDoc struct {
+	Status      string                     `json:"status"`
+	WorkspaceID string                     `json:"workspace_id"`
+	Rows        []webhookReliabilityRowDoc `json:"rows"`
+}
+
+func (h *analyticsHTTP) getOutboxLag(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+	source := q.Get("source")
+
+	result, err := h.svc.GetOutboxLag(r.Context(), analyticsapp.GetOutboxLagInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+		Source:      source,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	rows := make([]outboxLagRowDoc, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		rows = append(rows, outboxLagRowDoc{
+			Source:      row.Source,
+			EventType:   row.EventType,
+			LagSeconds:  row.LagSeconds,
+			Count:       row.Count,
+			BucketStart: row.BucketStart,
+		})
+	}
+
+	writeEnvelope(w, r, http.StatusOK, outboxLagResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Rows:        rows,
+	})
+}
+
+func (h *analyticsHTTP) getConsumerFailures(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+	source := q.Get("source")
+
+	result, err := h.svc.GetConsumerFailures(r.Context(), analyticsapp.GetConsumerFailuresInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+		Source:      source,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	rows := make([]consumerFailureRowDoc, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		rows = append(rows, consumerFailureRowDoc{
+			Source:      row.Source,
+			Consumer:    row.Consumer,
+			ErrorType:   row.ErrorType,
+			Count:       row.Count,
+			BucketStart: row.BucketStart,
+		})
+	}
+
+	writeEnvelope(w, r, http.StatusOK, consumerFailureResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Rows:        rows,
+	})
+}
+
+func (h *analyticsHTTP) getDLQVolume(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+	source := q.Get("source")
+
+	result, err := h.svc.GetDLQVolume(r.Context(), analyticsapp.GetDLQVolumeInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+		Source:      source,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	rows := make([]dlqRowDoc, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		rows = append(rows, dlqRowDoc{
+			Source:      row.Source,
+			EventType:   row.EventType,
+			Count:       row.Count,
+			BucketStart: row.BucketStart,
+		})
+	}
+
+	writeEnvelope(w, r, http.StatusOK, dlqResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Rows:        rows,
+	})
+}
+
+func (h *analyticsHTTP) getWebhookDeliveryTimeSeries(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+	status := q.Get("status")
+	interval := q.Get("interval")
+	if interval == "" {
+		interval = "day"
+	}
+
+	result, err := h.svc.GetWebhookDeliveryTimeSeries(r.Context(), analyticsapp.GetWebhookDeliveryTimeSeriesInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+		Status:      status,
+		Interval:    interval,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	buckets := make([]webhookDeliveryTimeSeriesBucketDoc, 0, len(result.Buckets))
+	for _, b := range result.Buckets {
+		buckets = append(buckets, webhookDeliveryTimeSeriesBucketDoc{
+			BucketStart: b.BucketStart,
+			Status:      b.Status,
+			Count:       b.Count,
+		})
+	}
+
+	writeEnvelope(w, r, http.StatusOK, webhookDeliveryTimeSeriesResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Buckets:     buckets,
+	})
+}
+
+func (h *analyticsHTTP) getWebhookReliability(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+	target := q.Get("target")
+
+	result, err := h.svc.GetWebhookReliability(r.Context(), analyticsapp.GetWebhookReliabilityInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+		Target:      target,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	rows := make([]webhookReliabilityRowDoc, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		rows = append(rows, webhookReliabilityRowDoc{
+			Source:      row.Source,
+			Target:      row.Target,
+			TotalCount:  row.TotalCount,
+			Succeeded:   row.Succeeded,
+			Failed:      row.Failed,
+			Retried:     row.Retried,
+			SuccessRate: row.SuccessRate,
+		})
+	}
+
+	writeEnvelope(w, r, http.StatusOK, webhookReliabilityResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Rows:        rows,
+	})
 }
 
 func writeAnalyticsErr(w http.ResponseWriter, r *http.Request, err error) {
