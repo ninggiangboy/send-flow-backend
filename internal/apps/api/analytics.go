@@ -1078,8 +1078,8 @@ type outboxLagRowDoc struct {
 }
 
 type outboxLagResponseDoc struct {
-	Status      string           `json:"status"`
-	WorkspaceID string           `json:"workspace_id"`
+	Status      string            `json:"status"`
+	WorkspaceID string            `json:"workspace_id"`
 	Rows        []outboxLagRowDoc `json:"rows"`
 }
 
@@ -1092,8 +1092,8 @@ type consumerFailureRowDoc struct {
 }
 
 type consumerFailureResponseDoc struct {
-	Status      string                 `json:"status"`
-	WorkspaceID string                 `json:"workspace_id"`
+	Status      string                  `json:"status"`
+	WorkspaceID string                  `json:"workspace_id"`
 	Rows        []consumerFailureRowDoc `json:"rows"`
 }
 
@@ -1105,8 +1105,8 @@ type dlqRowDoc struct {
 }
 
 type dlqResponseDoc struct {
-	Status      string     `json:"status"`
-	WorkspaceID string     `json:"workspace_id"`
+	Status      string      `json:"status"`
+	WorkspaceID string      `json:"workspace_id"`
 	Rows        []dlqRowDoc `json:"rows"`
 }
 

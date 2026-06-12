@@ -24,7 +24,7 @@ func (r *OperationsRepository) GetOutboxLag(ctx context.Context, workspaceID str
 			toStartOfHour(occurred_at) AS bucket_start,
 			source,
 			source_event_type AS event_type,
-			count() AS cnt,
+			toInt64(count()) AS cnt,
 			avg(dateDiff('second', occurred_at, created_at)) AS avg_lag
 		FROM operations_events
 		WHERE workspace_id = ?
@@ -78,7 +78,7 @@ func (r *OperationsRepository) GetConsumerFailures(ctx context.Context, workspac
 			source,
 			consumer,
 			error_type,
-			count() AS cnt
+			toInt64(count()) AS cnt
 		FROM operations_events
 		WHERE workspace_id = ?
 			AND operation_type = 'consumer_failure'
@@ -130,7 +130,7 @@ func (r *OperationsRepository) GetDLQVolume(ctx context.Context, workspaceID str
 			toStartOfDay(occurred_at) AS bucket_start,
 			source,
 			source_event_type AS event_type,
-			count() AS cnt
+			toInt64(count()) AS cnt
 		FROM operations_events
 		WHERE workspace_id = ?
 			AND operation_type = 'dlq_created'
@@ -193,7 +193,7 @@ func (r *OperationsRepository) GetWebhookDeliveryTimeSeries(ctx context.Context,
 		SELECT
 			%s AS bucket_start,
 			status,
-			count() AS cnt
+			toInt64(count()) AS cnt
 		FROM operations_events
 		WHERE workspace_id = ?
 			AND source = 'webhooks'
@@ -245,10 +245,10 @@ func (r *OperationsRepository) GetWebhookReliability(ctx context.Context, worksp
 		SELECT
 			source,
 			target,
-			count() AS total,
-			countIf(status = 'success') AS succeeded,
-			countIf(status = 'failure') AS failed,
-			countIf(status = 'retry') AS retried
+			toInt64(count()) AS total,
+			toInt64(countIf(status = 'success')) AS succeeded,
+			toInt64(countIf(status = 'failure')) AS failed,
+			toInt64(countIf(status = 'retry')) AS retried
 		FROM operations_events
 		WHERE workspace_id = ?
 			AND source = 'webhooks'

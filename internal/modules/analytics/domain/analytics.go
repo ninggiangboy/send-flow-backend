@@ -516,14 +516,14 @@ type CampaignIncidentTimelineResult struct {
 }
 
 type OperationsQueryFilter struct {
-	WorkspaceID string
-	From        time.Time
-	To          time.Time
-	Source      string
-	Status      string
+	WorkspaceID   string
+	From          time.Time
+	To            time.Time
+	Source        string
+	Status        string
 	OperationType string
-	Limit       int
-	Cursor      string
+	Limit         int
+	Cursor        string
 }
 
 func (f OperationsQueryFilter) Validate() error {
@@ -540,8 +540,8 @@ func (f OperationsQueryFilter) Validate() error {
 }
 
 type OutboxLagRow struct {
-	Source      string `json:"source"`
-	EventType   string `json:"event_type"`
+	Source      string  `json:"source"`
+	EventType   string  `json:"event_type"`
 	LagSeconds  float64 `json:"lag_seconds"`
 	Count       int64   `json:"count"`
 	BucketStart string  `json:"bucket_start"`
@@ -587,8 +587,8 @@ type WebhookDeliveryTimeSeriesBucket struct {
 }
 
 type WebhookDeliveryTimeSeriesResult struct {
-	Status      string                              `json:"status"`
-	WorkspaceID string                              `json:"workspace_id"`
+	Status      string                            `json:"status"`
+	WorkspaceID string                            `json:"workspace_id"`
 	Buckets     []WebhookDeliveryTimeSeriesBucket `json:"buckets"`
 }
 

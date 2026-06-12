@@ -1431,3 +1431,1026 @@ func TestGetDeliverabilityIncidents_InvalidTimeRange(t *testing.T) {
 		t.Fatal("expected validation error for invalid time range")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Stub Forensic Query Repo
+// ---------------------------------------------------------------------------
+
+type stubForensicQueryRepo struct {
+	SearchEventsFunc                func(ctx context.Context, filter domain.ForensicQueryFilter) (*domain.ForensicEventsResult, error)
+	GetMessageTimelineFunc          func(ctx context.Context, workspaceID, messageID string) (*domain.MessageTimelineResult, error)
+	GetProviderEventTraceFunc       func(ctx context.Context, workspaceID, providerEventID string) (*domain.ProviderEventTrace, error)
+	GetCampaignIncidentTimelineFunc func(ctx context.Context, workspaceID, campaignID string, from, to time.Time) (*domain.CampaignIncidentTimelineResult, error)
+}
+
+func (s *stubForensicQueryRepo) SearchEvents(ctx context.Context, filter domain.ForensicQueryFilter) (*domain.ForensicEventsResult, error) {
+	return s.SearchEventsFunc(ctx, filter)
+}
+func (s *stubForensicQueryRepo) GetMessageTimeline(ctx context.Context, workspaceID, messageID string) (*domain.MessageTimelineResult, error) {
+	return s.GetMessageTimelineFunc(ctx, workspaceID, messageID)
+}
+func (s *stubForensicQueryRepo) GetProviderEventTrace(ctx context.Context, workspaceID, providerEventID string) (*domain.ProviderEventTrace, error) {
+	return s.GetProviderEventTraceFunc(ctx, workspaceID, providerEventID)
+}
+func (s *stubForensicQueryRepo) GetCampaignIncidentTimeline(ctx context.Context, workspaceID, campaignID string, from, to time.Time) (*domain.CampaignIncidentTimelineResult, error) {
+	return s.GetCampaignIncidentTimelineFunc(ctx, workspaceID, campaignID, from, to)
+}
+
+func newTestServiceWithForensicQuery(
+	factRepo ports.EventFactRepository,
+	projRead ports.ProjectionReadRepository,
+	projWrite ports.ProjectionWriteRepository,
+	forensicQuery ports.ForensicQueryRepository,
+	txMgr ports.TransactionManager,
+	outbox ports.OutboxWriter,
+	checker ports.WorkspaceAccessChecker,
+) *Service {
+	s := newTestService(factRepo, projRead, projWrite, txMgr, outbox, checker)
+	s.forensicQueryRepo = forensicQuery
+	return s
+}
+
+// ---------------------------------------------------------------------------
+// SearchEvents
+// ---------------------------------------------------------------------------
+
+func TestSearchEvents_Success(t *testing.T) {
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil,
+		&stubForensicQueryRepo{
+			SearchEventsFunc: func(_ context.Context, _ domain.ForensicQueryFilter) (*domain.ForensicEventsResult, error) {
+				return &domain.ForensicEventsResult{
+					Status:      "ready",
+					WorkspaceID: "ws-1",
+					Events: []domain.ForensicEventRow{
+						{SourceEventID: "evt-1", EventType: "delivered", OccurredAt: "2025-01-15T10:00:00Z"},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.SearchEvents(context.Background(), SearchEventsInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime.Add(-24 * time.Hour),
+		To:          fixedTime,
+		Limit:       50,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(result.Events))
+	}
+	if result.Events[0].SourceEventID != "evt-1" {
+		t.Fatalf("expected evt-1, got %s", result.Events[0].SourceEventID)
+	}
+}
+
+func TestSearchEvents_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.SearchEvents(context.Background(), SearchEventsInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestSearchEvents_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.SearchEvents(context.Background(), SearchEventsInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestSearchEvents_ValidationError(t *testing.T) {
+	svc := newTestServiceWithForensicQuery(nil, nil, nil, &stubForensicQueryRepo{}, nil, nil, nil)
+
+	_, err := svc.SearchEvents(context.Background(), SearchEventsInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected validation error for unbounded search")
+	}
+}
+
+func TestSearchEvents_RepoError(t *testing.T) {
+	repoErr := errors.New("clickhouse down")
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil,
+		&stubForensicQueryRepo{
+			SearchEventsFunc: func(_ context.Context, _ domain.ForensicQueryFilter) (*domain.ForensicEventsResult, error) {
+				return nil, repoErr
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.SearchEvents(context.Background(), SearchEventsInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime.Add(-24 * time.Hour),
+		To:          fixedTime,
+		Limit:       50,
+	})
+	if err != repoErr {
+		t.Fatalf("expected repo error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetMessageTimeline
+// ---------------------------------------------------------------------------
+
+func TestGetMessageTimeline_Success(t *testing.T) {
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil,
+		&stubForensicQueryRepo{
+			GetMessageTimelineFunc: func(_ context.Context, _, _ string) (*domain.MessageTimelineResult, error) {
+				return &domain.MessageTimelineResult{
+					Status:      "ready",
+					WorkspaceID: "ws-1",
+					MessageID:   "msg-1",
+					Events: []domain.MessageTimelineRow{
+						{SourceEventID: "evt-1", EventType: "accepted", OccurredAt: "2025-01-15T09:00:00Z"},
+						{SourceEventID: "evt-2", EventType: "delivered", OccurredAt: "2025-01-15T09:01:00Z"},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetMessageTimeline(context.Background(), GetMessageTimelineInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		MessageID:   "msg-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(result.Events))
+	}
+	if result.Events[0].EventType != "accepted" {
+		t.Fatalf("expected first event accepted, got %s", result.Events[0].EventType)
+	}
+}
+
+func TestGetMessageTimeline_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetMessageTimeline(context.Background(), GetMessageTimelineInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		MessageID:   "msg-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetMessageTimeline_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetMessageTimeline(context.Background(), GetMessageTimelineInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		MessageID:   "msg-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestGetMessageTimeline_RepoError(t *testing.T) {
+	repoErr := errors.New("clickhouse down")
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil,
+		&stubForensicQueryRepo{
+			GetMessageTimelineFunc: func(_ context.Context, _, _ string) (*domain.MessageTimelineResult, error) {
+				return nil, repoErr
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetMessageTimeline(context.Background(), GetMessageTimelineInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		MessageID:   "msg-1",
+	})
+	if err != repoErr {
+		t.Fatalf("expected repo error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetProviderEventTrace
+// ---------------------------------------------------------------------------
+
+func TestGetProviderEventTrace_Success(t *testing.T) {
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil,
+		&stubForensicQueryRepo{
+			GetProviderEventTraceFunc: func(_ context.Context, _, _ string) (*domain.ProviderEventTrace, error) {
+				return &domain.ProviderEventTrace{
+					Status:          "ready",
+					ProviderEventID: "pe-1",
+					WorkspaceID:     "ws-1",
+					CampaignID:      "camp-1",
+					MessageID:       "msg-1",
+					Provider:        "sendgrid",
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetProviderEventTrace(context.Background(), GetProviderEventTraceInput{
+		WorkspaceID:     "ws-1",
+		UserID:          "user-1",
+		ProviderEventID: "pe-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if result.ProviderEventID != "pe-1" {
+		t.Fatalf("expected pe-1, got %s", result.ProviderEventID)
+	}
+	if result.MessageID != "msg-1" {
+		t.Fatalf("expected msg-1, got %s", result.MessageID)
+	}
+}
+
+func TestGetProviderEventTrace_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetProviderEventTrace(context.Background(), GetProviderEventTraceInput{
+		WorkspaceID:     "ws-1",
+		UserID:          "user-1",
+		ProviderEventID: "pe-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetProviderEventTrace_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetProviderEventTrace(context.Background(), GetProviderEventTraceInput{
+		WorkspaceID:     "ws-1",
+		UserID:          "user-1",
+		ProviderEventID: "pe-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestGetProviderEventTrace_RepoError(t *testing.T) {
+	repoErr := errors.New("clickhouse down")
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil,
+		&stubForensicQueryRepo{
+			GetProviderEventTraceFunc: func(_ context.Context, _, _ string) (*domain.ProviderEventTrace, error) {
+				return nil, repoErr
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetProviderEventTrace(context.Background(), GetProviderEventTraceInput{
+		WorkspaceID:     "ws-1",
+		UserID:          "user-1",
+		ProviderEventID: "pe-1",
+	})
+	if err != repoErr {
+		t.Fatalf("expected repo error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetCampaignIncidentTimeline
+// ---------------------------------------------------------------------------
+
+func TestGetCampaignIncidentTimeline_Success(t *testing.T) {
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil,
+		&stubForensicQueryRepo{
+			GetCampaignIncidentTimelineFunc: func(_ context.Context, _, _ string, _, _ time.Time) (*domain.CampaignIncidentTimelineResult, error) {
+				return &domain.CampaignIncidentTimelineResult{
+					Status:      "ready",
+					WorkspaceID: "ws-1",
+					CampaignID:  "camp-1",
+					Events: []domain.CampaignIncidentTimelineRow{
+						{SourceEventID: "evt-1", EventType: "bounced", MessageID: "msg-1"},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetCampaignIncidentTimeline(context.Background(), GetCampaignIncidentTimelineInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(result.Events))
+	}
+}
+
+func TestGetCampaignIncidentTimeline_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetCampaignIncidentTimeline(context.Background(), GetCampaignIncidentTimelineInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetCampaignIncidentTimeline_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetCampaignIncidentTimeline(context.Background(), GetCampaignIncidentTimelineInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestGetCampaignIncidentTimeline_InvalidTimeRange(t *testing.T) {
+	svc := newTestServiceWithForensicQuery(nil, nil, nil, &stubForensicQueryRepo{}, nil, nil, nil)
+
+	from := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	_, err := svc.GetCampaignIncidentTimeline(context.Background(), GetCampaignIncidentTimelineInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+		From:        from,
+		To:          to,
+	})
+	if err == nil {
+		t.Fatal("expected time range error")
+	}
+}
+
+func TestGetCampaignIncidentTimeline_RepoError(t *testing.T) {
+	repoErr := errors.New("clickhouse down")
+	svc := newTestServiceWithForensicQuery(
+		nil, nil, nil,
+		&stubForensicQueryRepo{
+			GetCampaignIncidentTimelineFunc: func(_ context.Context, _, _ string, _, _ time.Time) (*domain.CampaignIncidentTimelineResult, error) {
+				return nil, repoErr
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetCampaignIncidentTimeline(context.Background(), GetCampaignIncidentTimelineInput{
+		WorkspaceID: "ws-1",
+		CampaignID:  "camp-1",
+		UserID:      "user-1",
+	})
+	if err != repoErr {
+		t.Fatalf("expected repo error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Stub Operations Query Repo
+// ---------------------------------------------------------------------------
+
+type stubOperationsQueryRepo struct {
+	GetOutboxLagFunc                 func(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.OutboxLagResult, error)
+	GetConsumerFailuresFunc          func(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.ConsumerFailureResult, error)
+	GetDLQVolumeFunc                 func(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.DLQResult, error)
+	GetWebhookDeliveryTimeSeriesFunc func(ctx context.Context, workspaceID string, from, to time.Time, status, interval string) (*domain.WebhookDeliveryTimeSeriesResult, error)
+	GetWebhookReliabilityFunc        func(ctx context.Context, workspaceID string, from, to time.Time, target string) (*domain.WebhookReliabilityResult, error)
+}
+
+func (s *stubOperationsQueryRepo) GetOutboxLag(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.OutboxLagResult, error) {
+	return s.GetOutboxLagFunc(ctx, workspaceID, from, to, source)
+}
+func (s *stubOperationsQueryRepo) GetConsumerFailures(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.ConsumerFailureResult, error) {
+	return s.GetConsumerFailuresFunc(ctx, workspaceID, from, to, source)
+}
+func (s *stubOperationsQueryRepo) GetDLQVolume(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.DLQResult, error) {
+	return s.GetDLQVolumeFunc(ctx, workspaceID, from, to, source)
+}
+func (s *stubOperationsQueryRepo) GetWebhookDeliveryTimeSeries(ctx context.Context, workspaceID string, from, to time.Time, status, interval string) (*domain.WebhookDeliveryTimeSeriesResult, error) {
+	return s.GetWebhookDeliveryTimeSeriesFunc(ctx, workspaceID, from, to, status, interval)
+}
+func (s *stubOperationsQueryRepo) GetWebhookReliability(ctx context.Context, workspaceID string, from, to time.Time, target string) (*domain.WebhookReliabilityResult, error) {
+	return s.GetWebhookReliabilityFunc(ctx, workspaceID, from, to, target)
+}
+
+func newTestServiceWithOperationsQuery(
+	factRepo ports.EventFactRepository,
+	projRead ports.ProjectionReadRepository,
+	projWrite ports.ProjectionWriteRepository,
+	operationsQuery ports.OperationsQueryRepository,
+	txMgr ports.TransactionManager,
+	outbox ports.OutboxWriter,
+	checker ports.WorkspaceAccessChecker,
+) *Service {
+	s := newTestService(factRepo, projRead, projWrite, txMgr, outbox, checker)
+	s.operationsQueryRepo = operationsQuery
+	return s
+}
+
+// ---------------------------------------------------------------------------
+// GetOutboxLag
+// ---------------------------------------------------------------------------
+
+func TestGetOutboxLag_Success(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil,
+		&stubOperationsQueryRepo{
+			GetOutboxLagFunc: func(_ context.Context, workspaceID string, _, _ time.Time, _ string) (*domain.OutboxLagResult, error) {
+				return &domain.OutboxLagResult{
+					Status:      "ready",
+					WorkspaceID: workspaceID,
+					Rows: []domain.OutboxLagRow{
+						{Source: "delivery", EventType: "send_email", LagSeconds: 2.5, Count: 100, BucketStart: fixedTime.Format(time.RFC3339)},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetOutboxLag(context.Background(), GetOutboxLagInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime.Add(-24 * time.Hour),
+		To:          fixedTime,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+	if result.Rows[0].Source != "delivery" {
+		t.Fatalf("expected source delivery, got %s", result.Rows[0].Source)
+	}
+}
+
+func TestGetOutboxLag_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetOutboxLag(context.Background(), GetOutboxLagInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetOutboxLag_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetOutboxLag(context.Background(), GetOutboxLagInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestGetOutboxLag_InvalidTimeRange(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetOutboxLag(context.Background(), GetOutboxLagInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime,
+		To:          fixedTime.Add(-24 * time.Hour),
+	})
+	if err == nil {
+		t.Fatal("expected validation error for invalid time range")
+	}
+}
+
+func TestGetOutboxLag_RepoError(t *testing.T) {
+	repoErr := errors.New("clickhouse down")
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil,
+		&stubOperationsQueryRepo{
+			GetOutboxLagFunc: func(_ context.Context, _ string, _, _ time.Time, _ string) (*domain.OutboxLagResult, error) {
+				return nil, repoErr
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetOutboxLag(context.Background(), GetOutboxLagInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != repoErr {
+		t.Fatalf("expected repo error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetConsumerFailures
+// ---------------------------------------------------------------------------
+
+func TestGetConsumerFailures_Success(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil,
+		&stubOperationsQueryRepo{
+			GetConsumerFailuresFunc: func(_ context.Context, workspaceID string, _, _ time.Time, _ string) (*domain.ConsumerFailureResult, error) {
+				return &domain.ConsumerFailureResult{
+					Status:      "ready",
+					WorkspaceID: workspaceID,
+					Rows: []domain.ConsumerFailureRow{
+						{Source: "delivery", Consumer: "analytics_events", ErrorType: "timeout", Count: 5, BucketStart: fixedTime.Format(time.RFC3339)},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetConsumerFailures(context.Background(), GetConsumerFailuresInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+}
+
+func TestGetConsumerFailures_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetConsumerFailures(context.Background(), GetConsumerFailuresInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetConsumerFailures_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetConsumerFailures(context.Background(), GetConsumerFailuresInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestGetConsumerFailures_InvalidTimeRange(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetConsumerFailures(context.Background(), GetConsumerFailuresInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime,
+		To:          fixedTime.Add(-24 * time.Hour),
+	})
+	if err == nil {
+		t.Fatal("expected validation error for invalid time range")
+	}
+}
+
+func TestGetConsumerFailures_RepoError(t *testing.T) {
+	repoErr := errors.New("clickhouse down")
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil,
+		&stubOperationsQueryRepo{
+			GetConsumerFailuresFunc: func(_ context.Context, _ string, _, _ time.Time, _ string) (*domain.ConsumerFailureResult, error) {
+				return nil, repoErr
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetConsumerFailures(context.Background(), GetConsumerFailuresInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != repoErr {
+		t.Fatalf("expected repo error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetDLQVolume
+// ---------------------------------------------------------------------------
+
+func TestGetDLQVolume_Success(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil,
+		&stubOperationsQueryRepo{
+			GetDLQVolumeFunc: func(_ context.Context, workspaceID string, _, _ time.Time, _ string) (*domain.DLQResult, error) {
+				return &domain.DLQResult{
+					Status:      "ready",
+					WorkspaceID: workspaceID,
+					Rows: []domain.DLQRow{
+						{Source: "delivery", EventType: "send_email", Count: 10, BucketStart: fixedTime.Format(time.RFC3339)},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetDLQVolume(context.Background(), GetDLQVolumeInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+}
+
+func TestGetDLQVolume_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetDLQVolume(context.Background(), GetDLQVolumeInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetDLQVolume_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetDLQVolume(context.Background(), GetDLQVolumeInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestGetDLQVolume_InvalidTimeRange(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetDLQVolume(context.Background(), GetDLQVolumeInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime,
+		To:          fixedTime.Add(-24 * time.Hour),
+	})
+	if err == nil {
+		t.Fatal("expected validation error for invalid time range")
+	}
+}
+
+func TestGetDLQVolume_RepoError(t *testing.T) {
+	repoErr := errors.New("clickhouse down")
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil,
+		&stubOperationsQueryRepo{
+			GetDLQVolumeFunc: func(_ context.Context, _ string, _, _ time.Time, _ string) (*domain.DLQResult, error) {
+				return nil, repoErr
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetDLQVolume(context.Background(), GetDLQVolumeInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != repoErr {
+		t.Fatalf("expected repo error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetWebhookDeliveryTimeSeries
+// ---------------------------------------------------------------------------
+
+func TestGetWebhookDeliveryTimeSeries_Success(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil,
+		&stubOperationsQueryRepo{
+			GetWebhookDeliveryTimeSeriesFunc: func(_ context.Context, workspaceID string, _, _ time.Time, _, _ string) (*domain.WebhookDeliveryTimeSeriesResult, error) {
+				return &domain.WebhookDeliveryTimeSeriesResult{
+					Status:      "ready",
+					WorkspaceID: workspaceID,
+					Buckets: []domain.WebhookDeliveryTimeSeriesBucket{
+						{BucketStart: fixedTime.Format(time.RFC3339), Status: "success", Count: 100},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetWebhookDeliveryTimeSeries(context.Background(), GetWebhookDeliveryTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime.Add(-24 * time.Hour),
+		To:          fixedTime,
+		Interval:    "day",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Buckets) != 1 {
+		t.Fatalf("expected 1 bucket, got %d", len(result.Buckets))
+	}
+}
+
+func TestGetWebhookDeliveryTimeSeries_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetWebhookDeliveryTimeSeries(context.Background(), GetWebhookDeliveryTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetWebhookDeliveryTimeSeries_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetWebhookDeliveryTimeSeries(context.Background(), GetWebhookDeliveryTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestGetWebhookDeliveryTimeSeries_InvalidInterval(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetWebhookDeliveryTimeSeries(context.Background(), GetWebhookDeliveryTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		Interval:    "invalid",
+	})
+	if err == nil {
+		t.Fatal("expected validation error for invalid interval")
+	}
+}
+
+func TestGetWebhookDeliveryTimeSeries_InvalidTimeRange(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetWebhookDeliveryTimeSeries(context.Background(), GetWebhookDeliveryTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime,
+		To:          fixedTime.Add(-24 * time.Hour),
+	})
+	if err == nil {
+		t.Fatal("expected validation error for invalid time range")
+	}
+}
+
+func TestGetWebhookDeliveryTimeSeries_RepoError(t *testing.T) {
+	repoErr := errors.New("clickhouse down")
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil,
+		&stubOperationsQueryRepo{
+			GetWebhookDeliveryTimeSeriesFunc: func(_ context.Context, _ string, _, _ time.Time, _, _ string) (*domain.WebhookDeliveryTimeSeriesResult, error) {
+				return nil, repoErr
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetWebhookDeliveryTimeSeries(context.Background(), GetWebhookDeliveryTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != repoErr {
+		t.Fatalf("expected repo error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetWebhookReliability
+// ---------------------------------------------------------------------------
+
+func TestGetWebhookReliability_Success(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil,
+		&stubOperationsQueryRepo{
+			GetWebhookReliabilityFunc: func(_ context.Context, workspaceID string, _, _ time.Time, _ string) (*domain.WebhookReliabilityResult, error) {
+				return &domain.WebhookReliabilityResult{
+					Status:      "ready",
+					WorkspaceID: workspaceID,
+					Rows: []domain.WebhookReliabilityRow{
+						{Source: "webhooks", Target: "https://example.com/hook", TotalCount: 100, Succeeded: 95, Failed: 3, Retried: 2, SuccessRate: 95},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetWebhookReliability(context.Background(), GetWebhookReliabilityInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+}
+
+func TestGetWebhookReliability_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetWebhookReliability(context.Background(), GetWebhookReliabilityInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetWebhookReliability_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetWebhookReliability(context.Background(), GetWebhookReliabilityInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestGetWebhookReliability_InvalidTimeRange(t *testing.T) {
+	svc := newTestServiceWithOperationsQuery(nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetWebhookReliability(context.Background(), GetWebhookReliabilityInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime,
+		To:          fixedTime.Add(-24 * time.Hour),
+	})
+	if err == nil {
+		t.Fatal("expected validation error for invalid time range")
+	}
+}
+
+func TestGetWebhookReliability_RepoError(t *testing.T) {
+	repoErr := errors.New("clickhouse down")
+	svc := newTestServiceWithOperationsQuery(
+		nil, nil, nil,
+		&stubOperationsQueryRepo{
+			GetWebhookReliabilityFunc: func(_ context.Context, _ string, _, _ time.Time, _ string) (*domain.WebhookReliabilityResult, error) {
+				return nil, repoErr
+			},
+		},
+		nil, nil, nil,
+	)
+
+	_, err := svc.GetWebhookReliability(context.Background(), GetWebhookReliabilityInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != repoErr {
+		t.Fatalf("expected repo error, got %v", err)
+	}
+}
