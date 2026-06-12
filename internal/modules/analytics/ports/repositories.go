@@ -17,6 +17,13 @@ type CampaignQueryRepository interface {
 	GetCampaignEvents(ctx context.Context, f domain.CampaignQueryFilter) (*domain.CampaignEventsResult, error)
 }
 
+type DeliverabilityQueryRepository interface {
+	GetDeliverabilityTimeSeries(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain, interval string) (*domain.DeliverabilityTimeSeriesResult, error)
+	GetDeliverabilityBreakdown(ctx context.Context, workspaceID string, from, to time.Time, groupBy, provider, recipientDomain string) (*domain.DeliverabilityBreakdownResult, error)
+	GetDeliverabilityLatency(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityLatencyResult, error)
+	GetDeliverabilityIncidents(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityIncidentResult, error)
+}
+
 type WorkspaceAccessChecker = auth.WorkspaceAccessChecker
 
 type OutboxEvent = outbox.Event

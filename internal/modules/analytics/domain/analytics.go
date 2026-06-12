@@ -315,6 +315,97 @@ type CampaignEventsResult struct {
 	NextCursor  string             `json:"next_cursor,omitempty"`
 }
 
+type DeliverabilityQueryFilter struct {
+	WorkspaceID string
+	From        time.Time
+	To          time.Time
+	Provider    string
+	Domain      string
+	CampaignID  string
+	GroupBy     string
+	Limit       int
+	Cursor      string
+}
+
+func (f DeliverabilityQueryFilter) Validate() error {
+	if strings.TrimSpace(f.WorkspaceID) == "" {
+		return fmt.Errorf("%w: workspace_id is required", ErrAnalyticsQueryInvalid)
+	}
+	if err := ValidateTimeRange(f.From, f.To); err != nil {
+		return err
+	}
+	if f.Limit <= 0 || f.Limit > 100 {
+		return fmt.Errorf("%w: limit must be between 1 and 100", ErrAnalyticsQueryInvalid)
+	}
+	return nil
+}
+
+type DeliverabilityTimeSeriesBucket struct {
+	BucketStart   time.Time `json:"bucket_start"`
+	Provider      string    `json:"provider,omitempty"`
+	RecipientDomain string `json:"recipient_domain,omitempty"`
+	EventType     string    `json:"event_type"`
+	Count         int64     `json:"count"`
+}
+
+type DeliverabilityTimeSeriesResult struct {
+	Status      string                           `json:"status"`
+	WorkspaceID string                           `json:"workspace_id"`
+	Buckets     []DeliverabilityTimeSeriesBucket `json:"buckets"`
+}
+
+type DeliverabilityBreakdownRow struct {
+	GroupKey        string  `json:"-"`
+	Provider        string  `json:"provider,omitempty"`
+	RecipientDomain string  `json:"recipient_domain,omitempty"`
+	EventType       string  `json:"event_type"`
+	Count           int64   `json:"count"`
+	Rate            float64 `json:"rate"`
+	LastEventAt     string  `json:"last_event_at,omitempty"`
+}
+
+type DeliverabilityBreakdownResult struct {
+	Status      string                        `json:"status"`
+	WorkspaceID string                        `json:"workspace_id"`
+	GroupBy     string                        `json:"group_by"`
+	Rows        []DeliverabilityBreakdownRow `json:"rows"`
+}
+
+type DeliverabilityLatencyRow struct {
+	Provider        string  `json:"provider"`
+	RecipientDomain string  `json:"recipient_domain,omitempty"`
+	EventType       string  `json:"event_type"`
+	Count           int64   `json:"count"`
+	P50LatencyMs    float64 `json:"p50_latency_ms"`
+	P95LatencyMs    float64 `json:"p95_latency_ms"`
+	P99LatencyMs    float64 `json:"p99_latency_ms"`
+	AvgLatencyMs    float64 `json:"avg_latency_ms"`
+}
+
+type DeliverabilityLatencyResult struct {
+	Status      string                      `json:"status"`
+	WorkspaceID string                      `json:"workspace_id"`
+	Rows        []DeliverabilityLatencyRow `json:"rows"`
+}
+
+type DeliverabilityIncidentRow struct {
+	Provider        string `json:"provider"`
+	RecipientDomain string `json:"recipient_domain,omitempty"`
+	EventType       string `json:"event_type"`
+	IncidentStart   string `json:"incident_start"`
+	IncidentEnd     string `json:"incident_end,omitempty"`
+	EventCount      int64  `json:"event_count"`
+	Rate            float64 `json:"rate"`
+}
+
+type DeliverabilityIncidentResult struct {
+	Status      string                      `json:"status"`
+	WorkspaceID string                      `json:"workspace_id"`
+	Provider    string                      `json:"provider,omitempty"`
+	Domain      string                      `json:"domain,omitempty"`
+	Rows        []DeliverabilityIncidentRow `json:"rows"`
+}
+
 func ComputeRate(numerator, denominator int64) float64 {
 	if denominator == 0 {
 		return 0

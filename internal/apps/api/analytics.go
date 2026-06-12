@@ -221,6 +221,71 @@ func (h *analyticsHTTP) getDeliverability(w http.ResponseWriter, r *http.Request
 	writeEnvelope(w, r, http.StatusOK, resp)
 }
 
+type deliverabilityTimeSeriesBucketDoc struct {
+	BucketStart     string `json:"bucket_start"`
+	Provider        string `json:"provider,omitempty"`
+	RecipientDomain string `json:"recipient_domain,omitempty"`
+	EventType       string `json:"event_type"`
+	Count           int64  `json:"count"`
+}
+
+type deliverabilityTimeSeriesResponseDoc struct {
+	Status      string                              `json:"status"`
+	WorkspaceID string                              `json:"workspace_id"`
+	Buckets     []deliverabilityTimeSeriesBucketDoc `json:"buckets"`
+}
+
+type deliverabilityBreakdownRowDoc struct {
+	Provider        string  `json:"provider,omitempty"`
+	RecipientDomain string  `json:"recipient_domain,omitempty"`
+	EventType       string  `json:"event_type"`
+	Count           int64   `json:"count"`
+	Rate            float64 `json:"rate"`
+	LastEventAt     string  `json:"last_event_at,omitempty"`
+}
+
+type deliverabilityBreakdownResponseDoc struct {
+	Status      string                           `json:"status"`
+	WorkspaceID string                           `json:"workspace_id"`
+	GroupBy     string                           `json:"group_by"`
+	Rows        []deliverabilityBreakdownRowDoc `json:"rows"`
+}
+
+type deliverabilityLatencyRowDoc struct {
+	Provider        string  `json:"provider"`
+	RecipientDomain string  `json:"recipient_domain,omitempty"`
+	EventType       string  `json:"event_type"`
+	Count           int64   `json:"count"`
+	P50LatencyMs    float64 `json:"p50_latency_ms"`
+	P95LatencyMs    float64 `json:"p95_latency_ms"`
+	P99LatencyMs    float64 `json:"p99_latency_ms"`
+	AvgLatencyMs    float64 `json:"avg_latency_ms"`
+}
+
+type deliverabilityLatencyResponseDoc struct {
+	Status      string                         `json:"status"`
+	WorkspaceID string                         `json:"workspace_id"`
+	Rows        []deliverabilityLatencyRowDoc `json:"rows"`
+}
+
+type deliverabilityIncidentRowDoc struct {
+	Provider        string  `json:"provider"`
+	RecipientDomain string  `json:"recipient_domain,omitempty"`
+	EventType       string  `json:"event_type"`
+	IncidentStart   string  `json:"incident_start"`
+	IncidentEnd     string  `json:"incident_end,omitempty"`
+	EventCount      int64   `json:"event_count"`
+	Rate            float64 `json:"rate"`
+}
+
+type deliverabilityIncidentResponseDoc struct {
+	Status      string                         `json:"status"`
+	WorkspaceID string                         `json:"workspace_id"`
+	Provider    string                         `json:"provider,omitempty"`
+	Domain      string                         `json:"domain,omitempty"`
+	Rows        []deliverabilityIncidentRowDoc `json:"rows"`
+}
+
 type campaignFunnelResponseDoc struct {
 	Status              string  `json:"status"`
 	WorkspaceID         string  `json:"workspace_id"`
@@ -524,6 +589,217 @@ func (h *analyticsHTTP) getCampaignEvents(w http.ResponseWriter, r *http.Request
 		CampaignID:  result.CampaignID,
 		Events:      events,
 		NextCursor:  result.NextCursor,
+	}
+
+	writeEnvelope(w, r, http.StatusOK, resp)
+}
+
+func (h *analyticsHTTP) getDeliverabilityTimeSeries(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+	interval := q.Get("interval")
+	if interval == "" {
+		interval = "day"
+	}
+	provider := q.Get("provider")
+	domain := q.Get("recipient_domain")
+
+	result, err := h.svc.GetDeliverabilityTimeSeries(r.Context(), analyticsapp.GetDeliverabilityTimeSeriesInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+		Interval:    interval,
+		Provider:    provider,
+		Domain:      domain,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	buckets := make([]deliverabilityTimeSeriesBucketDoc, 0, len(result.Buckets))
+	for _, b := range result.Buckets {
+		buckets = append(buckets, deliverabilityTimeSeriesBucketDoc{
+			BucketStart:     b.BucketStart.Format(time.RFC3339),
+			Provider:        b.Provider,
+			RecipientDomain: b.RecipientDomain,
+			EventType:       b.EventType,
+			Count:           b.Count,
+		})
+	}
+
+	resp := deliverabilityTimeSeriesResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Buckets:     buckets,
+	}
+
+	writeEnvelope(w, r, http.StatusOK, resp)
+}
+
+func (h *analyticsHTTP) getDeliverabilityBreakdown(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+	groupBy := q.Get("group_by")
+	if groupBy == "" {
+		groupBy = "provider"
+	}
+	provider := q.Get("provider")
+	domain := q.Get("recipient_domain")
+
+	result, err := h.svc.GetDeliverabilityBreakdown(r.Context(), analyticsapp.GetDeliverabilityBreakdownInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+		GroupBy:     groupBy,
+		Provider:    provider,
+		Domain:      domain,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	rows := make([]deliverabilityBreakdownRowDoc, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		rows = append(rows, deliverabilityBreakdownRowDoc{
+			Provider:        row.Provider,
+			RecipientDomain: row.RecipientDomain,
+			EventType:       row.EventType,
+			Count:           row.Count,
+			Rate:            row.Rate,
+			LastEventAt:     row.LastEventAt,
+		})
+	}
+
+	resp := deliverabilityBreakdownResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		GroupBy:     result.GroupBy,
+		Rows:        rows,
+	}
+
+	writeEnvelope(w, r, http.StatusOK, resp)
+}
+
+func (h *analyticsHTTP) getDeliverabilityLatency(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+	provider := q.Get("provider")
+	domain := q.Get("recipient_domain")
+
+	result, err := h.svc.GetDeliverabilityLatency(r.Context(), analyticsapp.GetDeliverabilityLatencyInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+		Provider:    provider,
+		Domain:      domain,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	rows := make([]deliverabilityLatencyRowDoc, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		rows = append(rows, deliverabilityLatencyRowDoc{
+			Provider:        row.Provider,
+			RecipientDomain: row.RecipientDomain,
+			EventType:       row.EventType,
+			Count:           row.Count,
+			P50LatencyMs:    row.P50LatencyMs,
+			P95LatencyMs:    row.P95LatencyMs,
+			P99LatencyMs:    row.P99LatencyMs,
+			AvgLatencyMs:    row.AvgLatencyMs,
+		})
+	}
+
+	resp := deliverabilityLatencyResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Rows:        rows,
+	}
+
+	writeEnvelope(w, r, http.StatusOK, resp)
+}
+
+func (h *analyticsHTTP) getDeliverabilityIncidents(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+	provider := q.Get("provider")
+	domain := q.Get("recipient_domain")
+
+	result, err := h.svc.GetDeliverabilityIncidents(r.Context(), analyticsapp.GetDeliverabilityIncidentsInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+		Provider:    provider,
+		Domain:      domain,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	rows := make([]deliverabilityIncidentRowDoc, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		rows = append(rows, deliverabilityIncidentRowDoc{
+			Provider:        row.Provider,
+			RecipientDomain: row.RecipientDomain,
+			EventType:       row.EventType,
+			IncidentStart:   row.IncidentStart,
+			IncidentEnd:     row.IncidentEnd,
+			EventCount:      row.EventCount,
+			Rate:            row.Rate,
+		})
+	}
+
+	resp := deliverabilityIncidentResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Provider:    result.Provider,
+		Domain:      result.Domain,
+		Rows:        rows,
 	}
 
 	writeEnvelope(w, r, http.StatusOK, resp)

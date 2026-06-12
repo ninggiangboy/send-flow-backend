@@ -1168,3 +1168,266 @@ func TestGetCampaignEvents_RepoError(t *testing.T) {
 		t.Fatalf("expected repo error, got %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Stub Deliverability Query Repo
+// ---------------------------------------------------------------------------
+
+type stubDeliverabilityQueryRepo struct {
+	GetDeliverabilityTimeSeriesFunc func(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain, interval string) (*domain.DeliverabilityTimeSeriesResult, error)
+	GetDeliverabilityBreakdownFunc  func(ctx context.Context, workspaceID string, from, to time.Time, groupBy, provider, recipientDomain string) (*domain.DeliverabilityBreakdownResult, error)
+	GetDeliverabilityLatencyFunc    func(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityLatencyResult, error)
+	GetDeliverabilityIncidentsFunc  func(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityIncidentResult, error)
+}
+
+func (s *stubDeliverabilityQueryRepo) GetDeliverabilityTimeSeries(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain, interval string) (*domain.DeliverabilityTimeSeriesResult, error) {
+	return s.GetDeliverabilityTimeSeriesFunc(ctx, workspaceID, from, to, provider, recipientDomain, interval)
+}
+func (s *stubDeliverabilityQueryRepo) GetDeliverabilityBreakdown(ctx context.Context, workspaceID string, from, to time.Time, groupBy, provider, recipientDomain string) (*domain.DeliverabilityBreakdownResult, error) {
+	return s.GetDeliverabilityBreakdownFunc(ctx, workspaceID, from, to, groupBy, provider, recipientDomain)
+}
+func (s *stubDeliverabilityQueryRepo) GetDeliverabilityLatency(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityLatencyResult, error) {
+	return s.GetDeliverabilityLatencyFunc(ctx, workspaceID, from, to, provider, recipientDomain)
+}
+func (s *stubDeliverabilityQueryRepo) GetDeliverabilityIncidents(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityIncidentResult, error) {
+	return s.GetDeliverabilityIncidentsFunc(ctx, workspaceID, from, to, provider, recipientDomain)
+}
+
+func newTestServiceWithDeliverabilityQuery(
+	factRepo ports.EventFactRepository,
+	projRead ports.ProjectionReadRepository,
+	projWrite ports.ProjectionWriteRepository,
+	deliverabilityQuery ports.DeliverabilityQueryRepository,
+	txMgr ports.TransactionManager,
+	outbox ports.OutboxWriter,
+	checker ports.WorkspaceAccessChecker,
+) *Service {
+	s := newTestService(factRepo, projRead, projWrite, txMgr, outbox, checker)
+	s.deliverabilityQueryRepo = deliverabilityQuery
+	return s
+}
+
+// ---------------------------------------------------------------------------
+// GetDeliverabilityTimeSeries
+// ---------------------------------------------------------------------------
+
+func TestGetDeliverabilityTimeSeries_Success(t *testing.T) {
+	svc := newTestServiceWithDeliverabilityQuery(
+		nil, nil, nil,
+		&stubDeliverabilityQueryRepo{
+			GetDeliverabilityTimeSeriesFunc: func(_ context.Context, workspaceID string, _, _ time.Time, _, _, interval string) (*domain.DeliverabilityTimeSeriesResult, error) {
+				return &domain.DeliverabilityTimeSeriesResult{
+					Status:      "ready",
+					WorkspaceID: workspaceID,
+					Buckets: []domain.DeliverabilityTimeSeriesBucket{
+						{BucketStart: fixedTime, Provider: "sendgrid", EventType: "delivered", Count: 100},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetDeliverabilityTimeSeries(context.Background(), GetDeliverabilityTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime.Add(-24 * time.Hour),
+		To:          fixedTime,
+		Interval:    "day",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected ready, got %s", result.Status)
+	}
+	if len(result.Buckets) != 1 {
+		t.Fatalf("expected 1 bucket, got %d", len(result.Buckets))
+	}
+}
+
+func TestGetDeliverabilityTimeSeries_InvalidInterval(t *testing.T) {
+	svc := newTestServiceWithDeliverabilityQuery(nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetDeliverabilityTimeSeries(context.Background(), GetDeliverabilityTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		Interval:    "invalid",
+	})
+	if err == nil {
+		t.Fatal("expected validation error for invalid interval")
+	}
+}
+
+func TestGetDeliverabilityTimeSeries_InvalidTimeRange(t *testing.T) {
+	svc := newTestServiceWithDeliverabilityQuery(nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetDeliverabilityTimeSeries(context.Background(), GetDeliverabilityTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime,
+		To:          fixedTime.Add(-24 * time.Hour),
+	})
+	if err == nil {
+		t.Fatal("expected validation error for invalid time range")
+	}
+}
+
+func TestGetDeliverabilityTimeSeries_AccessDenied(t *testing.T) {
+	svc := newTestServiceWithDeliverabilityQuery(
+		nil, nil, nil, nil, nil, nil,
+		&stubAccessChecker{
+			RequirePermissionFunc: func(_ context.Context, _, _, _ string) error {
+				return errors.New("permission denied")
+			},
+		},
+	)
+
+	_, err := svc.GetDeliverabilityTimeSeries(context.Background(), GetDeliverabilityTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err == nil {
+		t.Fatal("expected access error")
+	}
+}
+
+func TestGetDeliverabilityTimeSeries_NilRepo(t *testing.T) {
+	svc := newTestService(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetDeliverabilityTimeSeries(context.Background(), GetDeliverabilityTimeSeriesInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != domain.ErrAnalyticsQueryInvalid {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetDeliverabilityBreakdown
+// ---------------------------------------------------------------------------
+
+func TestGetDeliverabilityBreakdown_Success(t *testing.T) {
+	svc := newTestServiceWithDeliverabilityQuery(
+		nil, nil, nil,
+		&stubDeliverabilityQueryRepo{
+			GetDeliverabilityBreakdownFunc: func(_ context.Context, workspaceID string, _, _ time.Time, groupBy, _, _ string) (*domain.DeliverabilityBreakdownResult, error) {
+				return &domain.DeliverabilityBreakdownResult{
+					Status:      "ready",
+					WorkspaceID: workspaceID,
+					GroupBy:     groupBy,
+					Rows: []domain.DeliverabilityBreakdownRow{
+						{Provider: "sendgrid", EventType: "delivered", Count: 100, Rate: 100},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetDeliverabilityBreakdown(context.Background(), GetDeliverabilityBreakdownInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		GroupBy:     "provider",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected ready, got %s", result.Status)
+	}
+}
+
+func TestGetDeliverabilityBreakdown_InvalidGroupBy(t *testing.T) {
+	svc := newTestServiceWithDeliverabilityQuery(nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetDeliverabilityBreakdown(context.Background(), GetDeliverabilityBreakdownInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		GroupBy:     "event_type",
+	})
+	if err == nil {
+		t.Fatal("expected validation error for event_type group_by")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetDeliverabilityLatency
+// ---------------------------------------------------------------------------
+
+func TestGetDeliverabilityLatency_Success(t *testing.T) {
+	svc := newTestServiceWithDeliverabilityQuery(
+		nil, nil, nil,
+		&stubDeliverabilityQueryRepo{
+			GetDeliverabilityLatencyFunc: func(_ context.Context, workspaceID string, _, _ time.Time, _, _ string) (*domain.DeliverabilityLatencyResult, error) {
+				return &domain.DeliverabilityLatencyResult{
+					Status:      "ready",
+					WorkspaceID: workspaceID,
+					Rows: []domain.DeliverabilityLatencyRow{
+						{Provider: "sendgrid", EventType: "accepted_to_delivered", Count: 100, P50LatencyMs: 500, P95LatencyMs: 2000, P99LatencyMs: 5000, AvgLatencyMs: 750},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetDeliverabilityLatency(context.Background(), GetDeliverabilityLatencyInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetDeliverabilityIncidents
+// ---------------------------------------------------------------------------
+
+func TestGetDeliverabilityIncidents_Success(t *testing.T) {
+	svc := newTestServiceWithDeliverabilityQuery(
+		nil, nil, nil,
+		&stubDeliverabilityQueryRepo{
+			GetDeliverabilityIncidentsFunc: func(_ context.Context, workspaceID string, _, _ time.Time, _, _ string) (*domain.DeliverabilityIncidentResult, error) {
+				return &domain.DeliverabilityIncidentResult{
+					Status:      "ready",
+					WorkspaceID: workspaceID,
+					Rows: []domain.DeliverabilityIncidentRow{
+						{Provider: "sendgrid", EventType: "bounce", IncidentStart: fixedTime.Format(time.RFC3339), EventCount: 10, Rate: 10.5},
+					},
+				}, nil
+			},
+		},
+		nil, nil, nil,
+	)
+
+	result, err := svc.GetDeliverabilityIncidents(context.Background(), GetDeliverabilityIncidentsInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+}
+
+func TestGetDeliverabilityIncidents_InvalidTimeRange(t *testing.T) {
+	svc := newTestServiceWithDeliverabilityQuery(nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.GetDeliverabilityIncidents(context.Background(), GetDeliverabilityIncidentsInput{
+		WorkspaceID: "ws-1",
+		UserID:      "user-1",
+		From:        fixedTime,
+		To:          fixedTime.Add(-24 * time.Hour),
+	})
+	if err == nil {
+		t.Fatal("expected validation error for invalid time range")
+	}
+}

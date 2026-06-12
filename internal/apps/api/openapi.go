@@ -2518,6 +2518,54 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		_ = input
 		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverability)
 	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-deliverability-timeseries",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/deliverability/timeseries",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get deliverability time series",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverabilityTimeSeries)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-deliverability-breakdown",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/deliverability/breakdown",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get deliverability breakdown",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverabilityBreakdown)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-deliverability-latency",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/deliverability/latency",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get deliverability latency percentiles",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverabilityLatency)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-deliverability-incidents",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/deliverability/incidents",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get deliverability incident windows",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverabilityIncidents)
+	})
 }
 
 func analyticsErrorCodes() map[int][]string {

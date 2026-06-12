@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -87,31 +88,33 @@ type GetCampaignEventsInput struct {
 }
 
 type Options struct {
-	FactRepo           ports.EventFactRepository
-	ClickHouseFactRepo ports.EventFactRepository
-	ProjectionRead     ports.ProjectionReadRepository
-	ProjectionWrite    ports.ProjectionWriteRepository
-	CampaignQueryRepo  ports.CampaignQueryRepository
-	TxManager          ports.TransactionManager
-	OutboxWriter       ports.OutboxWriter
-	AccessChecker      ports.WorkspaceAccessChecker
-	IDGen              func() (string, error)
-	Clock              func() time.Time
-	Logger             *slog.Logger
+	FactRepo                ports.EventFactRepository
+	ClickHouseFactRepo      ports.EventFactRepository
+	ProjectionRead          ports.ProjectionReadRepository
+	ProjectionWrite         ports.ProjectionWriteRepository
+	CampaignQueryRepo       ports.CampaignQueryRepository
+	DeliverabilityQueryRepo ports.DeliverabilityQueryRepository
+	TxManager               ports.TransactionManager
+	OutboxWriter            ports.OutboxWriter
+	AccessChecker           ports.WorkspaceAccessChecker
+	IDGen                   func() (string, error)
+	Clock                   func() time.Time
+	Logger                  *slog.Logger
 }
 
 type Service struct {
-	factRepo           ports.EventFactRepository
-	clickHouseFactRepo ports.EventFactRepository
-	projectionRead     ports.ProjectionReadRepository
-	projectionWrite    ports.ProjectionWriteRepository
-	campaignQueryRepo  ports.CampaignQueryRepository
-	txManager          ports.TransactionManager
-	outboxWriter       ports.OutboxWriter
-	accessChecker      ports.WorkspaceAccessChecker
-	idGen              func() (string, error)
-	clock              func() time.Time
-	log                *slog.Logger
+	factRepo                ports.EventFactRepository
+	clickHouseFactRepo      ports.EventFactRepository
+	projectionRead          ports.ProjectionReadRepository
+	projectionWrite         ports.ProjectionWriteRepository
+	campaignQueryRepo       ports.CampaignQueryRepository
+	deliverabilityQueryRepo ports.DeliverabilityQueryRepository
+	txManager               ports.TransactionManager
+	outboxWriter            ports.OutboxWriter
+	accessChecker           ports.WorkspaceAccessChecker
+	idGen                   func() (string, error)
+	clock                   func() time.Time
+	log                     *slog.Logger
 }
 
 func NewService(opts Options) *Service {
@@ -122,17 +125,18 @@ func NewService(opts Options) *Service {
 		opts.Logger = slog.Default()
 	}
 	return &Service{
-		factRepo:           opts.FactRepo,
-		clickHouseFactRepo: opts.ClickHouseFactRepo,
-		projectionRead:     opts.ProjectionRead,
-		projectionWrite:    opts.ProjectionWrite,
-		campaignQueryRepo:  opts.CampaignQueryRepo,
-		txManager:          opts.TxManager,
-		outboxWriter:       opts.OutboxWriter,
-		accessChecker:      opts.AccessChecker,
-		idGen:              opts.IDGen,
-		clock:              opts.Clock,
-		log:                opts.Logger.With("service", "analytics"),
+		factRepo:                opts.FactRepo,
+		clickHouseFactRepo:      opts.ClickHouseFactRepo,
+		projectionRead:          opts.ProjectionRead,
+		projectionWrite:         opts.ProjectionWrite,
+		campaignQueryRepo:       opts.CampaignQueryRepo,
+		deliverabilityQueryRepo: opts.DeliverabilityQueryRepo,
+		txManager:               opts.TxManager,
+		outboxWriter:            opts.OutboxWriter,
+		accessChecker:           opts.AccessChecker,
+		idGen:                   opts.IDGen,
+		clock:                   opts.Clock,
+		log:                     opts.Logger.With("service", "analytics"),
 	}
 }
 
@@ -548,6 +552,177 @@ func (s *Service) GetCampaignBreakdown(ctx context.Context, input GetCampaignBre
 	}
 
 	return bd, nil
+}
+
+type GetDeliverabilityTimeSeriesInput struct {
+	WorkspaceID string
+	UserID      string
+	From        time.Time
+	To          time.Time
+	Provider    string
+	Domain      string
+	Interval    string
+}
+
+type GetDeliverabilityBreakdownInput struct {
+	WorkspaceID string
+	UserID      string
+	From        time.Time
+	To          time.Time
+	GroupBy     string
+	Provider    string
+	Domain      string
+}
+
+type GetDeliverabilityLatencyInput struct {
+	WorkspaceID string
+	UserID      string
+	From        time.Time
+	To          time.Time
+	Provider    string
+	Domain      string
+}
+
+type GetDeliverabilityIncidentsInput struct {
+	WorkspaceID string
+	UserID      string
+	From        time.Time
+	To          time.Time
+	Provider    string
+	Domain      string
+}
+
+func (s *Service) GetDeliverabilityTimeSeries(ctx context.Context, input GetDeliverabilityTimeSeriesInput) (*domain.DeliverabilityTimeSeriesResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+
+	if s.deliverabilityQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+
+	if input.Interval == "" {
+		input.Interval = "day"
+	}
+	if err := domain.ValidateInterval(input.Interval); err != nil {
+		return nil, err
+	}
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+
+	result, err := s.deliverabilityQueryRepo.GetDeliverabilityTimeSeries(ctx, input.WorkspaceID, input.From, input.To, input.Provider, input.Domain, input.Interval)
+	if err != nil {
+		s.log.Error("failed to get deliverability time series",
+			"workspace_id", input.WorkspaceID,
+			"provider", input.Provider,
+			"domain", input.Domain,
+			"interval", input.Interval,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (s *Service) GetDeliverabilityBreakdown(ctx context.Context, input GetDeliverabilityBreakdownInput) (*domain.DeliverabilityBreakdownResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+
+	if s.deliverabilityQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+
+	if input.GroupBy == "" {
+		input.GroupBy = "provider"
+	}
+	if err := domain.ValidateGroupBy(input.GroupBy); err != nil {
+		return nil, err
+	}
+	if input.GroupBy == "event_type" {
+		return nil, fmt.Errorf("%w: group_by must be provider or recipient_domain for deliverability", domain.ErrAnalyticsQueryInvalid)
+	}
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+
+	result, err := s.deliverabilityQueryRepo.GetDeliverabilityBreakdown(ctx, input.WorkspaceID, input.From, input.To, input.GroupBy, input.Provider, input.Domain)
+	if err != nil {
+		s.log.Error("failed to get deliverability breakdown",
+			"workspace_id", input.WorkspaceID,
+			"group_by", input.GroupBy,
+			"provider", input.Provider,
+			"domain", input.Domain,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (s *Service) GetDeliverabilityLatency(ctx context.Context, input GetDeliverabilityLatencyInput) (*domain.DeliverabilityLatencyResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+
+	if s.deliverabilityQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+
+	result, err := s.deliverabilityQueryRepo.GetDeliverabilityLatency(ctx, input.WorkspaceID, input.From, input.To, input.Provider, input.Domain)
+	if err != nil {
+		s.log.Error("failed to get deliverability latency",
+			"workspace_id", input.WorkspaceID,
+			"provider", input.Provider,
+			"domain", input.Domain,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (s *Service) GetDeliverabilityIncidents(ctx context.Context, input GetDeliverabilityIncidentsInput) (*domain.DeliverabilityIncidentResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+
+	if s.deliverabilityQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+
+	result, err := s.deliverabilityQueryRepo.GetDeliverabilityIncidents(ctx, input.WorkspaceID, input.From, input.To, input.Provider, input.Domain)
+	if err != nil {
+		s.log.Error("failed to get deliverability incidents",
+			"workspace_id", input.WorkspaceID,
+			"provider", input.Provider,
+			"domain", input.Domain,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (s *Service) GetCampaignEvents(ctx context.Context, input GetCampaignEventsInput) (*domain.CampaignEventsResult, error) {
