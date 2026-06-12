@@ -1,12 +1,13 @@
 package contracts
 
 const (
-	EventConfigCreatedV1     = "webhooks.config.created.v1"
-	EventConfigUpdatedV1     = "webhooks.config.updated.v1"
-	EventConfigDisabledV1    = "webhooks.config.disabled.v1"
-	EventSecretRotatedV1     = "webhooks.secret.rotated.v1"
-	EventDeliverySucceededV1 = "webhooks.delivery.succeeded.v1"
-	EventDeliveryFailedV1    = "webhooks.delivery.failed.v1"
+	EventConfigCreatedV1          = "webhooks.config.created.v1"
+	EventConfigUpdatedV1          = "webhooks.config.updated.v1"
+	EventConfigDisabledV1         = "webhooks.config.disabled.v1"
+	EventSecretRotatedV1          = "webhooks.secret.rotated.v1"
+	EventDeliverySucceededV1      = "webhooks.delivery.succeeded.v1"
+	EventDeliveryFailedV1         = "webhooks.delivery.failed.v1"
+	EventDeliveryRetryScheduledV1 = "webhooks.delivery.retry_scheduled.v1"
 )
 
 type ConfigCreatedPayload struct {
@@ -58,6 +59,18 @@ type DeliveryFailedPayload struct {
 	StatusCode      *int   `json:"status_code,omitempty"`
 	Error           string `json:"error"`
 	DurationMs      int64  `json:"duration_ms"`
+}
+
+type DeliveryRetryScheduledPayload struct {
+	DeliveryID      string `json:"delivery_id"`
+	WorkspaceID     string `json:"workspace_id"`
+	WebhookID       string `json:"webhook_id"`
+	SourceEventID   string `json:"source_event_id"`
+	SourceEventType string `json:"source_event_type"`
+	NextAttemptAt   string `json:"next_attempt_at"`
+	AttemptNumber   int64  `json:"attempt_number"`
+	StatusCode      *int   `json:"status_code,omitempty"`
+	Error           string `json:"error"`
 }
 
 type CustomerWebhookPayload struct {

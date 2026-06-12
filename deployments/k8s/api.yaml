@@ -50,11 +50,6 @@ spec:
                 secretKeyRef:
                   name: send-flow-secrets
                   key: KAFKA_BROKERS
-            - name: CLICKHOUSE_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: send-flow-secrets
-                  key: CLICKHOUSE_DSN
           readinessProbe:
             httpGet:
               path: /api/readyz

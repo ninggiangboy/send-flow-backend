@@ -271,7 +271,7 @@ func (r *DeliveryWriteRepository) ClaimPendingDeliveries(ctx context.Context, li
 
 func (r *DeliveryWriteRepository) ScheduleRetry(ctx context.Context, deliveryID string, nextAttemptAt time.Time) error {
 	tag, err := r.db(ctx).Exec(ctx,
-		`UPDATE customer_webhook_deliveries SET status='retry_scheduled', next_attempt_at=$1, updated_at=NOW() WHERE id=$2 AND status='failed'`,
+		`UPDATE customer_webhook_deliveries SET status='retry_scheduled', next_attempt_at=$1, updated_at=NOW() WHERE id=$2 AND status IN ('failed', 'delivering')`,
 		nextAttemptAt, deliveryID,
 	)
 	if err != nil {

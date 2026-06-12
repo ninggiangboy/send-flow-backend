@@ -64,8 +64,11 @@ func TestValidExportFormat(t *testing.T) {
 	if !ValidExportFormat("csv") {
 		t.Error("expected csv to be valid")
 	}
-	if ValidExportFormat("json") {
-		t.Error("expected json format to be invalid")
+	if !ValidExportFormat("json") {
+		t.Error("expected json format to be valid")
+	}
+	if ValidExportFormat("invalid") {
+		t.Error("expected invalid export format to be invalid")
 	}
 }
 

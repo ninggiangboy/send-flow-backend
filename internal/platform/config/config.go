@@ -25,7 +25,6 @@ type Config struct {
 	RedisPassword   string
 	RedisDB         int
 	KafkaBrokers    string
-	ClickHouseDSN   string
 	EmailProvider   string
 	FrontendBaseURL string
 	SMTP            SMTPConfig
@@ -116,7 +115,6 @@ func LoadFromEnv() (Config, error) {
 		RedisAddr:       getenv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:   os.Getenv("REDIS_PASSWORD"),
 		KafkaBrokers:    os.Getenv("KAFKA_BROKERS"),
-		ClickHouseDSN:   os.Getenv("CLICKHOUSE_DSN"),
 		EmailProvider:   getenv("EMAIL_PROVIDER", "smtp"),
 		FrontendBaseURL: os.Getenv("FRONTEND_BASE_URL"),
 		SMTP: SMTPConfig{
@@ -346,10 +344,6 @@ func (c Config) Validate() error {
 
 func (c Config) KafkaEnabled() bool {
 	return c.KafkaBrokers != ""
-}
-
-func (c Config) ClickHouseEnabled() bool {
-	return c.ClickHouseDSN != ""
 }
 
 func (c Config) ObjectStorageEnabled() bool {

@@ -48,7 +48,7 @@ func ValidDedupeMode(s string) bool {
 
 func ValidExportFormat(s string) bool {
 	switch ExportFormat(s) {
-	case ExportFormatCSV:
+	case ExportFormatCSV, ExportFormatJSON:
 		return true
 	default:
 		return false

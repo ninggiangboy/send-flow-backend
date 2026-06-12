@@ -35,7 +35,8 @@ const (
 type ExportFormat string
 
 const (
-	ExportFormatCSV ExportFormat = "csv"
+	ExportFormatCSV  ExportFormat = "csv"
+	ExportFormatJSON ExportFormat = "json"
 )
 
 type ListMembershipMode string

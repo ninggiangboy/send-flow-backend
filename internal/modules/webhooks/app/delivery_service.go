@@ -27,13 +27,22 @@ type DeliverWebhookInput struct {
 	AttemptNumber   int64
 }
 
-func (s *Service) DeliverWebhook(ctx context.Context, input DeliverWebhookInput) error {
+type DeliverWebhookResult struct {
+	Success        bool
+	StatusCode     int
+	Error          string
+	DurationMs     int64
+	Attempt        domain.WebhookDeliveryAttempt
+	DeliveryResult domain.DeliveryResult
+}
+
+func (s *Service) DeliverWebhook(ctx context.Context, input DeliverWebhookInput) (*DeliverWebhookResult, error) {
 	now := s.clock()
 	timestamp := fmt.Sprintf("%d", now.Unix())
 
 	payloadJSON, err := json.Marshal(input.EventPayload)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	signature := SignPayloadRaw(payloadJSON, timestamp, input.SecretHash)
@@ -53,14 +62,10 @@ func (s *Service) DeliverWebhook(ctx context.Context, input DeliverWebhookInput)
 
 	attemptID, err := s.idGen()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	isSuccess := deliverErr == nil && resp.StatusCode >= 200 && resp.StatusCode < 300
-	status := string(domain.DeliveryStatusFailed)
-	if isSuccess {
-		status = string(domain.DeliveryStatusSucceeded)
-	}
 
 	var attempt domain.WebhookDeliveryAttempt
 	var deliveryResult domain.DeliveryResult
@@ -70,7 +75,7 @@ func (s *Service) DeliverWebhook(ctx context.Context, input DeliverWebhookInput)
 			ID:             attemptID,
 			DeliveryID:     input.DeliveryID,
 			AttemptNumber:  input.AttemptNumber,
-			Status:         status,
+			Status:         string(domain.DeliveryStatusFailed),
 			Error:          domain.SanitizeError(deliverErr.Error()),
 			RequestHeaders: map[string]string{},
 			AttemptedAt:    now,
@@ -80,6 +85,10 @@ func (s *Service) DeliverWebhook(ctx context.Context, input DeliverWebhookInput)
 			RequestHeaders: map[string]string{},
 		}
 	} else {
+		status := string(domain.DeliveryStatusFailed)
+		if isSuccess {
+			status = string(domain.DeliveryStatusSucceeded)
+		}
 		attempt = domain.WebhookDeliveryAttempt{
 			ID:              attemptID,
 			DeliveryID:      input.DeliveryID,
@@ -104,89 +113,14 @@ func (s *Service) DeliverWebhook(ctx context.Context, input DeliverWebhookInput)
 		}
 	}
 
-	if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
-		if isSuccess {
-			if err := s.deliveryWrite.MarkSucceeded(txCtx, input.DeliveryID, deliveryResult); err != nil {
-				return err
-			}
-		} else {
-			if err := s.deliveryWrite.MarkFailed(txCtx, input.DeliveryID, deliveryResult); err != nil {
-				return err
-			}
-		}
-
-		if err := s.attemptWrite.Create(txCtx, attempt); err != nil {
-			return err
-		}
-
-		eventID, err := s.idGen()
-		if err != nil {
-			return err
-		}
-
-		if isSuccess {
-			payload, _ := json.Marshal(webhookscontracts.DeliverySucceededPayload{
-				DeliveryID:      input.DeliveryID,
-				WorkspaceID:     input.WorkspaceID,
-				WebhookID:       input.WebhookID,
-				SourceEventID:   input.SourceEventID,
-				SourceEventType: input.SourceEventType,
-				StatusCode:      resp.StatusCode,
-				DurationMs:      resp.DurationMs,
-			})
-			if s.outboxWriter != nil {
-				if err := s.outboxWriter.Save(txCtx, ports.OutboxEvent{
-					ID:            eventID,
-					AggregateType: "webhook_delivery",
-					AggregateID:   input.DeliveryID,
-					EventType:     webhookscontracts.EventDeliverySucceededV1,
-					Payload:       payload,
-					WorkspaceID:   input.WorkspaceID,
-					OccurredAt:    now,
-				}); err != nil {
-					return err
-				}
-			}
-		} else {
-			failedPayload := webhookscontracts.DeliveryFailedPayload{
-				DeliveryID:      input.DeliveryID,
-				WorkspaceID:     input.WorkspaceID,
-				WebhookID:       input.WebhookID,
-				SourceEventID:   input.SourceEventID,
-				SourceEventType: input.SourceEventType,
-				Error:           attempt.Error,
-				DurationMs:      attempt.DurationMs,
-			}
-			if attempt.StatusCode != nil {
-				failedPayload.StatusCode = attempt.StatusCode
-			}
-			payload, _ := json.Marshal(failedPayload)
-			if s.outboxWriter != nil {
-				if err := s.outboxWriter.Save(txCtx, ports.OutboxEvent{
-					ID:            eventID,
-					AggregateType: "webhook_delivery",
-					AggregateID:   input.DeliveryID,
-					EventType:     webhookscontracts.EventDeliveryFailedV1,
-					Payload:       payload,
-					WorkspaceID:   input.WorkspaceID,
-					OccurredAt:    now,
-				}); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	if !isSuccess {
-		if deliverErr != nil {
-			return fmt.Errorf("webhook delivery failed: %w", deliverErr)
-		}
-		return fmt.Errorf("webhook delivery returned status %d (attempt %d)", resp.StatusCode, input.AttemptNumber)
-	}
-	return nil
+	return &DeliverWebhookResult{
+		Success:        isSuccess,
+		StatusCode:     resp.StatusCode,
+		Error:          attempt.Error,
+		DurationMs:     attempt.DurationMs,
+		Attempt:        attempt,
+		DeliveryResult: deliveryResult,
+	}, nil
 }
 
 type ListDeliveriesInput struct {
@@ -310,7 +244,7 @@ func (s *Service) RetryWebhookDelivery(ctx context.Context, input RetryDeliveryI
 		return err
 	}
 
-	if err := s.DeliverWebhook(ctx, DeliverWebhookInput{
+	result, err := s.DeliverWebhook(ctx, DeliverWebhookInput{
 		WorkspaceID:     input.WorkspaceID,
 		WebhookID:       cfg.ID,
 		DeliveryID:      input.DeliveryID,
@@ -320,13 +254,84 @@ func (s *Service) RetryWebhookDelivery(ctx context.Context, input RetryDeliveryI
 		SourceEventID:   delivery.SourceEventID,
 		SourceEventType: delivery.SourceEventType,
 		AttemptNumber:   nextAttempt,
-	}); err != nil {
+	})
+	if err != nil {
 		log.Error("retry delivery failed", "error", err)
 		return err
 	}
 
-	log.Info("webhook delivery retried", "attempt", nextAttempt)
-	return nil
+	usesOutbox := s.outboxWriter != nil
+	return s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
+		if result.Success {
+			if err := s.deliveryWrite.MarkSucceeded(txCtx, input.DeliveryID, result.DeliveryResult); err != nil {
+				return err
+			}
+			if err := s.attemptWrite.Create(txCtx, result.Attempt); err != nil {
+				return err
+			}
+			if usesOutbox {
+				eventID, err := s.idGen()
+				if err != nil {
+					return err
+				}
+				payload, _ := json.Marshal(webhookscontracts.DeliverySucceededPayload{
+					DeliveryID:      input.DeliveryID,
+					WorkspaceID:     input.WorkspaceID,
+					WebhookID:       cfg.ID,
+					SourceEventID:   delivery.SourceEventID,
+					SourceEventType: delivery.SourceEventType,
+					StatusCode:      result.StatusCode,
+					DurationMs:      result.DurationMs,
+				})
+				return s.outboxWriter.Save(txCtx, ports.OutboxEvent{
+					ID:            eventID,
+					AggregateType: "webhook_delivery",
+					AggregateID:   input.DeliveryID,
+					EventType:     webhookscontracts.EventDeliverySucceededV1,
+					Payload:       payload,
+					WorkspaceID:   input.WorkspaceID,
+					OccurredAt:    now,
+				})
+			}
+			return nil
+		}
+
+		if err := s.deliveryWrite.MarkFailed(txCtx, input.DeliveryID, result.DeliveryResult); err != nil {
+			return err
+		}
+		if err := s.attemptWrite.Create(txCtx, result.Attempt); err != nil {
+			return err
+		}
+		if usesOutbox {
+			eventID, err := s.idGen()
+			if err != nil {
+				return err
+			}
+			failedPayload := webhookscontracts.DeliveryFailedPayload{
+				DeliveryID:      input.DeliveryID,
+				WorkspaceID:     input.WorkspaceID,
+				WebhookID:       cfg.ID,
+				SourceEventID:   delivery.SourceEventID,
+				SourceEventType: delivery.SourceEventType,
+				Error:           result.Error,
+				DurationMs:      result.DurationMs,
+			}
+			if result.Attempt.StatusCode != nil {
+				failedPayload.StatusCode = result.Attempt.StatusCode
+			}
+			payload, _ := json.Marshal(failedPayload)
+			return s.outboxWriter.Save(txCtx, ports.OutboxEvent{
+				ID:            eventID,
+				AggregateType: "webhook_delivery",
+				AggregateID:   input.DeliveryID,
+				EventType:     webhookscontracts.EventDeliveryFailedV1,
+				Payload:       payload,
+				WorkspaceID:   input.WorkspaceID,
+				OccurredAt:    now,
+			})
+		}
+		return nil
+	})
 }
 
 func SignPayloadRaw(payload []byte, timestamp, signingKey string) string {

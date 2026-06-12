@@ -32,7 +32,7 @@ spec:
             - name: WORKER_HTTP_ADDR
               value: ":8082"
             - name: WORKER_ENABLED_CONSUMERS
-              value: "delivery.queue_campaign_messages,delivery_provider_events,tracking_provider_events,delivery.process_due_messages,analytics_events,notification.identity_events,notification.process_due_retries,webhooks.deliver_events,webhooks.process_due_deliveries"
+              value: "delivery.queue_campaign_messages,delivery_provider_events,tracking_provider_events,delivery.process_due_messages,analytics_events,notification.identity_events,notification.process_due_retries,webhooks.deliver_events,webhooks.process_due_deliveries,audience.import_processor,audience.export_processor"
             - name: WORKER_CONCURRENCY
               value: "1"
             - name: WORKER_SHUTDOWN_TIMEOUT
@@ -59,11 +59,30 @@ spec:
                 secretKeyRef:
                   name: send-flow-secrets
                   key: KAFKA_BROKERS
-            - name: CLICKHOUSE_DSN
+            - name: OBJECT_STORAGE_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: send-flow-secrets
-                  key: CLICKHOUSE_DSN
+                  key: OBJECT_STORAGE_ENDPOINT
+            - name: OBJECT_STORAGE_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: send-flow-secrets
+                  key: OBJECT_STORAGE_ACCESS_KEY_ID
+            - name: OBJECT_STORAGE_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: send-flow-secrets
+                  key: OBJECT_STORAGE_SECRET_ACCESS_KEY
+            - name: OBJECT_STORAGE_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: send-flow-secrets
+                  key: OBJECT_STORAGE_BUCKET
+            - name: OBJECT_STORAGE_REGION
+              value: "us-east-1"
+            - name: OBJECT_STORAGE_FORCE_PATH_STYLE
+              value: "true"
           readinessProbe:
             httpGet:
               path: /api/readyz

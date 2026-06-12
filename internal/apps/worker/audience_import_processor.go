@@ -20,6 +20,8 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
+const importChunkSize = 100
+
 type AudienceImportProcessor struct {
 	name            string
 	importJobsWrite audienceports.ImportJobWriteRepository
@@ -216,10 +218,16 @@ func (p *AudienceImportProcessor) processCSV(ctx context.Context, job domain.Aud
 	}
 
 	var counts audienceports.ImportCounts
+	chunk := make([]map[string]string, 0, importChunkSize)
 
 	for {
 		record, err := csvReader.Read()
 		if err == io.EOF {
+			if len(chunk) > 0 {
+				if err := p.processImportChunk(ctx, job, chunk, &counts, now); err != nil {
+					return counts, err
+				}
+			}
 			break
 		}
 		if err != nil {
@@ -233,42 +241,88 @@ func (p *AudienceImportProcessor) processCSV(ctx context.Context, job domain.Aud
 				row[headers[i]] = val
 			}
 		}
+		chunk = append(chunk, row)
 
-		if err := p.processContactRow(ctx, job, row, &counts, now); err != nil {
-			counts.FailedCount++
+		if len(chunk) >= importChunkSize {
+			if err := p.processImportChunk(ctx, job, chunk, &counts, now); err != nil {
+				return counts, err
+			}
+			chunk = make([]map[string]string, 0, importChunkSize)
 		}
-		counts.ProcessedCount++
 	}
 
 	return counts, nil
 }
 
 func (p *AudienceImportProcessor) processJSON(ctx context.Context, job domain.AudienceImportJob, reader io.ReadCloser, now time.Time) (audienceports.ImportCounts, error) {
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return audienceports.ImportCounts{}, fmt.Errorf("read json: %w", err)
-	}
+	decoder := json.NewDecoder(reader)
 
-	var rows []map[string]any
-	if err := json.Unmarshal(data, &rows); err != nil {
-		return audienceports.ImportCounts{}, fmt.Errorf("unmarshal json: %w", err)
+	token, err := decoder.Token()
+	if err != nil {
+		return audienceports.ImportCounts{}, fmt.Errorf("read json array start: %w", err)
+	}
+	delim, ok := token.(json.Delim)
+	if !ok || delim != '[' {
+		return audienceports.ImportCounts{}, fmt.Errorf("expected JSON array, got %v", token)
 	}
 
 	var counts audienceports.ImportCounts
+	var chunks [][]map[string]string
+	chunk := make([]map[string]string, 0, importChunkSize)
 
-	for _, row := range rows {
+	for decoder.More() {
+		var row map[string]any
+		if err := decoder.Decode(&row); err != nil {
+			return counts, fmt.Errorf("decode json row: %w", err)
+		}
+
 		strRow := make(map[string]string)
 		for k, v := range row {
 			strRow[k] = fmt.Sprintf("%v", v)
 		}
+		chunk = append(chunk, strRow)
 
-		if err := p.processContactRow(ctx, job, strRow, &counts, now); err != nil {
-			counts.FailedCount++
+		if len(chunk) >= importChunkSize {
+			chunks = append(chunks, chunk)
+			chunk = make([]map[string]string, 0, importChunkSize)
 		}
-		counts.ProcessedCount++
+	}
+
+	closing, err := decoder.Token()
+	if err != nil {
+		return counts, fmt.Errorf("read json array end: %w", err)
+	}
+	if delim, ok := closing.(json.Delim); !ok || delim != ']' {
+		return counts, fmt.Errorf("expected json array end ']', got %v", closing)
+	}
+
+	if decoder.More() {
+		return counts, errors.New("unexpected data after json array")
+	}
+
+	if len(chunk) > 0 {
+		chunks = append(chunks, chunk)
+	}
+
+	for _, c := range chunks {
+		if err := p.processImportChunk(ctx, job, c, &counts, now); err != nil {
+			return counts, err
+		}
 	}
 
 	return counts, nil
+}
+
+func (p *AudienceImportProcessor) processImportChunk(ctx context.Context, job domain.AudienceImportJob, rows []map[string]string, counts *audienceports.ImportCounts, now time.Time) error {
+	return p.txManager.WithinTx(ctx, func(txCtx context.Context) error {
+		for _, row := range rows {
+			if err := p.processContactRow(txCtx, job, row, counts, now); err != nil {
+				counts.FailedCount++
+			}
+			counts.ProcessedCount++
+		}
+		return nil
+	})
 }
 
 func (p *AudienceImportProcessor) processContactRow(ctx context.Context, job domain.AudienceImportJob, row map[string]string, counts *audienceports.ImportCounts, now time.Time) error {

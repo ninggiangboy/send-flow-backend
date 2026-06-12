@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
+	webhookscontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/ports"
 )
@@ -66,9 +68,9 @@ func (s *Service) ProcessDueDelivery(ctx context.Context, workspaceID, deliveryI
 		return nil
 	}
 
-	attemptNumber := delivery.AttemptCount
+	attemptNumber := int(delivery.AttemptCount)
 
-	err = s.DeliverWebhook(ctx, DeliverWebhookInput{
+	result, err := s.DeliverWebhook(ctx, DeliverWebhookInput{
 		WorkspaceID:     delivery.WorkspaceID,
 		WebhookID:       cfg.ID,
 		DeliveryID:      deliveryID,
@@ -79,34 +81,143 @@ func (s *Service) ProcessDueDelivery(ctx context.Context, workspaceID, deliveryI
 		SourceEventType: delivery.SourceEventType,
 		AttemptNumber:   int64(attemptNumber),
 	})
-
 	if err != nil {
-		return s.handleDeliveryError(ctx, delivery, cfg, int(attemptNumber), err)
+		return fmt.Errorf("deliver webhook: %w", err)
 	}
 
-	return nil
+	return s.recordDeliveryOutcome(ctx, delivery, cfg, attemptNumber, result)
 }
 
 const maxWebhookRetries = 5
 
-func (s *Service) handleDeliveryError(ctx context.Context, delivery *domain.WebhookDelivery, cfg *domain.WebhookConfig, attemptNumber int, deliveryErr error) error {
+func (s *Service) recordDeliveryOutcome(ctx context.Context, delivery *domain.WebhookDelivery, cfg *domain.WebhookConfig, attemptNumber int, result *DeliverWebhookResult) error {
 	log := s.log.With("delivery_id", delivery.ID, "webhook_id", cfg.ID, "attempt", attemptNumber)
-	log.Error("webhook delivery failed", "error", deliveryErr)
+
+	if result.Success {
+		log.Info("webhook delivery succeeded", "status_code", result.StatusCode, "duration_ms", result.DurationMs)
+		return s.emitDeliveryOutcome(ctx, delivery, cfg, result, "succeeded", nil, nil)
+	}
+
+	if domain.IsRetryableHTTPStatus(result.StatusCode) && attemptNumber < maxWebhookRetries {
+		backoff := time.Duration(attemptNumber*attemptNumber) * 30 * time.Second
+		nextAttemptAt := s.clock().Add(backoff)
+		log.Warn("webhook delivery failed, scheduling retry",
+			"status_code", result.StatusCode, "next_attempt_at", nextAttemptAt, "backoff", backoff)
+		return s.emitDeliveryOutcome(ctx, delivery, cfg, result, "retry_scheduled", &nextAttemptAt, nil)
+	}
 
 	if attemptNumber >= maxWebhookRetries {
-		log.Warn("webhook delivery max retries exceeded", "max_retries", maxWebhookRetries)
+		log.Warn("webhook delivery max retries exceeded", "max_retries", maxWebhookRetries, "status_code", result.StatusCode)
+	} else {
+		log.Warn("webhook delivery terminally failed", "status_code", result.StatusCode)
+	}
+	return s.emitDeliveryOutcome(ctx, delivery, cfg, result, "failed", nil, nil)
+}
+
+func (s *Service) emitDeliveryOutcome(ctx context.Context, delivery *domain.WebhookDelivery, cfg *domain.WebhookConfig, result *DeliverWebhookResult, outcome string, nextAttemptAt *time.Time, _ error) error {
+	usesOutbox := s.outboxWriter != nil
+	now := s.clock()
+
+	return s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
+		switch outcome {
+		case "succeeded":
+			if err := s.deliveryWrite.MarkSucceeded(txCtx, delivery.ID, result.DeliveryResult); err != nil {
+				return err
+			}
+		case "retry_scheduled":
+			if err := s.deliveryWrite.ScheduleRetry(txCtx, delivery.ID, *nextAttemptAt); err != nil {
+				return err
+			}
+		case "failed":
+			if err := s.deliveryWrite.MarkFailed(txCtx, delivery.ID, result.DeliveryResult); err != nil {
+				return err
+			}
+		}
+
+		if err := s.attemptWrite.Create(txCtx, result.Attempt); err != nil {
+			return err
+		}
+
+		if !usesOutbox {
+			return nil
+		}
+
+		eventID, err := s.idGen()
+		if err != nil {
+			return err
+		}
+
+		switch outcome {
+		case "succeeded":
+			payload, _ := json.Marshal(webhookscontracts.DeliverySucceededPayload{
+				DeliveryID:      delivery.ID,
+				WorkspaceID:     delivery.WorkspaceID,
+				WebhookID:       cfg.ID,
+				SourceEventID:   delivery.SourceEventID,
+				SourceEventType: delivery.SourceEventType,
+				StatusCode:      result.StatusCode,
+				DurationMs:      result.DurationMs,
+			})
+			return s.outboxWriter.Save(txCtx, ports.OutboxEvent{
+				ID:            eventID,
+				AggregateType: "webhook_delivery",
+				AggregateID:   delivery.ID,
+				EventType:     webhookscontracts.EventDeliverySucceededV1,
+				Payload:       payload,
+				WorkspaceID:   delivery.WorkspaceID,
+				OccurredAt:    now,
+			})
+		case "retry_scheduled":
+			var sc *int
+			if result.StatusCode > 0 {
+				sc = &result.StatusCode
+			}
+			payload, _ := json.Marshal(webhookscontracts.DeliveryRetryScheduledPayload{
+				DeliveryID:      delivery.ID,
+				WorkspaceID:     delivery.WorkspaceID,
+				WebhookID:       cfg.ID,
+				SourceEventID:   delivery.SourceEventID,
+				SourceEventType: delivery.SourceEventType,
+				NextAttemptAt:   nextAttemptAt.UTC().Format(time.RFC3339),
+				AttemptNumber:   int64(delivery.AttemptCount),
+				StatusCode:      sc,
+				Error:           result.Error,
+			})
+			return s.outboxWriter.Save(txCtx, ports.OutboxEvent{
+				ID:            eventID,
+				AggregateType: "webhook_delivery",
+				AggregateID:   delivery.ID,
+				EventType:     webhookscontracts.EventDeliveryRetryScheduledV1,
+				Payload:       payload,
+				WorkspaceID:   delivery.WorkspaceID,
+				OccurredAt:    now,
+			})
+		case "failed":
+			failedPayload := webhookscontracts.DeliveryFailedPayload{
+				DeliveryID:      delivery.ID,
+				WorkspaceID:     delivery.WorkspaceID,
+				WebhookID:       cfg.ID,
+				SourceEventID:   delivery.SourceEventID,
+				SourceEventType: delivery.SourceEventType,
+				Error:           result.Error,
+				DurationMs:      result.DurationMs,
+			}
+			if result.Attempt.StatusCode != nil {
+				failedPayload.StatusCode = result.Attempt.StatusCode
+			}
+			payload, _ := json.Marshal(failedPayload)
+			return s.outboxWriter.Save(txCtx, ports.OutboxEvent{
+				ID:            eventID,
+				AggregateType: "webhook_delivery",
+				AggregateID:   delivery.ID,
+				EventType:     webhookscontracts.EventDeliveryFailedV1,
+				Payload:       payload,
+				WorkspaceID:   delivery.WorkspaceID,
+				OccurredAt:    now,
+			})
+		}
 		return nil
-	}
-
-	backoff := time.Duration(attemptNumber*attemptNumber) * 30 * time.Second
-	nextAttempt := s.clock().Add(backoff)
-
-	if err := s.deliveryWrite.ScheduleRetry(ctx, delivery.ID, nextAttempt); err != nil {
-		return err
-	}
-
-	log.Info("webhook delivery retry scheduled", "next_attempt_at", nextAttempt, "backoff", backoff)
-	return nil
+	})
 }
 
 func NewService(opts Options) *Service {

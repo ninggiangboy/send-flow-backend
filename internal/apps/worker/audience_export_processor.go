@@ -1,11 +1,11 @@
 package worker
 
 import (
-	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"time"
@@ -105,30 +105,52 @@ func (p *AudienceExportProcessor) processJob(ctx context.Context, job domain.Aud
 	now := time.Now().UTC()
 
 	query := buildContactQuery(job)
-	var buf bytes.Buffer
-	var totalRows int
-	var err error
+	artifactKey := fmt.Sprintf("exports/%s/%s/%s.%s", job.WorkspaceID, job.ID, job.ID, job.Format)
 
+	var contentType string
 	switch job.Format {
 	case domain.ExportFormatCSV:
-		totalRows, err = p.writeCSVStream(ctx, &buf, job.WorkspaceID, query, job.SelectedFields)
+		contentType = "text/csv"
+	case domain.ExportFormatJSON:
+		contentType = "application/json"
 	default:
-		err = fmt.Errorf("unsupported export format: %s", job.Format)
-	}
-
-	if err != nil {
-		errMsg := fmt.Sprintf("export generation failed: %v", err)
-		log.Error(errMsg)
-		if markErr := p.exportJobsWrite.MarkExportJobFailed(ctx, job.WorkspaceID, job.ID, errMsg, now); markErr != nil {
+		err := fmt.Errorf("unsupported export format: %s", job.Format)
+		if markErr := p.exportJobsWrite.MarkExportJobFailed(ctx, job.WorkspaceID, job.ID, err.Error(), now); markErr != nil {
 			log.Error("failed to mark export job failed", "error", markErr)
 		}
 		return err
 	}
 
-	artifactKey := fmt.Sprintf("exports/%s/%s/%s.%s", job.WorkspaceID, job.ID, job.ID, job.Format)
-	contentType := "text/csv"
+	pr, pw := io.Pipe()
 
-	if err := p.objStorage.PutObject(ctx, artifactKey, &buf, contentType); err != nil {
+	streamCtx, streamCancel := context.WithCancel(ctx)
+
+	type writeResult struct {
+		count int
+		err   error
+	}
+	resultCh := make(chan writeResult, 1)
+	go func() {
+		var res writeResult
+		switch job.Format {
+		case domain.ExportFormatCSV:
+			res.count, res.err = p.writeCSVStream(streamCtx, pw, job.WorkspaceID, query, job.SelectedFields)
+		case domain.ExportFormatJSON:
+			res.count, res.err = p.writeJSONStream(streamCtx, pw, job.WorkspaceID, query, job.SelectedFields)
+		}
+		if res.err != nil {
+			pw.CloseWithError(res.err)
+		} else {
+			pw.Close()
+		}
+		resultCh <- res
+	}()
+
+	if err := p.objStorage.PutObject(ctx, artifactKey, pr, contentType); err != nil {
+		pr.Close()
+		streamCancel()
+		pw.CloseWithError(err)
+		<-resultCh
 		errMsg := fmt.Sprintf("failed to store artifact: %v", err)
 		log.Error(errMsg)
 		if markErr := p.exportJobsWrite.MarkExportJobFailed(ctx, job.WorkspaceID, job.ID, errMsg, now); markErr != nil {
@@ -136,6 +158,19 @@ func (p *AudienceExportProcessor) processJob(ctx context.Context, job domain.Aud
 		}
 		return err
 	}
+	streamCancel()
+
+	res := <-resultCh
+	if res.err != nil {
+		errMsg := fmt.Sprintf("export generation failed: %v", res.err)
+		log.Error(errMsg)
+		if markErr := p.exportJobsWrite.MarkExportJobFailed(ctx, job.WorkspaceID, job.ID, errMsg, now); markErr != nil {
+			log.Error("failed to mark export job failed", "error", markErr)
+		}
+		return res.err
+	}
+
+	totalRows := int64(res.count)
 
 	if err := p.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		if err := p.exportJobsWrite.MarkExportJobCompleted(txCtx, job.WorkspaceID, job.ID, artifactKey, now); err != nil {
@@ -153,7 +188,7 @@ func (p *AudienceExportProcessor) processJob(ctx context.Context, job domain.Aud
 				WorkspaceID: job.WorkspaceID,
 				Format:      string(job.Format),
 				ArtifactURI: artifactKey,
-				TotalRows:   int64(totalRows),
+				TotalRows:   totalRows,
 			}
 
 			envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
@@ -193,8 +228,8 @@ func (p *AudienceExportProcessor) processJob(ctx context.Context, job domain.Aud
 	}
 
 	log.Info("export job completed",
-		"total_rows", totalRows,
 		"artifact_uri", artifactKey,
+		"total_rows", totalRows,
 	)
 
 	return nil
@@ -228,8 +263,8 @@ func buildContactQuery(job domain.AudienceExportJob) audienceports.ContactListQu
 	return query
 }
 
-func (p *AudienceExportProcessor) writeCSVStream(ctx context.Context, buf *bytes.Buffer, workspaceID string, query audienceports.ContactListQuery, selectedFields []string) (int, error) {
-	writer := csv.NewWriter(buf)
+func (p *AudienceExportProcessor) writeCSVStream(ctx context.Context, w io.Writer, workspaceID string, query audienceports.ContactListQuery, selectedFields []string) (int, error) {
+	writer := csv.NewWriter(w)
 	defer writer.Flush()
 
 	fields := selectedFields
@@ -288,24 +323,29 @@ func (p *AudienceExportProcessor) writeCSVStream(ctx context.Context, buf *bytes
 	return rowCount, nil
 }
 
-func (p *AudienceExportProcessor) writeJSON(ctx context.Context, buf *bytes.Buffer, workspaceID string, query audienceports.ContactListQuery, selectedFields []string) (int, error) {
-	type exportRow map[string]any
-
+func (p *AudienceExportProcessor) writeJSONStream(ctx context.Context, w io.Writer, workspaceID string, query audienceports.ContactListQuery, selectedFields []string) (int, error) {
 	fields := selectedFields
 	if len(fields) == 0 {
 		fields = []string{"email", "first_name", "last_name", "status", "tags", "created_at"}
 	}
 
-	var allRows []exportRow
+	writer := json.NewEncoder(w)
+
+	if _, err := w.Write([]byte("[")); err != nil {
+		return 0, err
+	}
+
+	rowCount := 0
+	first := true
 
 	for {
 		contacts, cursor, err := p.contactsRead.ListContacts(ctx, query)
 		if err != nil {
-			return len(allRows), err
+			return rowCount, err
 		}
 
 		for _, c := range contacts {
-			row := make(exportRow)
+			row := make(map[string]any)
 			for _, f := range fields {
 				switch strings.ToLower(f) {
 				case "email":
@@ -328,7 +368,19 @@ func (p *AudienceExportProcessor) writeJSON(ctx context.Context, buf *bytes.Buff
 					}
 				}
 			}
-			allRows = append(allRows, row)
+
+			if first {
+				first = false
+			} else {
+				if _, err := w.Write([]byte(",")); err != nil {
+					return rowCount, err
+				}
+			}
+
+			if err := writer.Encode(row); err != nil {
+				return rowCount, err
+			}
+			rowCount++
 		}
 
 		if cursor == "" {
@@ -337,10 +389,11 @@ func (p *AudienceExportProcessor) writeJSON(ctx context.Context, buf *bytes.Buff
 		query.Cursor = cursor
 	}
 
-	encoder := json.NewEncoder(buf)
-	if err := encoder.Encode(allRows); err != nil {
-		return 0, err
+	if _, err := w.Write([]byte("]")); err != nil {
+		return rowCount, err
 	}
 
-	return len(allRows), nil
+	return rowCount, nil
 }
+
+

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/domain"
@@ -285,6 +286,232 @@ func TestSESVerifier_ConfirmationInvalidSubscribeURL(t *testing.T) {
 	err := v.handleConfirmation(context.Background(), msg)
 	if !errors.Is(err, domain.ErrInvalidSignature) {
 		t.Errorf("expected ErrInvalidSignature for unparseable SubscribeURL, got %v", err)
+	}
+}
+
+func TestSESVerifier_UnsubscribeConfirmation(t *testing.T) {
+	v := NewSESVerifier()
+	ctx := context.Background()
+	body := `{"Type":"UnsubscribeConfirmation","MessageId":"id","Token":"token","TopicArn":"arn:aws:sns:us-east-1:123:topic","Message":"unsubscribed","SubscribeURL":"https://sns.us-east-1.amazonaws.com/confirm","Timestamp":"2024-01-01T00:00:00Z","SignatureVersion":"1","Signature":"dGVzdA==","SigningCertURL":"https://sns.us-east-1.amazonaws.com/cert.pem"}`
+	err := v.Verify(ctx, ports.VerifyInput{
+		Headers: map[string][]string{
+			"x-amz-sns-message-type": {"UnsubscribeConfirmation"},
+		},
+		RawBody: []byte(body),
+	})
+	if !errors.Is(err, domain.ErrTemporarilyUnavailable) {
+		t.Errorf("expected ErrTemporarilyUnavailable (valid SNS message, cert fetch fails), got %v", err)
+	}
+}
+
+func TestMapSESNotificationType_Bounce(t *testing.T) {
+	eventType, err := mapSESNotificationType("Bounce")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eventType != domain.EventTypeBounced {
+		t.Errorf("expected %q, got %q", domain.EventTypeBounced, eventType)
+	}
+}
+
+func TestMapSESNotificationType_Complaint(t *testing.T) {
+	eventType, err := mapSESNotificationType("Complaint")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eventType != domain.EventTypeComplained {
+		t.Errorf("expected %q, got %q", domain.EventTypeComplained, eventType)
+	}
+}
+
+func TestMapSESNotificationType_Delivery(t *testing.T) {
+	eventType, err := mapSESNotificationType("Delivery")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eventType != domain.EventTypeDelivered {
+		t.Errorf("expected %q, got %q", domain.EventTypeDelivered, eventType)
+	}
+}
+
+func TestMapSESNotificationType_Open(t *testing.T) {
+	eventType, err := mapSESNotificationType("Open")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eventType != domain.EventTypeOpened {
+		t.Errorf("expected %q, got %q", domain.EventTypeOpened, eventType)
+	}
+}
+
+func TestMapSESNotificationType_Click(t *testing.T) {
+	eventType, err := mapSESNotificationType("Click")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eventType != domain.EventTypeClicked {
+		t.Errorf("expected %q, got %q", domain.EventTypeClicked, eventType)
+	}
+}
+
+func TestMapSESNotificationType_Unknown(t *testing.T) {
+	_, err := mapSESNotificationType("UnknownType")
+	if err == nil {
+		t.Fatal("expected error for unknown SES notification type")
+	}
+}
+
+func TestSESNormalizer_NormalizeBounce(t *testing.T) {
+	n := &SESNormalizer{}
+	input := ports.NormalizeInput{
+		RawBody: []byte(`{
+			"Type": "Notification",
+			"MessageId": "msg-id",
+			"TopicArn": "arn:aws:sns:us-east-1:123:topic",
+			"Message": "{\"notificationType\":\"Bounce\",\"bounce\":{\"bounceType\":\"Permanent\",\"bounceSubType\":\"General\",\"bouncedRecipients\":[{\"emailAddress\":\"bounce@example.com\",\"status\":\"5.1.1\",\"diagnosticCode\":\"smtp; 550 5.1.1 user unknown\"}],\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"feedbackId\":\"fb-id-001\"},\"mail\":{\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"messageId\":\"msg-id\",\"source\":\"sender@example.com\",\"destination\":[\"bounce@example.com\"]}}",
+			"Timestamp": "2024-01-01T00:00:00Z",
+			"SignatureVersion": "1",
+			"Signature": "dGVzdA==",
+			"SigningCertURL": "https://sns.us-east-1.amazonaws.com/cert.pem"
+		}`),
+	}
+	result, err := n.Normalize(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.EventType != domain.EventTypeBounced {
+		t.Errorf("expected event type %q, got %q", domain.EventTypeBounced, result.EventType)
+	}
+	if result.ProviderEventID != "fb-id-001" {
+		t.Errorf("expected provider event ID fb-id-001, got %q", result.ProviderEventID)
+	}
+	if result.ProviderMessageID != "msg-id" {
+		t.Errorf("expected provider message ID msg-id, got %q", result.ProviderMessageID)
+	}
+}
+
+func TestSESNormalizer_NormalizeDelivery(t *testing.T) {
+	n := &SESNormalizer{}
+	input := ports.NormalizeInput{
+		RawBody: []byte(`{
+			"Type": "Notification",
+			"MessageId": "msg-id",
+			"TopicArn": "arn:aws:sns:us-east-1:123:topic",
+			"Message": "{\"notificationType\":\"Delivery\",\"delivery\":{\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"processingTimeMillis\":1234,\"recipients\":[\"delivered@example.com\"],\"smtpResponse\":\"250 ok\",\"reportingMTA\":\"mta.example.com\"},\"mail\":{\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"messageId\":\"msg-id\",\"source\":\"sender@example.com\",\"destination\":[\"delivered@example.com\"]}}",
+			"Timestamp": "2024-01-01T00:00:00Z",
+			"SignatureVersion": "1",
+			"Signature": "dGVzdA==",
+			"SigningCertURL": "https://sns.us-east-1.amazonaws.com/cert.pem"
+		}`),
+	}
+	result, err := n.Normalize(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.EventType != domain.EventTypeDelivered {
+		t.Errorf("expected event type %q, got %q", domain.EventTypeDelivered, result.EventType)
+	}
+}
+
+func TestSESNormalizer_NormalizeComplaint(t *testing.T) {
+	n := &SESNormalizer{}
+	input := ports.NormalizeInput{
+		RawBody: []byte(`{
+			"Type": "Notification",
+			"MessageId": "msg-id",
+			"TopicArn": "arn:aws:sns:us-east-1:123:topic",
+			"Message": "{\"notificationType\":\"Complaint\",\"complaint\":{\"complainedRecipients\":[{\"emailAddress\":\"complaint@example.com\"}],\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"feedbackId\":\"fb-complaint-001\"},\"mail\":{\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"messageId\":\"msg-id\",\"source\":\"sender@example.com\",\"destination\":[\"complaint@example.com\"]}}",
+			"Timestamp": "2024-01-01T00:00:00Z",
+			"SignatureVersion": "1",
+			"Signature": "dGVzdA==",
+			"SigningCertURL": "https://sns.us-east-1.amazonaws.com/cert.pem"
+		}`),
+	}
+	result, err := n.Normalize(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.EventType != domain.EventTypeComplained {
+		t.Errorf("expected event type %q, got %q", domain.EventTypeComplained, result.EventType)
+	}
+}
+
+func TestSESNormalizer_NormalizeOpen(t *testing.T) {
+	n := &SESNormalizer{}
+	input := ports.NormalizeInput{
+		RawBody: []byte(`{
+			"Type": "Notification",
+			"MessageId": "msg-id",
+			"TopicArn": "arn:aws:sns:us-east-1:123:topic",
+			"Message": "{\"notificationType\":\"Open\",\"open\":{\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"ipAddress\":\"1.2.3.4\",\"userAgent\":\"Mozilla/5.0\"},\"mail\":{\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"messageId\":\"msg-id\",\"source\":\"sender@example.com\",\"destination\":[\"opened@example.com\"]}}",
+			"Timestamp": "2024-01-01T00:00:00Z",
+			"SignatureVersion": "1",
+			"Signature": "dGVzdA==",
+			"SigningCertURL": "https://sns.us-east-1.amazonaws.com/cert.pem"
+		}`),
+	}
+	result, err := n.Normalize(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.EventType != domain.EventTypeOpened {
+		t.Errorf("expected event type %q, got %q", domain.EventTypeOpened, result.EventType)
+	}
+}
+
+func TestSESVerifier_MultiValueHeader(t *testing.T) {
+	v := NewSESVerifier()
+	err := v.Verify(context.Background(), ports.VerifyInput{
+		Headers: map[string][]string{
+			"x-amz-sns-message-type": {"Notification", "extra-value"},
+		},
+		RawBody: []byte(`{"Type":"Notification","SignatureVersion":"1","SigningCertURL":"https://sns.us-east-1.amazonaws.com/cert.pem","Signature":"dGVzdA==","MessageId":"id","TopicArn":"arn","Timestamp":"2024-01-01T00:00:00Z","Message":"hello"}`),
+	})
+	if !errors.Is(err, domain.ErrTemporarilyUnavailable) {
+		t.Errorf("expected ErrTemporarilyUnavailable (first value used, cert fetch fails), got %v", err)
+	}
+}
+
+func TestBuildSNSStringToSign_UnsubscribeConfirmation(t *testing.T) {
+	msg := &snsMessage{
+		Type:             "UnsubscribeConfirmation",
+		MessageID:        "msg-id",
+		TopicArn:         "arn:aws:sns:us-east-1:123:topic",
+		Message:          "unsubscribed",
+		SubscribeURL:     "https://sns.us-east-1.amazonaws.com/unsub",
+		Timestamp:        "2024-01-01T00:00:00Z",
+		Token:            "token456",
+		SignatureVersion: "1",
+		Signature:        "sig",
+		SigningCertURL:   "https://sns.us-east-1.amazonaws.com/cert.pem",
+	}
+	result, err := buildSNSStringToSign(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "Message\nunsubscribed\nMessageId\nmsg-id\nSubscribeURL\nhttps://sns.us-east-1.amazonaws.com/unsub\nTimestamp\n2024-01-01T00:00:00Z\nToken\ntoken456\nTopicArn\narn:aws:sns:us-east-1:123:topic\nType\nUnsubscribeConfirmation"
+	if result != expected {
+		t.Errorf("unexpected string-to-sign:\ngot:\n%q\nwant:\n%q", result, expected)
+	}
+}
+
+func TestBuildSNSStringToSign_NotificationWithoutSubject(t *testing.T) {
+	msg := &snsMessage{
+		Type:             "Notification",
+		MessageID:        "msg-id",
+		TopicArn:         "arn:aws:sns:us-east-1:123:topic",
+		Message:          "body",
+		Timestamp:        "2024-01-01T00:00:00Z",
+		SignatureVersion: "1",
+		Signature:        "sig",
+		SigningCertURL:   "https://sns.us-east-1.amazonaws.com/cert.pem",
+	}
+	result, err := buildSNSStringToSign(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(result, "\nSubject\n") {
+		t.Errorf("expected Subject to be omitted from Notification string-to-sign when not present, got:\n%q", result)
 	}
 }
 

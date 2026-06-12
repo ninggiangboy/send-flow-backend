@@ -208,11 +208,24 @@ func ValidateSubscriptions(subscriptions []string) error {
 }
 
 func CanDeliveryBeRetried(status DeliveryStatus) bool {
-	return status == DeliveryStatusFailed
+	return status == DeliveryStatusFailed || status == DeliveryStatusRetryScheduled
 }
 
 func IsTerminalDeliveryStatus(status DeliveryStatus) bool {
 	return status == DeliveryStatusSucceeded || status == DeliveryStatusFailed
+}
+
+func IsRetryableHTTPStatus(statusCode int) bool {
+	if statusCode == 0 {
+		return true
+	}
+	if statusCode == 429 {
+		return true
+	}
+	if statusCode >= 500 && statusCode < 600 {
+		return true
+	}
+	return false
 }
 
 func isPrivateHost(hostname string) bool {

@@ -287,22 +287,6 @@ func TestKafkaEnabled_WhenBrokersEmpty(t *testing.T) {
 	}
 }
 
-func TestClickHouseEnabled_WhenDSNSet(t *testing.T) {
-	cfg := validConfig()
-	cfg.ClickHouseDSN = "clickhouse://localhost:9000/default"
-	if !cfg.ClickHouseEnabled() {
-		t.Fatal("expected ClickHouseEnabled to be true when DSN is set")
-	}
-}
-
-func TestClickHouseEnabled_WhenDSNEmpty(t *testing.T) {
-	cfg := validConfig()
-	cfg.ClickHouseDSN = ""
-	if cfg.ClickHouseEnabled() {
-		t.Fatal("expected ClickHouseEnabled to be false when DSN is empty")
-	}
-}
-
 func TestObjectStorageEnabled_WhenEndpointSet(t *testing.T) {
 	cfg := validConfig()
 	cfg.ObjectStorage.Endpoint = "localhost:9001"
