@@ -87,31 +87,31 @@ type GetCampaignEventsInput struct {
 }
 
 type Options struct {
-	FactRepo            ports.EventFactRepository
-	ClickHouseFactRepo  ports.EventFactRepository
-	ProjectionRead      ports.ProjectionReadRepository
-	ProjectionWrite     ports.ProjectionWriteRepository
-	CampaignQueryRepo   ports.CampaignQueryRepository
-	TxManager           ports.TransactionManager
-	OutboxWriter        ports.OutboxWriter
-	AccessChecker       ports.WorkspaceAccessChecker
-	IDGen               func() (string, error)
-	Clock               func() time.Time
-	Logger              *slog.Logger
+	FactRepo           ports.EventFactRepository
+	ClickHouseFactRepo ports.EventFactRepository
+	ProjectionRead     ports.ProjectionReadRepository
+	ProjectionWrite    ports.ProjectionWriteRepository
+	CampaignQueryRepo  ports.CampaignQueryRepository
+	TxManager          ports.TransactionManager
+	OutboxWriter       ports.OutboxWriter
+	AccessChecker      ports.WorkspaceAccessChecker
+	IDGen              func() (string, error)
+	Clock              func() time.Time
+	Logger             *slog.Logger
 }
 
 type Service struct {
-	factRepo            ports.EventFactRepository
-	clickHouseFactRepo  ports.EventFactRepository
-	projectionRead      ports.ProjectionReadRepository
-	projectionWrite     ports.ProjectionWriteRepository
-	campaignQueryRepo   ports.CampaignQueryRepository
-	txManager           ports.TransactionManager
-	outboxWriter        ports.OutboxWriter
-	accessChecker       ports.WorkspaceAccessChecker
-	idGen               func() (string, error)
-	clock               func() time.Time
-	log                 *slog.Logger
+	factRepo           ports.EventFactRepository
+	clickHouseFactRepo ports.EventFactRepository
+	projectionRead     ports.ProjectionReadRepository
+	projectionWrite    ports.ProjectionWriteRepository
+	campaignQueryRepo  ports.CampaignQueryRepository
+	txManager          ports.TransactionManager
+	outboxWriter       ports.OutboxWriter
+	accessChecker      ports.WorkspaceAccessChecker
+	idGen              func() (string, error)
+	clock              func() time.Time
+	log                *slog.Logger
 }
 
 func NewService(opts Options) *Service {
@@ -122,17 +122,17 @@ func NewService(opts Options) *Service {
 		opts.Logger = slog.Default()
 	}
 	return &Service{
-		factRepo:            opts.FactRepo,
-		clickHouseFactRepo:  opts.ClickHouseFactRepo,
-		projectionRead:      opts.ProjectionRead,
-		projectionWrite:     opts.ProjectionWrite,
-		campaignQueryRepo:   opts.CampaignQueryRepo,
-		txManager:           opts.TxManager,
-		outboxWriter:        opts.OutboxWriter,
-		accessChecker:       opts.AccessChecker,
-		idGen:               opts.IDGen,
-		clock:               opts.Clock,
-		log:                 opts.Logger.With("service", "analytics"),
+		factRepo:           opts.FactRepo,
+		clickHouseFactRepo: opts.ClickHouseFactRepo,
+		projectionRead:     opts.ProjectionRead,
+		projectionWrite:    opts.ProjectionWrite,
+		campaignQueryRepo:  opts.CampaignQueryRepo,
+		txManager:          opts.TxManager,
+		outboxWriter:       opts.OutboxWriter,
+		accessChecker:      opts.AccessChecker,
+		idGen:              opts.IDGen,
+		clock:              opts.Clock,
+		log:                opts.Logger.With("service", "analytics"),
 	}
 }
 

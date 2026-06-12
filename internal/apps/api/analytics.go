@@ -265,10 +265,10 @@ type campaignBreakdownRowDoc struct {
 }
 
 type campaignBreakdownResponseDoc struct {
-	Status      string                     `json:"status"`
-	WorkspaceID string                     `json:"workspace_id"`
-	CampaignID  string                     `json:"campaign_id"`
-	GroupBy     string                     `json:"group_by"`
+	Status      string                    `json:"status"`
+	WorkspaceID string                    `json:"workspace_id"`
+	CampaignID  string                    `json:"campaign_id"`
+	GroupBy     string                    `json:"group_by"`
 	Rows        []campaignBreakdownRowDoc `json:"rows"`
 }
 

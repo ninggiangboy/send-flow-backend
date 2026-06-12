@@ -16,10 +16,10 @@ import (
 )
 
 type stubCampaignQueryRepo struct {
-	GetCampaignFunnelFunc      func(ctx context.Context, workspaceID, campaignID string, from, to time.Time) (*domain.CampaignFunnel, error)
-	GetCampaignTimeSeriesFunc  func(ctx context.Context, workspaceID, campaignID string, from, to time.Time, interval, eventType string) (*domain.CampaignTimeSeriesResult, error)
-	GetCampaignBreakdownFunc   func(ctx context.Context, workspaceID, campaignID string, from, to time.Time, groupBy string) (*domain.CampaignBreakdownResult, error)
-	GetCampaignEventsFunc      func(ctx context.Context, filter domain.CampaignQueryFilter) (*domain.CampaignEventsResult, error)
+	GetCampaignFunnelFunc     func(ctx context.Context, workspaceID, campaignID string, from, to time.Time) (*domain.CampaignFunnel, error)
+	GetCampaignTimeSeriesFunc func(ctx context.Context, workspaceID, campaignID string, from, to time.Time, interval, eventType string) (*domain.CampaignTimeSeriesResult, error)
+	GetCampaignBreakdownFunc  func(ctx context.Context, workspaceID, campaignID string, from, to time.Time, groupBy string) (*domain.CampaignBreakdownResult, error)
+	GetCampaignEventsFunc     func(ctx context.Context, filter domain.CampaignQueryFilter) (*domain.CampaignEventsResult, error)
 }
 
 func (s *stubCampaignQueryRepo) GetCampaignFunnel(ctx context.Context, workspaceID, campaignID string, from, to time.Time) (*domain.CampaignFunnel, error) {
@@ -73,9 +73,9 @@ func TestAnalyticsGetCampaignFunnel_Success(t *testing.T) {
 	router := setupAnalyticsRouter(t, &stubCampaignQueryRepo{
 		GetCampaignFunnelFunc: func(_ context.Context, _, _ string, _, _ time.Time) (*domain.CampaignFunnel, error) {
 			return &domain.CampaignFunnel{
-				Status:        "ready",
-				WorkspaceID:   "ws-1",
-				CampaignID:    "camp-1",
+				Status:         "ready",
+				WorkspaceID:    "ws-1",
+				CampaignID:     "camp-1",
 				DeliveredCount: 100,
 				AcceptedCount:  120,
 				BouncedCount:   5,

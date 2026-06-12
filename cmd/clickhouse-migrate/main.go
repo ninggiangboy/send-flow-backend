@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformclickhouse "github.com/ninggiangboy/send-flow/backend/internal/platform/clickhouse"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	"github.com/ninggiangboy/send-flow/backend/migrations/clickhouse"
 )
 

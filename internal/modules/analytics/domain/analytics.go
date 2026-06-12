@@ -273,9 +273,9 @@ type CampaignTimeSeriesBucket struct {
 }
 
 type CampaignTimeSeriesResult struct {
-	Status      string                    `json:"status"`
-	WorkspaceID string                    `json:"workspace_id"`
-	CampaignID  string                    `json:"campaign_id"`
+	Status      string                     `json:"status"`
+	WorkspaceID string                     `json:"workspace_id"`
+	CampaignID  string                     `json:"campaign_id"`
 	Buckets     []CampaignTimeSeriesBucket `json:"buckets"`
 }
 

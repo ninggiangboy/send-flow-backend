@@ -96,5 +96,3 @@ func (r *FactRepository) FindBySourceEventID(ctx context.Context, sourceEventID 
 
 	return &fact, nil
 }
-
-
