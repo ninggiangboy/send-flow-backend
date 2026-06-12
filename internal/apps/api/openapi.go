@@ -2452,11 +2452,59 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get campaign analytics",
+		Summary:     "Get campaign analytics summary",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
 		_ = input
 		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignAnalytics)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-campaign-analytics-funnel",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}/funnel",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get campaign analytics funnel",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignFunnel)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-campaign-analytics-timeseries",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}/timeseries",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get campaign analytics time series",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignTimeSeries)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-campaign-analytics-breakdown",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}/breakdown",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get campaign analytics breakdown",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignBreakdown)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-campaign-analytics-events",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}/events",
+		Tags:        []string{"Analytics"},
+		Summary:     "List campaign analytics events",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignEvents)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{

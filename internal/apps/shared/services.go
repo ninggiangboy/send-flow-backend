@@ -88,6 +88,7 @@ func NewAnalyticsRepos(writePool *pgxpool.Pool, chClient *platformclickhouse.Cli
 	}
 	if chClient != nil {
 		opts.ClickHouseFactRepo = analyticsclickhouse.NewFactRepository(chClient.Conn())
+		opts.CampaignQueryRepo = analyticsclickhouse.NewCampaignRepository(chClient.Conn())
 	}
 	return opts
 }

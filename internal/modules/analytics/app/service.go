@@ -46,11 +46,52 @@ type GetDeliverabilityInput struct {
 	UserID          string
 }
 
+type GetCampaignFunnelInput struct {
+	WorkspaceID string
+	CampaignID  string
+	UserID      string
+	From        time.Time
+	To          time.Time
+}
+
+type GetCampaignTimeSeriesInput struct {
+	WorkspaceID string
+	CampaignID  string
+	UserID      string
+	From        time.Time
+	To          time.Time
+	Interval    string
+	EventType   string
+}
+
+type GetCampaignBreakdownInput struct {
+	WorkspaceID string
+	CampaignID  string
+	UserID      string
+	From        time.Time
+	To          time.Time
+	GroupBy     string
+}
+
+type GetCampaignEventsInput struct {
+	WorkspaceID string
+	CampaignID  string
+	UserID      string
+	From        time.Time
+	To          time.Time
+	EventType   string
+	Provider    string
+	Domain      string
+	Limit       int
+	Cursor      string
+}
+
 type Options struct {
 	FactRepo            ports.EventFactRepository
 	ClickHouseFactRepo  ports.EventFactRepository
 	ProjectionRead      ports.ProjectionReadRepository
 	ProjectionWrite     ports.ProjectionWriteRepository
+	CampaignQueryRepo   ports.CampaignQueryRepository
 	TxManager           ports.TransactionManager
 	OutboxWriter        ports.OutboxWriter
 	AccessChecker       ports.WorkspaceAccessChecker
@@ -64,6 +105,7 @@ type Service struct {
 	clickHouseFactRepo  ports.EventFactRepository
 	projectionRead      ports.ProjectionReadRepository
 	projectionWrite     ports.ProjectionWriteRepository
+	campaignQueryRepo   ports.CampaignQueryRepository
 	txManager           ports.TransactionManager
 	outboxWriter        ports.OutboxWriter
 	accessChecker       ports.WorkspaceAccessChecker
@@ -84,6 +126,7 @@ func NewService(opts Options) *Service {
 		clickHouseFactRepo:  opts.ClickHouseFactRepo,
 		projectionRead:      opts.ProjectionRead,
 		projectionWrite:     opts.ProjectionWrite,
+		campaignQueryRepo:   opts.CampaignQueryRepo,
 		txManager:           opts.TxManager,
 		outboxWriter:        opts.OutboxWriter,
 		accessChecker:       opts.AccessChecker,
@@ -410,4 +453,138 @@ func (s *Service) GetDeliverability(ctx context.Context, input GetDeliverability
 		Status: "ready",
 		Items:  rows,
 	}, nil
+}
+
+func (s *Service) GetCampaignFunnel(ctx context.Context, input GetCampaignFunnelInput) (*domain.CampaignFunnel, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+
+	if s.campaignQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+
+	funnel, err := s.campaignQueryRepo.GetCampaignFunnel(ctx, input.WorkspaceID, input.CampaignID, input.From, input.To)
+	if err != nil {
+		s.log.Error("failed to get campaign funnel",
+			"workspace_id", input.WorkspaceID,
+			"campaign_id", input.CampaignID,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	return funnel, nil
+}
+
+func (s *Service) GetCampaignTimeSeries(ctx context.Context, input GetCampaignTimeSeriesInput) (*domain.CampaignTimeSeriesResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+
+	if s.campaignQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+
+	if err := domain.ValidateInterval(input.Interval); err != nil {
+		return nil, err
+	}
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+	if input.EventType != "" && !domain.KnownEventTypes[input.EventType] {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+
+	ts, err := s.campaignQueryRepo.GetCampaignTimeSeries(ctx, input.WorkspaceID, input.CampaignID, input.From, input.To, input.Interval, input.EventType)
+	if err != nil {
+		s.log.Error("failed to get campaign time series",
+			"workspace_id", input.WorkspaceID,
+			"campaign_id", input.CampaignID,
+			"interval", input.Interval,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	return ts, nil
+}
+
+func (s *Service) GetCampaignBreakdown(ctx context.Context, input GetCampaignBreakdownInput) (*domain.CampaignBreakdownResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+
+	if s.campaignQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+
+	if err := domain.ValidateGroupBy(input.GroupBy); err != nil {
+		return nil, err
+	}
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+
+	bd, err := s.campaignQueryRepo.GetCampaignBreakdown(ctx, input.WorkspaceID, input.CampaignID, input.From, input.To, input.GroupBy)
+	if err != nil {
+		s.log.Error("failed to get campaign breakdown",
+			"workspace_id", input.WorkspaceID,
+			"campaign_id", input.CampaignID,
+			"group_by", input.GroupBy,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	return bd, nil
+}
+
+func (s *Service) GetCampaignEvents(ctx context.Context, input GetCampaignEventsInput) (*domain.CampaignEventsResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+
+	if s.campaignQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+
+	filter := domain.CampaignQueryFilter{
+		WorkspaceID: input.WorkspaceID,
+		CampaignID:  input.CampaignID,
+		From:        input.From,
+		To:          input.To,
+		EventType:   input.EventType,
+		Provider:    input.Provider,
+		Domain:      input.Domain,
+		Limit:       input.Limit,
+		Cursor:      input.Cursor,
+	}
+	if filter.Limit <= 0 {
+		filter.Limit = 50
+	}
+
+	events, err := s.campaignQueryRepo.GetCampaignEvents(ctx, filter)
+	if err != nil {
+		s.log.Error("failed to get campaign events",
+			"workspace_id", input.WorkspaceID,
+			"campaign_id", input.CampaignID,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	return events, nil
 }

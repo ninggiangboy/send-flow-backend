@@ -10,6 +10,13 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
+type CampaignQueryRepository interface {
+	GetCampaignFunnel(ctx context.Context, workspaceID, campaignID string, from, to time.Time) (*domain.CampaignFunnel, error)
+	GetCampaignTimeSeries(ctx context.Context, workspaceID, campaignID string, from, to time.Time, interval, eventType string) (*domain.CampaignTimeSeriesResult, error)
+	GetCampaignBreakdown(ctx context.Context, workspaceID, campaignID string, from, to time.Time, groupBy string) (*domain.CampaignBreakdownResult, error)
+	GetCampaignEvents(ctx context.Context, f domain.CampaignQueryFilter) (*domain.CampaignEventsResult, error)
+}
+
 type WorkspaceAccessChecker = auth.WorkspaceAccessChecker
 
 type OutboxEvent = outbox.Event
