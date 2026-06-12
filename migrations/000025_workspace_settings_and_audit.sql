@@ -1,5 +1,12 @@
 -- +goose Up
 
+CREATE TABLE IF NOT EXISTS permission_registry (
+    bit BIGINT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Permission bit: audit.read = 1<<25
 INSERT INTO permission_registry (bit, name, description, created_at)
 VALUES (1<<25, 'audit.read', 'View workspace audit logs', NOW())
