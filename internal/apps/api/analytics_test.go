@@ -41,6 +41,12 @@ func (nopAccessChecker) RequirePermission(_ context.Context, _, _, _ string) err
 	return nil
 }
 
+type denyAccessChecker struct{}
+
+func (denyAccessChecker) RequirePermission(_ context.Context, _, _, _ string) error {
+	return domain.ErrAnalyticsReadDenied
+}
+
 func setupAnalyticsRouter(t *testing.T, queryRepo *stubCampaignQueryRepo) http.Handler {
 	t.Helper()
 
@@ -1397,5 +1403,104 @@ func TestAnalyticsGetCampaignEvents_Pagination(t *testing.T) {
 	}
 	if len(result.Events) != 2 {
 		t.Fatalf("expected 2 events, got %d", len(result.Events))
+	}
+}
+
+func setupAnalyticsRouterWithDeniedAccess(t *testing.T, queryRepo *stubCampaignQueryRepo) http.Handler {
+	t.Helper()
+
+	svc := analyticsapp.NewService(analyticsapp.Options{
+		CampaignQueryRepo:       queryRepo,
+		DeliverabilityQueryRepo: &stubAPIDeliverabilityRepo{},
+		ForensicQueryRepo:       &stubAPIForensicRepo{},
+		OperationsQueryRepo:     &stubAPIOperationsRepo{},
+		UsageQueryRepo:          &stubAPIUsageRepo{},
+		AccessChecker:           denyAccessChecker{},
+		Logger:                  slog.Default(),
+	})
+
+	healthSvc := platformhealth.NewService(platformhealth.Options{
+		AppName:       "sendflow",
+		PostgresCheck: func(context.Context) error { return nil },
+		RedisCheck:    func(context.Context) error { return nil },
+	})
+	metrics, _ := observability.NewHTTPMetrics(nil)
+	return newRouter(&RouterDeps{
+		HealthSvc:       healthSvc,
+		AnalyticsSvc:    svc,
+		SecureCookies:   false,
+		FrontendBaseURL: "http://localhost:3000",
+		HTTPMetrics:     metrics,
+		Log:             slog.Default(),
+	})
+}
+
+func TestAnalyticsGetCampaignFunnel_AuthorizationDenied(t *testing.T) {
+	router := setupAnalyticsRouterWithDeniedAccess(t, &stubCampaignQueryRepo{
+		GetCampaignFunnelFunc: func(_ context.Context, _, _ string, _, _ time.Time) (*domain.CampaignFunnel, error) {
+			return &domain.CampaignFunnel{Status: "ready"}, nil
+		},
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/campaigns/camp-1/funnel", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAnalyticsGetDeliverabilityTimeSeries_AuthorizationDenied(t *testing.T) {
+	router := setupAnalyticsRouterWithDeniedAccess(t, &stubCampaignQueryRepo{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/deliverability/timeseries", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAnalyticsSearchEvents_AuthorizationDenied(t *testing.T) {
+	router := setupAnalyticsRouterWithDeniedAccess(t, &stubCampaignQueryRepo{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/events", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAnalyticsGetOutboxLag_AuthorizationDenied(t *testing.T) {
+	router := setupAnalyticsRouterWithDeniedAccess(t, &stubCampaignQueryRepo{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/operations/outbox-lag", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAnalyticsGetUsageTimeSeries_AuthorizationDenied(t *testing.T) {
+	router := setupAnalyticsRouterWithDeniedAccess(t, &stubCampaignQueryRepo{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/usage/timeseries", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAnalyticsGetAnomalies_AuthorizationDenied(t *testing.T) {
+	router := setupAnalyticsRouterWithDeniedAccess(t, &stubCampaignQueryRepo{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/anomalies", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }

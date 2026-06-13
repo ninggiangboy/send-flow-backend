@@ -7,19 +7,28 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/observability"
 )
 
 type Client struct {
 	conn driver.Conn
 }
 
-func New(ctx context.Context, dsn string) (*Client, error) {
-	opts, err := clickhouse.ParseDSN(dsn)
+type Option func(*Client)
+
+func WithMetrics(metrics *observability.ClickHouseMetrics, queryType string) Option {
+	return func(c *Client) {
+		c.conn = observability.NewMetricsConn(c.conn, metrics, queryType)
+	}
+}
+
+func New(ctx context.Context, dsn string, opts ...Option) (*Client, error) {
+	chOpts, err := clickhouse.ParseDSN(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse clickhouse dsn: %w", err)
 	}
 
-	conn, err := clickhouse.Open(opts)
+	conn, err := clickhouse.Open(chOpts)
 	if err != nil {
 		return nil, fmt.Errorf("open clickhouse connection: %w", err)
 	}
@@ -31,7 +40,11 @@ func New(ctx context.Context, dsn string) (*Client, error) {
 		return nil, fmt.Errorf("ping clickhouse: %w", err)
 	}
 
-	return &Client{conn: conn}, nil
+	c := &Client{conn: conn}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c, nil
 }
 
 func (c *Client) Ping(ctx context.Context) error {

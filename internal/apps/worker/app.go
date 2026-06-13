@@ -52,6 +52,11 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
+	chMetrics, err := observability.NewClickHouseMetrics(nil)
+	if err != nil {
+		return err
+	}
+
 	pgClient, err := postgres.New(ctx, cfg)
 	if err != nil {
 		return err
@@ -79,7 +84,7 @@ func Run(ctx context.Context) error {
 
 	var clickHouseClient *clickhouse.Client
 	if cfg.ClickHouseEnabled() {
-		clickHouseClient, err = clickhouse.New(ctx, cfg.ClickHouseDSN)
+		clickHouseClient, err = clickhouse.New(ctx, cfg.ClickHouseDSN, clickhouse.WithMetrics(chMetrics, "analytics"))
 		if err != nil {
 			return err
 		}

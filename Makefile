@@ -5,7 +5,7 @@ LOG_DIR := ./deployments/local/logs
 LOGROTATE_CONF := ./deployments/local/logrotate.sendflow.conf
 ENV_FILE := ./.env
 
-.PHONY: dev-up dev-down dev-logs connector-up start api worker build format test migrate-up migrate-down clickhouse-migrate-up clickhouse-migrate-down logs-clean logs-rotate
+.PHONY: dev-up dev-down dev-logs connector-up start api worker build format test migrate-up migrate-down clickhouse-migrate-up clickhouse-migrate-down clickhouse-backfill logs-clean logs-rotate
 
 dev-up:
 	docker compose -f $(LOCAL_COMPOSE) up -d
@@ -34,6 +34,7 @@ build:
 	go build -o ./bin/api ./cmd/api
 	go build -o ./bin/worker ./cmd/worker
 	go build -o ./bin/clickhouse-migrate ./cmd/clickhouse-migrate
+	go build -o ./bin/backfill-clickhouse ./cmd/backfill-clickhouse
 
 format:
 	gofmt -w ./cmd ./internal
@@ -55,6 +56,9 @@ clickhouse-migrate-up:
 
 clickhouse-migrate-down:
 	@echo "ClickHouse rollback not yet implemented; drop and re-run migrate-up to rebuild schema"
+
+clickhouse-backfill:
+	sh -c 'if [ -f $(ENV_FILE) ]; then set -a; . $(ENV_FILE); set +a; fi; go run ./cmd/backfill-clickhouse 2>&1'
 
 logs-clean:
 	sh -c 'mkdir -p $(LOG_DIR); : > $(LOG_DIR)/api.log; : > $(LOG_DIR)/worker.log'
