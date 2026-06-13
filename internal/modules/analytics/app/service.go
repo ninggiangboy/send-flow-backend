@@ -98,6 +98,7 @@ type Options struct {
 	OperationsQueryRepo     ports.OperationsQueryRepository
 	UsageQueryRepo          ports.UsageQueryRepository
 	AnomalySignalWriteRepo  ports.AnomalySignalWriteRepository
+	OperationsEventWriter   ports.OperationsEventWriter
 	TxManager               ports.TransactionManager
 	OutboxWriter            ports.OutboxWriter
 	AccessChecker           ports.WorkspaceAccessChecker
@@ -117,6 +118,7 @@ type Service struct {
 	operationsQueryRepo     ports.OperationsQueryRepository
 	usageQueryRepo          ports.UsageQueryRepository
 	anomalySignalWriteRepo  ports.AnomalySignalWriteRepository
+	operationsEventWriter   ports.OperationsEventWriter
 	txManager               ports.TransactionManager
 	outboxWriter            ports.OutboxWriter
 	accessChecker           ports.WorkspaceAccessChecker
@@ -143,6 +145,7 @@ func NewService(opts Options) *Service {
 		operationsQueryRepo:     opts.OperationsQueryRepo,
 		usageQueryRepo:          opts.UsageQueryRepo,
 		anomalySignalWriteRepo:  opts.AnomalySignalWriteRepo,
+		operationsEventWriter:   opts.OperationsEventWriter,
 		txManager:               opts.TxManager,
 		outboxWriter:            opts.OutboxWriter,
 		accessChecker:           opts.AccessChecker,
@@ -150,6 +153,26 @@ func NewService(opts Options) *Service {
 		clock:                   opts.Clock,
 		log:                     opts.Logger.With("service", "analytics"),
 	}
+}
+
+func (s *Service) ensureClickHouseFact(ctx context.Context, fact domain.EmailEventFact) error {
+	_, err := s.clickHouseFactRepo.FindBySourceEventID(ctx, fact.SourceEventID)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, domain.ErrAnalyticsProjectionNotFound) {
+		s.log.Error("failed to check clickhouse fact existence",
+			"source_event_id", fact.SourceEventID,
+			"workspace_id", fact.WorkspaceID,
+			"error", err,
+		)
+		return err
+	}
+	s.log.Info("fact missing in clickhouse, inserting",
+		"source_event_id", fact.SourceEventID,
+		"workspace_id", fact.WorkspaceID,
+	)
+	return s.clickHouseFactRepo.Create(ctx, fact)
 }
 
 func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEventFactInput) error {
@@ -163,7 +186,6 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 	}
 
 	var fact domain.EmailEventFact
-	var created bool
 
 	txErr := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		existing, err := s.factRepo.FindBySourceEventID(txCtx, input.SourceEventID)
@@ -176,6 +198,11 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 			return err
 		}
 		if existing != nil {
+			if s.clickHouseFactRepo != nil {
+				if err := s.ensureClickHouseFact(txCtx, *existing); err != nil {
+					return err
+				}
+			}
 			s.log.Debug("duplicate analytics event, skipping",
 				"source_event_id", input.SourceEventID,
 				"workspace_id", input.WorkspaceID,
@@ -223,7 +250,22 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 			return err
 		}
 
-		created = true
+		if s.clickHouseFactRepo != nil {
+			if err := s.clickHouseFactRepo.Create(txCtx, fact); err != nil {
+				if errors.Is(err, domain.ErrAnalyticsEventDuplicate) {
+					s.log.Debug("duplicate analytics event in clickhouse, skipping",
+						"source_event_id", input.SourceEventID,
+					)
+				} else {
+					s.log.Error("failed to write analytics fact to clickhouse",
+						"source_event_id", input.SourceEventID,
+						"workspace_id", input.WorkspaceID,
+						"error", err,
+					)
+					return err
+				}
+			}
+		}
 
 		if err := s.projectionWrite.IncrementWorkspaceOverview(txCtx, input.WorkspaceID, input.CanonicalType, input.OccurredAt); err != nil {
 			s.log.Error("failed to increment workspace overview",
@@ -309,25 +351,44 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 		return txErr
 	}
 
-	if s.clickHouseFactRepo != nil && created {
-		chErr := s.clickHouseFactRepo.Create(ctx, fact)
-		if chErr != nil {
-			if errors.Is(chErr, domain.ErrAnalyticsEventDuplicate) {
-				s.log.Debug("duplicate analytics event in clickhouse, skipping",
-					"source_event_id", input.SourceEventID,
-				)
-				return nil
-			}
-			s.log.Error("failed to write analytics fact to clickhouse",
-				"source_event_id", input.SourceEventID,
-				"workspace_id", input.WorkspaceID,
-				"error", chErr,
-			)
-			return chErr
-		}
-	}
-
 	return nil
+}
+
+type IngestOperationsEventInput struct {
+	Source          string
+	SourceEventID   string
+	SourceEventType string
+	OperationType   string
+	Status          string
+	WorkspaceID     string
+	ErrorType       string
+	Consumer        string
+	Target          string
+	Metadata        map[string]any
+	OccurredAt      time.Time
+}
+
+func (s *Service) IngestOperationsEvent(ctx context.Context, input IngestOperationsEventInput) error {
+	if s.operationsEventWriter == nil {
+		return nil
+	}
+	sourceEventID := input.SourceEventID
+	if sourceEventID == "" {
+		sourceEventID = input.Source + "_" + input.OperationType + "_" + input.OccurredAt.Format(time.RFC3339Nano)
+	}
+	return s.operationsEventWriter.Create(ctx, ports.OperationsEvent{
+		SourceEventID:   sourceEventID,
+		Source:          input.Source,
+		SourceEventType: input.SourceEventType,
+		OperationType:   input.OperationType,
+		Status:          input.Status,
+		WorkspaceID:     input.WorkspaceID,
+		ErrorType:       input.ErrorType,
+		Consumer:        input.Consumer,
+		Target:          input.Target,
+		Metadata:        input.Metadata,
+		OccurredAt:      input.OccurredAt,
+	})
 }
 
 func (s *Service) GetDashboardOverview(ctx context.Context, input GetDashboardOverviewInput) (*domain.DashboardOverview, error) {
@@ -761,6 +822,9 @@ func (s *Service) GetCampaignEvents(ctx context.Context, input GetCampaignEvents
 	}
 	if filter.Limit <= 0 {
 		filter.Limit = 50
+	}
+	if err := filter.Validate(); err != nil {
+		return nil, err
 	}
 
 	events, err := s.campaignQueryRepo.GetCampaignEvents(ctx, filter)

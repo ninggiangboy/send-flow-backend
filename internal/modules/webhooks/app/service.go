@@ -48,24 +48,24 @@ func (s *Service) ClaimDueDeliveries(ctx context.Context, limit int, now time.Ti
 	return s.deliveryWrite.ClaimPendingDeliveries(ctx, limit, now)
 }
 
-func (s *Service) ProcessDueDelivery(ctx context.Context, workspaceID, deliveryID string) error {
+func (s *Service) ProcessDueDelivery(ctx context.Context, workspaceID, deliveryID string) (string, error) {
 	delivery, err := s.deliveryRead.FindByID(ctx, workspaceID, deliveryID)
 	if err != nil {
-		return fmt.Errorf("find delivery: %w", err)
+		return "", fmt.Errorf("find delivery: %w", err)
 	}
 
 	cfg, err := s.configRead.FindByID(ctx, delivery.WorkspaceID, delivery.WebhookID)
 	if err != nil {
-		return fmt.Errorf("find webhook config: %w", err)
+		return "", fmt.Errorf("find webhook config: %w", err)
 	}
 
 	if cfg.Status != domain.ConfigStatusActive {
 		if err := s.deliveryWrite.MarkFailed(ctx, deliveryID, domain.DeliveryResult{
 			Error: "webhook config disabled",
 		}); err != nil {
-			return fmt.Errorf("mark failed: %w", err)
+			return "", fmt.Errorf("mark failed: %w", err)
 		}
-		return nil
+		return "failed", nil
 	}
 
 	attemptNumber := int(delivery.AttemptCount)
@@ -82,7 +82,7 @@ func (s *Service) ProcessDueDelivery(ctx context.Context, workspaceID, deliveryI
 		AttemptNumber:   int64(attemptNumber),
 	})
 	if err != nil {
-		return fmt.Errorf("deliver webhook: %w", err)
+		return "", fmt.Errorf("deliver webhook: %w", err)
 	}
 
 	return s.recordDeliveryOutcome(ctx, delivery, cfg, attemptNumber, result)
@@ -90,28 +90,29 @@ func (s *Service) ProcessDueDelivery(ctx context.Context, workspaceID, deliveryI
 
 const maxWebhookRetries = 5
 
-func (s *Service) recordDeliveryOutcome(ctx context.Context, delivery *domain.WebhookDelivery, cfg *domain.WebhookConfig, attemptNumber int, result *DeliverWebhookResult) error {
+func (s *Service) recordDeliveryOutcome(ctx context.Context, delivery *domain.WebhookDelivery, cfg *domain.WebhookConfig, attemptNumber int, result *DeliverWebhookResult) (string, error) {
 	log := s.log.With("delivery_id", delivery.ID, "webhook_id", cfg.ID, "attempt", attemptNumber)
 
+	var outcome string
 	if result.Success {
+		outcome = "succeeded"
 		log.Info("webhook delivery succeeded", "status_code", result.StatusCode, "duration_ms", result.DurationMs)
-		return s.emitDeliveryOutcome(ctx, delivery, cfg, result, "succeeded", nil, nil)
-	}
-
-	if domain.IsRetryableHTTPStatus(result.StatusCode) && attemptNumber < maxWebhookRetries {
+	} else if domain.IsRetryableHTTPStatus(result.StatusCode) && attemptNumber < maxWebhookRetries {
+		outcome = "retry_scheduled"
 		backoff := time.Duration(attemptNumber*attemptNumber) * 30 * time.Second
 		nextAttemptAt := s.clock().Add(backoff)
 		log.Warn("webhook delivery failed, scheduling retry",
 			"status_code", result.StatusCode, "next_attempt_at", nextAttemptAt, "backoff", backoff)
-		return s.emitDeliveryOutcome(ctx, delivery, cfg, result, "retry_scheduled", &nextAttemptAt, nil)
-	}
-
-	if attemptNumber >= maxWebhookRetries {
-		log.Warn("webhook delivery max retries exceeded", "max_retries", maxWebhookRetries, "status_code", result.StatusCode)
+		return outcome, s.emitDeliveryOutcome(ctx, delivery, cfg, result, outcome, &nextAttemptAt, nil)
 	} else {
-		log.Warn("webhook delivery terminally failed", "status_code", result.StatusCode)
+		outcome = "failed"
+		if attemptNumber >= maxWebhookRetries {
+			log.Warn("webhook delivery max retries exceeded", "max_retries", maxWebhookRetries, "status_code", result.StatusCode)
+		} else {
+			log.Warn("webhook delivery terminally failed", "status_code", result.StatusCode)
+		}
 	}
-	return s.emitDeliveryOutcome(ctx, delivery, cfg, result, "failed", nil, nil)
+	return outcome, s.emitDeliveryOutcome(ctx, delivery, cfg, result, outcome, nil, nil)
 }
 
 func (s *Service) emitDeliveryOutcome(ctx context.Context, delivery *domain.WebhookDelivery, cfg *domain.WebhookConfig, result *DeliverWebhookResult, outcome string, nextAttemptAt *time.Time, _ error) error {

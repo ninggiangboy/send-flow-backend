@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
+
+	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -133,4 +136,24 @@ func (r *DeadLetterRepository) Save(ctx context.Context, record DeadLetterRecord
 		record.SourceEventType,
 	)
 	return err
+}
+
+type OperationsEventRecorder func(ctx context.Context, source, sourceEventType, operationType, status, workspaceID, errorType, consumer, target string, occurredAt time.Time)
+
+func newOpsRecorderAdapter(svc interface {
+	IngestOperationsEvent(ctx context.Context, input analyticsapp.IngestOperationsEventInput) error
+}) OperationsEventRecorder {
+	return func(ctx context.Context, source, sourceEventType, operationType, status, workspaceID, errorType, consumer, target string, occurredAt time.Time) {
+		_ = svc.IngestOperationsEvent(ctx, analyticsapp.IngestOperationsEventInput{
+			Source:          source,
+			SourceEventType: sourceEventType,
+			OperationType:   operationType,
+			Status:          status,
+			WorkspaceID:     workspaceID,
+			ErrorType:       errorType,
+			Consumer:        consumer,
+			Target:          target,
+			OccurredAt:      occurredAt,
+		})
+	}
 }

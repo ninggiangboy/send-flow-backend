@@ -26,7 +26,7 @@ func (r *ForensicsRepository) SearchEvents(ctx context.Context, f domain.Forensi
 			provider, provider_message_id, provider_event_id,
 			event_type, recipient_domain,
 			occurred_at, received_at
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ?
 	`
 	args := []any{f.WorkspaceID}
@@ -139,7 +139,7 @@ func (r *ForensicsRepository) GetMessageTimeline(ctx context.Context, workspaceI
 			provider, provider_message_id, provider_event_id,
 			campaign_id, recipient_domain,
 			occurred_at, received_at
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ? AND message_id = ?
 		ORDER BY occurred_at ASC, source_event_id ASC
 	`
@@ -180,7 +180,7 @@ func (r *ForensicsRepository) GetProviderEventTrace(ctx context.Context, workspa
 		SELECT
 			workspace_id, campaign_id, message_id,
 			provider, provider_message_id
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ? AND provider_event_id = ?
 		LIMIT 1
 	`
@@ -214,7 +214,7 @@ func (r *ForensicsRepository) GetCampaignIncidentTimeline(ctx context.Context, w
 			event_type,
 			message_id, provider, recipient_domain,
 			occurred_at
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ? AND campaign_id = ?
 			AND event_type IN ('bounced', 'complained')
 	`

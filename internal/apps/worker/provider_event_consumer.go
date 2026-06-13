@@ -23,6 +23,11 @@ type ProviderEventConsumer struct {
 	markers    *ProcessedEventMarkers
 	deadLetter *DeadLetterRepository
 	idGen      func() (string, error)
+	recordOp   OperationsEventRecorder
+}
+
+func (c *ProviderEventConsumer) SetOperationsRecorder(r OperationsEventRecorder) {
+	c.recordOp = r
 }
 
 func NewProviderEventConsumer(svc *deliveryapp.Service, log *slog.Logger, brokers []string, groupID string, pool *pgxpool.Pool) *ProviderEventConsumer {
@@ -97,12 +102,14 @@ func (c *ProviderEventConsumer) Run(ctx context.Context) error {
 					"event_id", eventID,
 					"error", err,
 				)
+				wsID := workspaceIDFromMessage(msg.Headers, msg.Value)
+				evType := eventTypeFromEnvelope(msg.Value)
 				if c.deadLetter != nil {
 					if dlErr := c.deadLetter.Save(ctx, DeadLetterRecord{
 						ID:              mustNewID(c.idGen),
-						WorkspaceID:     workspaceIDFromMessage(msg.Headers, msg.Value),
+						WorkspaceID:     wsID,
 						Source:          c.name,
-						SourceEventType: eventTypeFromEnvelope(msg.Value),
+						SourceEventType: evType,
 						EventID:         eventID,
 						Payload:         msg.Value,
 						ErrorMessage:    err.Error(),
@@ -113,6 +120,11 @@ func (c *ProviderEventConsumer) Run(ctx context.Context) error {
 						)
 						return dlErr
 					}
+				}
+				if c.recordOp != nil && wsID != "" {
+					now := time.Now()
+					c.recordOp(ctx, c.name, evType, "consumer_failure", "failed", wsID, "non_retryable", c.name, "", now)
+					c.recordOp(ctx, c.name, evType, "dlq_created", "failed", wsID, "non_retryable", c.name, "", now)
 				}
 				if c.markers != nil {
 					if _, mErr := c.markers.MarkProcessed(ctx, c.name, eventID); mErr != nil {

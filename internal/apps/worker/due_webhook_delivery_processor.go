@@ -14,6 +14,7 @@ type DueWebhookDeliveryProcessor struct {
 	log          *slog.Logger
 	pollInterval time.Duration
 	batchSize    int
+	recordOp     OperationsEventRecorder
 }
 
 func NewDueWebhookDeliveryProcessor(svc *webhooksapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int) *DueWebhookDeliveryProcessor {
@@ -24,6 +25,10 @@ func NewDueWebhookDeliveryProcessor(svc *webhooksapp.Service, log *slog.Logger, 
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
 	}
+}
+
+func (p *DueWebhookDeliveryProcessor) SetOperationsRecorder(r OperationsEventRecorder) {
+	p.recordOp = r
 }
 
 func (p *DueWebhookDeliveryProcessor) Name() string {
@@ -59,11 +64,28 @@ func (p *DueWebhookDeliveryProcessor) processOnce(ctx context.Context) {
 	}
 
 	for _, delivery := range deliveries {
-		if err := p.svc.ProcessDueDelivery(ctx, delivery.WorkspaceID, delivery.ID); err != nil {
+		outcome, err := p.svc.ProcessDueDelivery(ctx, delivery.WorkspaceID, delivery.ID)
+		if err != nil {
 			p.log.Error("failed to process due delivery",
 				"delivery_id", delivery.ID,
 				"error", err,
 			)
+			continue
+		}
+		if p.recordOp != nil && delivery.WorkspaceID != "" {
+			var status string
+			switch outcome {
+			case "succeeded":
+				status = "success"
+			case "failed":
+				status = "failure"
+			case "retry_scheduled":
+				status = "retry"
+			default:
+				status = outcome
+			}
+			opType := "webhook_" + outcome
+			p.recordOp(ctx, "webhooks", "webhook.delivery", opType, status, delivery.WorkspaceID, "", "webhooks.process_due_deliveries", delivery.TargetURL, time.Now())
 		}
 	}
 }

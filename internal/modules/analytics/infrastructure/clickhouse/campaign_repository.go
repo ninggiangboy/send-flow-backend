@@ -33,7 +33,7 @@ func (r *CampaignRepository) GetCampaignFunnel(ctx context.Context, workspaceID,
 			countIf(event_type = 'unsubscribed') AS unsubscribed_count,
 			countIf(event_type = 'retry_scheduled') AS retry_scheduled_count,
 			max(occurred_at) AS last_event_at
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ? AND campaign_id = ?
 	`
 	args := []any{workspaceID, campaignID}
@@ -109,7 +109,7 @@ func (r *CampaignRepository) GetCampaignTimeSeries(ctx context.Context, workspac
 			%s AS bucket_start,
 			event_type,
 			count() AS cnt
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ? AND campaign_id = ?
 	`, intervalFunc)
 	args := []any{workspaceID, campaignID}
@@ -171,7 +171,7 @@ func (r *CampaignRepository) GetCampaignBreakdown(ctx context.Context, workspace
 			event_type,
 			count() AS cnt,
 			max(occurred_at) AS last_event_at
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ? AND campaign_id = ?
 	`, groupField)
 	args := []any{workspaceID, campaignID}
@@ -222,7 +222,7 @@ func (r *CampaignRepository) GetCampaignEvents(ctx context.Context, f domain.Cam
 			provider, provider_message_id,
 			event_type, recipient_domain,
 			occurred_at, received_at
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ? AND campaign_id = ?
 	`
 	args := []any{f.WorkspaceID, f.CampaignID}

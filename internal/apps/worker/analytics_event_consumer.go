@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
@@ -103,12 +104,14 @@ func (c *AnalyticsEventConsumer) Run(ctx context.Context) error {
 					"event_id", eventID,
 					"error", err,
 				)
+				wsID := workspaceIDFromMessage(msg.Headers, msg.Value)
+				evType := eventTypeFromEnvelope(msg.Value)
 				if c.deadLetter != nil {
 					if dlErr := c.deadLetter.Save(ctx, DeadLetterRecord{
 						ID:              mustNewID(c.idGen),
-						WorkspaceID:     workspaceIDFromMessage(msg.Headers, msg.Value),
+						WorkspaceID:     wsID,
 						Source:          c.name,
-						SourceEventType: eventTypeFromEnvelope(msg.Value),
+						SourceEventType: evType,
 						EventID:         eventID,
 						Payload:         msg.Value,
 						ErrorMessage:    err.Error(),
@@ -118,6 +121,22 @@ func (c *AnalyticsEventConsumer) Run(ctx context.Context) error {
 							"event_id", eventID, "error", dlErr,
 						)
 						return dlErr
+					}
+				}
+				if wsID != "" {
+					if opErr := c.svc.IngestOperationsEvent(ctx, analyticsapp.IngestOperationsEventInput{
+						Source:          c.name,
+						SourceEventType: evType,
+						OperationType:   "consumer_failure",
+						Status:          "failed",
+						WorkspaceID:     wsID,
+						ErrorType:       "non_retryable",
+						Consumer:        c.name,
+						OccurredAt:      time.Now(),
+					}); opErr != nil {
+						c.log.Error("failed to record consumer failure in clickhouse",
+							"event_id", eventID, "error", opErr,
+						)
 					}
 				}
 				if c.markers != nil {

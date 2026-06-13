@@ -59,6 +59,11 @@ spec:
                 secretKeyRef:
                   name: send-flow-secrets
                   key: KAFKA_BROKERS
+            - name: CLICKHOUSE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: send-flow-secrets
+                  key: CLICKHOUSE_DSN
             - name: OBJECT_STORAGE_ENDPOINT
               valueFrom:
                 secretKeyRef:

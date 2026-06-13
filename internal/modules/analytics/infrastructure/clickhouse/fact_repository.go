@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
@@ -17,6 +18,14 @@ func NewFactRepository(conn driver.Conn) *FactRepository {
 }
 
 func (r *FactRepository) Create(ctx context.Context, fact domain.EmailEventFact) error {
+	existing, err := r.FindBySourceEventID(ctx, fact.SourceEventID)
+	if err != nil && !errors.Is(err, domain.ErrAnalyticsProjectionNotFound) {
+		return err
+	}
+	if existing != nil {
+		return domain.ErrAnalyticsEventDuplicate
+	}
+
 	md, err := json.Marshal(fact.Metadata)
 	if err != nil {
 		return err
@@ -44,7 +53,7 @@ func (r *FactRepository) FindBySourceEventID(ctx context.Context, sourceEventID 
 			source_event_id, source_event_type, workspace_id, campaign_id, message_id,
 			provider, provider_message_id, provider_event_id, event_type, recipient_domain,
 			occurred_at, received_at, metadata_json, created_at
-		FROM email_events
+		FROM email_events FINAL
 		WHERE source_event_id = ?
 		ORDER BY created_at DESC
 		LIMIT 1`,

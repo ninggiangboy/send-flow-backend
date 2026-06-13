@@ -341,6 +341,9 @@ func (c Config) Validate() error {
 	if c.needsObjectStorage() && !c.ObjectStorageEnabled() {
 		return errors.New("OBJECT_STORAGE_ENDPOINT is required when audience import/export processors are enabled")
 	}
+	if c.ClickHouseDSN == "" && c.AppEnv != "local" && c.AppEnv != "test" {
+		return errors.New("CLICKHOUSE_DSN is required for analytics queries and event processing")
+	}
 	return nil
 }
 

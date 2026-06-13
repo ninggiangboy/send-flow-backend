@@ -26,7 +26,7 @@ func (r *OperationsRepository) GetOutboxLag(ctx context.Context, workspaceID str
 			source_event_type AS event_type,
 			toInt64(count()) AS cnt,
 			avg(dateDiff('second', occurred_at, created_at)) AS avg_lag
-		FROM operations_events
+		FROM operations_events FINAL
 		WHERE workspace_id = ?
 			AND operation_type = 'outbox_lag'
 	`
@@ -79,7 +79,7 @@ func (r *OperationsRepository) GetConsumerFailures(ctx context.Context, workspac
 			consumer,
 			error_type,
 			toInt64(count()) AS cnt
-		FROM operations_events
+		FROM operations_events FINAL
 		WHERE workspace_id = ?
 			AND operation_type = 'consumer_failure'
 	`
@@ -131,7 +131,7 @@ func (r *OperationsRepository) GetDLQVolume(ctx context.Context, workspaceID str
 			source,
 			source_event_type AS event_type,
 			toInt64(count()) AS cnt
-		FROM operations_events
+		FROM operations_events FINAL
 		WHERE workspace_id = ?
 			AND operation_type = 'dlq_created'
 	`
@@ -194,7 +194,7 @@ func (r *OperationsRepository) GetWebhookDeliveryTimeSeries(ctx context.Context,
 			%s AS bucket_start,
 			status,
 			toInt64(count()) AS cnt
-		FROM operations_events
+		FROM operations_events FINAL
 		WHERE workspace_id = ?
 			AND source = 'webhooks'
 			AND operation_type IN ('webhook_succeeded', 'webhook_failed', 'webhook_retry_scheduled')
@@ -249,7 +249,7 @@ func (r *OperationsRepository) GetWebhookReliability(ctx context.Context, worksp
 			toInt64(countIf(status = 'success')) AS succeeded,
 			toInt64(countIf(status = 'failure')) AS failed,
 			toInt64(countIf(status = 'retry')) AS retried
-		FROM operations_events
+		FROM operations_events FINAL
 		WHERE workspace_id = ?
 			AND source = 'webhooks'
 			AND operation_type IN ('webhook_succeeded', 'webhook_failed', 'webhook_retry_scheduled')
@@ -266,7 +266,7 @@ func (r *OperationsRepository) GetWebhookReliability(ctx context.Context, worksp
 	}
 	if target != "" {
 		query += " AND target = ?"
-		args = append(args, strings.ToLower(strings.TrimSpace(target)))
+		args = append(args, strings.TrimSpace(target))
 	}
 
 	query += ` GROUP BY source, target ORDER BY source, target`

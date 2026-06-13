@@ -38,7 +38,7 @@ func (r *DeliverabilityRepository) GetDeliverabilityTimeSeries(ctx context.Conte
 			recipient_domain,
 			event_type,
 			count() AS cnt
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ?
 	`, intervalFunc)
 	args := []any{workspaceID}
@@ -101,7 +101,7 @@ func (r *DeliverabilityRepository) GetDeliverabilityBreakdown(ctx context.Contex
 			event_type,
 			count() AS cnt,
 			max(occurred_at) AS last_event_at
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ?
 	`, groupField)
 	args := []any{workspaceID}
@@ -183,8 +183,8 @@ func (r *DeliverabilityRepository) GetDeliverabilityLatency(ctx context.Context,
 				a.provider,
 				a.recipient_domain,
 				dateDiff('millisecond', a.occurred_at, d.occurred_at) AS latency_ms
-			FROM email_events a
-			INNER JOIN email_events d
+			FROM email_events FINAL a
+			INNER JOIN email_events FINAL d
 				ON a.workspace_id = d.workspace_id
 				AND a.message_id = d.message_id
 				AND a.campaign_id = d.campaign_id
@@ -247,7 +247,7 @@ func (r *DeliverabilityRepository) GetDeliverabilityIncidents(ctx context.Contex
 			count() AS cnt,
 			countIf(event_type = 'bounced') AS bounce_count,
 			countIf(event_type = 'delivered') AS delivered_count
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ?
 			AND event_type IN ('bounced', 'delivered')
 	`

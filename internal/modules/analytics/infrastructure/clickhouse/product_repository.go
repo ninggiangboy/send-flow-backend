@@ -35,7 +35,7 @@ func (r *UsageRepository) GetUsageTimeSeries(ctx context.Context, workspaceID st
 			%s AS bucket_start,
 			event_type,
 			toInt64(count()) AS cnt
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ?
 	`, intervalFunc)
 	args := []any{workspaceID}
@@ -83,7 +83,7 @@ func (r *UsageRepository) GetUsageFeatures(ctx context.Context, workspaceID stri
 			) AS feature,
 			toInt64(count(DISTINCT campaign_id)) AS active_count,
 			toInt64(count()) AS event_count
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ?
 	`
 	args := []any{workspaceID}
@@ -130,7 +130,7 @@ func (r *UsageRepository) GetRiskSignals(ctx context.Context, workspaceID string
 			campaign_id,
 			event_type,
 			toInt64(count()) AS cnt
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ?
 			AND event_type IN ('bounced', 'complained')
 	`
@@ -179,7 +179,7 @@ func (r *UsageRepository) GetRiskSignals(ctx context.Context, workspaceID string
 		SELECT
 			campaign_id,
 			toInt64(count()) AS total
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ?
 			AND event_type = 'delivered'
 	`
@@ -282,7 +282,7 @@ func (r *UsageRepository) GetSendVolumeForecast(ctx context.Context, workspaceID
 		SELECT
 			toStartOfDay(occurred_at) AS day,
 			toInt64(count()) AS total
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ?
 			AND event_type = 'queued'
 	`
@@ -365,7 +365,7 @@ func (r *UsageRepository) GetSendVolumeForecast(ctx context.Context, workspaceID
 }
 
 func (r *UsageRepository) ListDistinctWorkspaces(ctx context.Context, since time.Time) ([]string, error) {
-	query := `SELECT DISTINCT workspace_id FROM email_events WHERE occurred_at >= ?`
+	query := `SELECT DISTINCT workspace_id FROM email_events FINAL WHERE occurred_at >= ?`
 	rows, err := r.conn.Query(ctx, query, since)
 	if err != nil {
 		return nil, err
@@ -389,7 +389,7 @@ func (r *UsageRepository) GetAnomalies(ctx context.Context, workspaceID string, 
 			toStartOfDay(occurred_at) AS day,
 			event_type,
 			toInt64(count()) AS cnt
-		FROM email_events
+		FROM email_events FINAL
 		WHERE workspace_id = ?
 	`
 	args := []any{workspaceID}

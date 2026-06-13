@@ -241,6 +241,8 @@ func Run(ctx context.Context) error {
 	analyticsOpts.Logger = log
 	analyticsSvc := analyticsapp.NewService(analyticsOpts)
 
+	providerEventConsumer.SetOperationsRecorder(newOpsRecorderAdapter(analyticsSvc))
+
 	analyticsConsumer := NewAnalyticsEventConsumer(
 		analyticsSvc,
 		mapperRegistry,
@@ -260,6 +262,16 @@ func Run(ctx context.Context) error {
 			15*time.Minute,
 		)
 		if err := registry.Register(anomalyProcessor); err != nil {
+			return err
+		}
+
+		outboxLagSampler := NewOutboxLagSampler(
+			analyticsSvc,
+			pgClient.WritePool(),
+			log,
+			60*time.Second,
+		)
+		if err := registry.Register(outboxLagSampler); err != nil {
 			return err
 		}
 	}
@@ -299,6 +311,9 @@ func Run(ctx context.Context) error {
 		cfg.WorkerConsumerGroupPrefix+".webhooks_deliver_events",
 		pgClient.WritePool(),
 	)
+	if analyticsSvc != nil {
+		webhookConsumer.SetOperationsRecorder(newOpsRecorderAdapter(analyticsSvc))
+	}
 	if err := registry.Register(webhookConsumer); err != nil {
 		return err
 	}
@@ -309,6 +324,9 @@ func Run(ctx context.Context) error {
 		10*time.Second,
 		50,
 	)
+	if analyticsSvc != nil {
+		webhookDeliveryProcessor.SetOperationsRecorder(newOpsRecorderAdapter(analyticsSvc))
+	}
 	if err := registry.Register(webhookDeliveryProcessor); err != nil {
 		return err
 	}

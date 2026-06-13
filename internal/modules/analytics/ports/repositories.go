@@ -83,3 +83,21 @@ type AnomalySignalWriteRepository interface {
 type OutboxWriter interface {
 	Save(ctx context.Context, event OutboxEvent) error
 }
+
+type OperationsEvent struct {
+	SourceEventID   string
+	Source          string
+	SourceEventType string
+	OperationType   string
+	Status          string
+	WorkspaceID     string
+	ErrorType       string
+	Consumer        string
+	Target          string
+	Metadata        map[string]any
+	OccurredAt      time.Time
+}
+
+type OperationsEventWriter interface {
+	Create(ctx context.Context, event OperationsEvent) error
+}

@@ -15,6 +15,7 @@ func validConfig() Config {
 		RedisAddr:                 "localhost:6379",
 		JWTAccessSecret:           "real-secret-not-dev",
 		JWTRefreshSecret:          "real-refresh-not-dev",
+		ClickHouseDSN:             "clickhouse://localhost:9000",
 		EmailProvider:             "smtp",
 		SMTP:                      SMTPConfig{Host: "localhost", Port: 1025, From: "test@test.com"},
 		WorkerHTTPAddr:            ":8082",
