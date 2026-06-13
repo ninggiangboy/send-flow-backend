@@ -96,6 +96,7 @@ type Options struct {
 	DeliverabilityQueryRepo ports.DeliverabilityQueryRepository
 	ForensicQueryRepo       ports.ForensicQueryRepository
 	OperationsQueryRepo     ports.OperationsQueryRepository
+	UsageQueryRepo          ports.UsageQueryRepository
 	TxManager               ports.TransactionManager
 	OutboxWriter            ports.OutboxWriter
 	AccessChecker           ports.WorkspaceAccessChecker
@@ -113,6 +114,7 @@ type Service struct {
 	deliverabilityQueryRepo ports.DeliverabilityQueryRepository
 	forensicQueryRepo       ports.ForensicQueryRepository
 	operationsQueryRepo     ports.OperationsQueryRepository
+	usageQueryRepo          ports.UsageQueryRepository
 	txManager               ports.TransactionManager
 	outboxWriter            ports.OutboxWriter
 	accessChecker           ports.WorkspaceAccessChecker
@@ -137,6 +139,7 @@ func NewService(opts Options) *Service {
 		deliverabilityQueryRepo: opts.DeliverabilityQueryRepo,
 		forensicQueryRepo:       opts.ForensicQueryRepo,
 		operationsQueryRepo:     opts.OperationsQueryRepo,
+		usageQueryRepo:          opts.UsageQueryRepo,
 		txManager:               opts.TxManager,
 		outboxWriter:            opts.OutboxWriter,
 		accessChecker:           opts.AccessChecker,
@@ -1089,6 +1092,172 @@ func (s *Service) GetWebhookReliability(ctx context.Context, input GetWebhookRel
 		s.log.Error("failed to get webhook reliability",
 			"workspace_id", input.WorkspaceID,
 			"target", input.Target,
+			"error", err,
+		)
+		return nil, err
+	}
+	return result, nil
+}
+
+// ── Phase 6: Product Usage, Risk, Forecasting, and Anomalies ──
+
+type GetUsageTimeSeriesInput struct {
+	WorkspaceID string
+	UserID      string
+	From        time.Time
+	To          time.Time
+	Interval    string
+}
+
+type GetUsageFeaturesInput struct {
+	WorkspaceID string
+	UserID      string
+	From        time.Time
+	To          time.Time
+}
+
+type GetRiskSignalsInput struct {
+	WorkspaceID string
+	UserID      string
+	From        time.Time
+	To          time.Time
+}
+
+type GetSendVolumeForecastInput struct {
+	WorkspaceID string
+	UserID      string
+	From        time.Time
+	To          time.Time
+}
+
+type GetAnomaliesInput struct {
+	WorkspaceID string
+	UserID      string
+	From        time.Time
+	To          time.Time
+}
+
+func (s *Service) GetUsageTimeSeries(ctx context.Context, input GetUsageTimeSeriesInput) (*domain.UsageTimeSeriesResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+	if s.usageQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+
+	if input.Interval == "" {
+		input.Interval = "day"
+	}
+	if err := domain.ValidateInterval(input.Interval); err != nil {
+		return nil, err
+	}
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+
+	result, err := s.usageQueryRepo.GetUsageTimeSeries(ctx, input.WorkspaceID, input.From, input.To, input.Interval)
+	if err != nil {
+		s.log.Error("failed to get usage time series",
+			"workspace_id", input.WorkspaceID,
+			"interval", input.Interval,
+			"error", err,
+		)
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Service) GetUsageFeatures(ctx context.Context, input GetUsageFeaturesInput) (*domain.UsageFeaturesResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+	if s.usageQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+
+	result, err := s.usageQueryRepo.GetUsageFeatures(ctx, input.WorkspaceID, input.From, input.To)
+	if err != nil {
+		s.log.Error("failed to get usage features",
+			"workspace_id", input.WorkspaceID,
+			"error", err,
+		)
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Service) GetRiskSignals(ctx context.Context, input GetRiskSignalsInput) (*domain.RiskSignalsResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+	if s.usageQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+
+	result, err := s.usageQueryRepo.GetRiskSignals(ctx, input.WorkspaceID, input.From, input.To)
+	if err != nil {
+		s.log.Error("failed to get risk signals",
+			"workspace_id", input.WorkspaceID,
+			"error", err,
+		)
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Service) GetSendVolumeForecast(ctx context.Context, input GetSendVolumeForecastInput) (*domain.SendVolumeForecastResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+	if s.usageQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+
+	result, err := s.usageQueryRepo.GetSendVolumeForecast(ctx, input.WorkspaceID, input.From, input.To)
+	if err != nil {
+		s.log.Error("failed to get send volume forecast",
+			"workspace_id", input.WorkspaceID,
+			"error", err,
+		)
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Service) GetAnomalies(ctx context.Context, input GetAnomaliesInput) (*domain.AnomaliesResult, error) {
+	if s.accessChecker != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
+			return nil, err
+		}
+	}
+	if s.usageQueryRepo == nil {
+		return nil, domain.ErrAnalyticsQueryInvalid
+	}
+	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
+		return nil, err
+	}
+
+	result, err := s.usageQueryRepo.GetAnomalies(ctx, input.WorkspaceID, input.From, input.To)
+	if err != nil {
+		s.log.Error("failed to get anomalies",
+			"workspace_id", input.WorkspaceID,
 			"error", err,
 		)
 		return nil, err

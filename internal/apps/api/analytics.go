@@ -1362,6 +1362,301 @@ func (h *analyticsHTTP) getWebhookReliability(w http.ResponseWriter, r *http.Req
 	})
 }
 
+// ── Phase 6: Product Usage, Risk, Forecasting, and Anomalies ──
+
+type usageTimeSeriesBucketDoc struct {
+	BucketStart string `json:"bucket_start"`
+	EventType   string `json:"event_type"`
+	Count       int64  `json:"count"`
+}
+
+type usageTimeSeriesResponseDoc struct {
+	Status      string                     `json:"status"`
+	WorkspaceID string                     `json:"workspace_id"`
+	Buckets     []usageTimeSeriesBucketDoc `json:"buckets"`
+}
+
+type usageFeatureRowDoc struct {
+	Feature     string `json:"feature"`
+	ActiveCount int64  `json:"active_count"`
+	EventCount  int64  `json:"event_count"`
+	BucketStart string `json:"bucket_start"`
+}
+
+type usageFeaturesResponseDoc struct {
+	Status      string               `json:"status"`
+	WorkspaceID string               `json:"workspace_id"`
+	Rows        []usageFeatureRowDoc `json:"rows"`
+}
+
+type riskSignalRowDoc struct {
+	SignalType string  `json:"signal_type"`
+	Severity   string  `json:"severity"`
+	Metric     string  `json:"metric"`
+	Value      float64 `json:"value"`
+	Threshold  float64 `json:"threshold"`
+	DetectedAt string  `json:"detected_at"`
+	CampaignID string  `json:"campaign_id,omitempty"`
+}
+
+type riskSignalsResponseDoc struct {
+	Status      string             `json:"status"`
+	WorkspaceID string             `json:"workspace_id"`
+	Signals     []riskSignalRowDoc `json:"signals"`
+}
+
+type sendVolumeForecastRowDoc struct {
+	BucketStart  string  `json:"bucket_start"`
+	ForecastLow  int64   `json:"forecast_low"`
+	ForecastMid  int64   `json:"forecast_mid"`
+	ForecastHigh int64   `json:"forecast_high"`
+	Confidence   float64 `json:"confidence"`
+}
+
+type sendVolumeForecastResponseDoc struct {
+	Status      string                     `json:"status"`
+	WorkspaceID string                     `json:"workspace_id"`
+	Rows        []sendVolumeForecastRowDoc `json:"rows"`
+}
+
+type anomalyRowDoc struct {
+	AnomalyID   string  `json:"anomaly_id"`
+	AnomalyType string  `json:"anomaly_type"`
+	Severity    string  `json:"severity"`
+	Metric      string  `json:"metric"`
+	Observed    float64 `json:"observed"`
+	Expected    float64 `json:"expected"`
+	Deviation   float64 `json:"deviation"`
+	DetectedAt  string  `json:"detected_at"`
+	WindowStart string  `json:"window_start"`
+	WindowEnd   string  `json:"window_end"`
+}
+
+type anomaliesResponseDoc struct {
+	Status      string          `json:"status"`
+	WorkspaceID string          `json:"workspace_id"`
+	Anomalies   []anomalyRowDoc `json:"anomalies"`
+}
+
+func (h *analyticsHTTP) getUsageTimeSeries(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+	interval := q.Get("interval")
+	if interval == "" {
+		interval = "day"
+	}
+
+	result, err := h.svc.GetUsageTimeSeries(r.Context(), analyticsapp.GetUsageTimeSeriesInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+		Interval:    interval,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	buckets := make([]usageTimeSeriesBucketDoc, 0, len(result.Buckets))
+	for _, b := range result.Buckets {
+		buckets = append(buckets, usageTimeSeriesBucketDoc{
+			BucketStart: b.BucketStart.Format(time.RFC3339),
+			EventType:   b.EventType,
+			Count:       b.Count,
+		})
+	}
+
+	writeEnvelope(w, r, http.StatusOK, usageTimeSeriesResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Buckets:     buckets,
+	})
+}
+
+func (h *analyticsHTTP) getUsageFeatures(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+
+	result, err := h.svc.GetUsageFeatures(r.Context(), analyticsapp.GetUsageFeaturesInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	rows := make([]usageFeatureRowDoc, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		rows = append(rows, usageFeatureRowDoc{
+			Feature:     row.Feature,
+			ActiveCount: row.ActiveCount,
+			EventCount:  row.EventCount,
+			BucketStart: row.BucketStart,
+		})
+	}
+
+	writeEnvelope(w, r, http.StatusOK, usageFeaturesResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Rows:        rows,
+	})
+}
+
+func (h *analyticsHTTP) getRiskSignals(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+
+	result, err := h.svc.GetRiskSignals(r.Context(), analyticsapp.GetRiskSignalsInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	signals := make([]riskSignalRowDoc, 0, len(result.Signals))
+	for _, s := range result.Signals {
+		signals = append(signals, riskSignalRowDoc{
+			SignalType: s.SignalType,
+			Severity:   s.Severity,
+			Metric:     s.Metric,
+			Value:      s.Value,
+			Threshold:  s.Threshold,
+			DetectedAt: s.DetectedAt,
+			CampaignID: s.CampaignID,
+		})
+	}
+
+	writeEnvelope(w, r, http.StatusOK, riskSignalsResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Signals:     signals,
+	})
+}
+
+func (h *analyticsHTTP) getSendVolumeForecast(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+
+	result, err := h.svc.GetSendVolumeForecast(r.Context(), analyticsapp.GetSendVolumeForecastInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	rows := make([]sendVolumeForecastRowDoc, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		rows = append(rows, sendVolumeForecastRowDoc{
+			BucketStart:  row.BucketStart,
+			ForecastLow:  row.ForecastLow,
+			ForecastMid:  row.ForecastMid,
+			ForecastHigh: row.ForecastHigh,
+			Confidence:   row.Confidence,
+		})
+	}
+
+	writeEnvelope(w, r, http.StatusOK, sendVolumeForecastResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Rows:        rows,
+	})
+}
+
+func (h *analyticsHTTP) getAnomalies(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	q := r.URL.Query()
+
+	var from, to time.Time
+	if v := parseTimePtr(q.Get("from")); v != nil {
+		from = *v
+	}
+	if v := parseTimePtr(q.Get("to")); v != nil {
+		to = *v
+	}
+
+	result, err := h.svc.GetAnomalies(r.Context(), analyticsapp.GetAnomaliesInput{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		From:        from,
+		To:          to,
+	})
+	if err != nil {
+		writeAnalyticsErr(w, r, err)
+		return
+	}
+
+	anomalies := make([]anomalyRowDoc, 0, len(result.Anomalies))
+	for _, a := range result.Anomalies {
+		anomalies = append(anomalies, anomalyRowDoc{
+			AnomalyID:   a.AnomalyID,
+			AnomalyType: a.AnomalyType,
+			Severity:    a.Severity,
+			Metric:      a.Metric,
+			Observed:    a.Observed,
+			Expected:    a.Expected,
+			Deviation:   a.Deviation,
+			DetectedAt:  a.DetectedAt,
+			WindowStart: a.WindowStart,
+			WindowEnd:   a.WindowEnd,
+		})
+	}
+
+	writeEnvelope(w, r, http.StatusOK, anomaliesResponseDoc{
+		Status:      result.Status,
+		WorkspaceID: result.WorkspaceID,
+		Anomalies:   anomalies,
+	})
+}
+
 func writeAnalyticsErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrAnalyticsQueryInvalid):

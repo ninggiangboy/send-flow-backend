@@ -406,6 +406,118 @@ type DeliverabilityIncidentResult struct {
 	Rows        []DeliverabilityIncidentRow `json:"rows"`
 }
 
+// ── Phase 6: Product Usage, Risk, Forecasting, and Anomalies ──
+
+type UsageQueryFilter struct {
+	WorkspaceID string
+	From        time.Time
+	To          time.Time
+	Interval    string
+	Limit       int
+	Cursor      string
+}
+
+func (f UsageQueryFilter) Validate() error {
+	if strings.TrimSpace(f.WorkspaceID) == "" {
+		return fmt.Errorf("%w: workspace_id is required", ErrAnalyticsQueryInvalid)
+	}
+	if err := ValidateTimeRange(f.From, f.To); err != nil {
+		return err
+	}
+	if f.Interval != "" && !SupportedIntervals[f.Interval] {
+		return fmt.Errorf("%w: unsupported interval %q", ErrAnalyticsQueryInvalid, f.Interval)
+	}
+	if f.Limit <= 0 || f.Limit > 100 {
+		return fmt.Errorf("%w: limit must be between 1 and 100", ErrAnalyticsQueryInvalid)
+	}
+	return nil
+}
+
+type UsageTimeSeriesBucket struct {
+	BucketStart time.Time `json:"bucket_start"`
+	EventType   string    `json:"event_type"`
+	Count       int64     `json:"count"`
+}
+
+type UsageTimeSeriesResult struct {
+	Status      string                  `json:"status"`
+	WorkspaceID string                  `json:"workspace_id"`
+	Buckets     []UsageTimeSeriesBucket `json:"buckets"`
+}
+
+type UsageFeatureRow struct {
+	Feature     string `json:"feature"`
+	ActiveCount int64  `json:"active_count"`
+	EventCount  int64  `json:"event_count"`
+	BucketStart string `json:"bucket_start"`
+}
+
+type UsageFeaturesResult struct {
+	Status      string            `json:"status"`
+	WorkspaceID string            `json:"workspace_id"`
+	Rows        []UsageFeatureRow `json:"rows"`
+}
+
+type RiskSignalRow struct {
+	SignalType string  `json:"signal_type"`
+	Severity   string  `json:"severity"`
+	Metric     string  `json:"metric"`
+	Value      float64 `json:"value"`
+	Threshold  float64 `json:"threshold"`
+	DetectedAt string  `json:"detected_at"`
+	CampaignID string  `json:"campaign_id,omitempty"`
+}
+
+type RiskSignalsResult struct {
+	Status      string          `json:"status"`
+	WorkspaceID string          `json:"workspace_id"`
+	Signals     []RiskSignalRow `json:"signals"`
+}
+
+type SendVolumeForecastRow struct {
+	BucketStart  string  `json:"bucket_start"`
+	ForecastLow  int64   `json:"forecast_low"`
+	ForecastMid  int64   `json:"forecast_mid"`
+	ForecastHigh int64   `json:"forecast_high"`
+	Confidence   float64 `json:"confidence"`
+}
+
+type SendVolumeForecastResult struct {
+	Status      string                  `json:"status"`
+	WorkspaceID string                  `json:"workspace_id"`
+	Rows        []SendVolumeForecastRow `json:"rows"`
+}
+
+type AnomalyRow struct {
+	AnomalyID   string  `json:"anomaly_id"`
+	AnomalyType string  `json:"anomaly_type"`
+	Severity    string  `json:"severity"`
+	Metric      string  `json:"metric"`
+	Observed    float64 `json:"observed"`
+	Expected    float64 `json:"expected"`
+	Deviation   float64 `json:"deviation"`
+	DetectedAt  string  `json:"detected_at"`
+	WindowStart string  `json:"window_start"`
+	WindowEnd   string  `json:"window_end"`
+}
+
+type AnomalyWindowKey struct {
+	WorkspaceID string
+	AnomalyType string
+	WindowStart time.Time
+	WindowEnd   time.Time
+}
+
+func (k AnomalyWindowKey) String() string {
+	return fmt.Sprintf("%s|%s|%s|%s", k.WorkspaceID, k.AnomalyType, k.WindowStart.Format(time.RFC3339), k.WindowEnd.Format(time.RFC3339))
+}
+
+type AnomaliesResult struct {
+	Status      string       `json:"status"`
+	WorkspaceID string       `json:"workspace_id"`
+	Anomalies   []AnomalyRow `json:"anomalies"`
+}
+
 func ComputeRate(numerator, denominator int64) float64 {
 	if denominator == 0 {
 		return 0

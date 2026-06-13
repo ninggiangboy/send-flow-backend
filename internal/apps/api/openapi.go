@@ -2684,6 +2684,66 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		_ = input
 		return delegateHTTP[emptyOutput](ctx, nil, analytics.getWebhookReliability)
 	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-usage-timeseries",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/usage/timeseries",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get workspace usage time series",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getUsageTimeSeries)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-usage-features",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/usage/features",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get workspace feature adoption metrics",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getUsageFeatures)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-risk-signals",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/risk/signals",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get workspace risk signals",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getRiskSignals)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-send-volume-forecast",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/forecast/send-volume",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get send volume forecast",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getSendVolumeForecast)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-anomalies",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/analytics/anomalies",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get workspace anomaly detections",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getAnomalies)
+	})
 }
 
 func analyticsErrorCodes() map[int][]string {
