@@ -1067,11 +1067,11 @@ func TestAnalyticsGetDeliverabilityIncidents_Success(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 type stubAPIUsageRepo struct {
-	GetUsageTimeSeriesFunc    func(ctx context.Context, workspaceID string, from, to time.Time, interval string) (*domain.UsageTimeSeriesResult, error)
-	GetUsageFeaturesFunc      func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.UsageFeaturesResult, error)
-	GetRiskSignalsFunc        func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.RiskSignalsResult, error)
-	GetSendVolumeForecastFunc func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.SendVolumeForecastResult, error)
-	GetAnomaliesFunc          func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.AnomaliesResult, error)
+	GetUsageTimeSeriesFunc     func(ctx context.Context, workspaceID string, from, to time.Time, interval string) (*domain.UsageTimeSeriesResult, error)
+	GetUsageFeaturesFunc       func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.UsageFeaturesResult, error)
+	GetRiskSignalsFunc         func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.RiskSignalsResult, error)
+	GetSendVolumeForecastFunc  func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.SendVolumeForecastResult, error)
+	GetAnomaliesFunc           func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.AnomaliesResult, error)
 	ListDistinctWorkspacesFunc func(ctx context.Context, since time.Time) ([]string, error)
 }
 

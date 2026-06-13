@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -10,27 +9,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	analyticsclickhouse "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/clickhouse"
+	analyticspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/postgres"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/clickhouse"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 )
-
-type pgFact struct {
-	ID                string
-	SourceEventID     string
-	SourceEventType   string
-	WorkspaceID       string
-	CampaignID        *string
-	MessageID         *string
-	Provider          *string
-	ProviderMessageID *string
-	ProviderEventID   *string
-	EventType         string
-	RecipientDomain   *string
-	OccurredAt        time.Time
-	ReceivedAt        time.Time
-	MetadataJSON      []byte
-	CreatedAt         time.Time
-}
 
 func main() {
 	cfg, err := config.LoadFromEnv()
@@ -51,6 +35,26 @@ func main() {
 		}
 	}
 
+	var fromCreatedAt, toCreatedAt *time.Time
+	if s := os.Getenv("BACKFILL_FROM_CREATED_AT"); s != "" {
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			log.Fatalf("invalid BACKFILL_FROM_CREATED_AT: %v", err)
+		}
+		fromCreatedAt = &t
+	}
+	if s := os.Getenv("BACKFILL_TO_CREATED_AT"); s != "" {
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			log.Fatalf("invalid BACKFILL_TO_CREATED_AT: %v", err)
+		}
+		toCreatedAt = &t
+	}
+
+	resetClickHouse, _ := strconv.ParseBool(os.Getenv("BACKFILL_RESET_CLICKHOUSE"))
+
+	updateCursor, _ := strconv.ParseBool(os.Getenv("BACKFILL_UPDATE_LIVE_CURSOR"))
+
 	ctx := context.Background()
 
 	pgPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
@@ -65,12 +69,21 @@ func main() {
 	}
 	defer chClient.Close()
 
-	log.Printf("starting backfill from postgres to clickhouse (batch size: %d)", batchSize)
-	backfill(ctx, pgPool, chClient, batchSize)
-}
+	if resetClickHouse {
+		log.Println("truncating clickhouse email_events table")
+		if err := chClient.Conn().Exec(ctx, "TRUNCATE TABLE email_events"); err != nil {
+			log.Fatalf("truncate clickhouse: %v", err)
+		}
+	}
 
-func backfill(ctx context.Context, pgPool *pgxpool.Pool, chClient *clickhouse.Client, batchSize int) {
-	lastID := ""
+	factRepo := analyticspostgres.NewFactBatchRepository(pgPool)
+	batchWriter := analyticsclickhouse.NewBatchWriter(chClient.Conn())
+	syncStateRepo := analyticspostgres.NewSyncStateRepository(pgPool)
+
+	log.Printf("starting backfill from postgres to clickhouse (batch size: %d)", batchSize)
+
+	cursorCreatedAt := fromCreatedAt
+	cursorID := ""
 	total := 0
 
 	for {
@@ -81,107 +94,42 @@ func backfill(ctx context.Context, pgPool *pgxpool.Pool, chClient *clickhouse.Cl
 		default:
 		}
 
-		rows, err := pgPool.Query(ctx, `
-			SELECT id, source_event_id, source_event_type, workspace_id,
-			       campaign_id, message_id, provider, provider_message_id, provider_event_id,
-			       event_type, recipient_domain, occurred_at, received_at, metadata_json, created_at
-			FROM analytics_event_facts
-			WHERE id > $1
-			ORDER BY id
-			LIMIT $2
-		`, lastID, batchSize)
+		if toCreatedAt != nil && cursorCreatedAt != nil && cursorCreatedAt.After(*toCreatedAt) {
+			break
+		}
+
+		facts, err := factRepo.ListFactsAfterCursor(ctx, cursorCreatedAt, cursorID, batchSize)
 		if err != nil {
 			log.Fatalf("query postgres: %v", err)
-		}
-
-		var facts []pgFact
-		for rows.Next() {
-			var f pgFact
-			if err := rows.Scan(
-				&f.ID, &f.SourceEventID, &f.SourceEventType, &f.WorkspaceID,
-				&f.CampaignID, &f.MessageID, &f.Provider, &f.ProviderMessageID, &f.ProviderEventID,
-				&f.EventType, &f.RecipientDomain, &f.OccurredAt, &f.ReceivedAt, &f.MetadataJSON, &f.CreatedAt,
-			); err != nil {
-				log.Fatalf("scan row: %v", err)
-			}
-			facts = append(facts, f)
-		}
-		rows.Close()
-
-		if err := rows.Err(); err != nil {
-			log.Fatalf("iterate postgres rows: %v", err)
 		}
 
 		if len(facts) == 0 {
 			break
 		}
 
-		batch, err := chClient.Conn().PrepareBatch(ctx, `
-			INSERT INTO email_events (
-				source_event_id, source_event_type, workspace_id, campaign_id, message_id,
-				provider, provider_message_id, provider_event_id, event_type, recipient_domain,
-				occurred_at, received_at, metadata_json, created_at
-			) VALUES (
-				?, ?, ?, ?, ?,
-				?, ?, ?, ?, ?,
-				?, ?, ?, ?
-			)
-		`)
-		if err != nil {
-			log.Fatalf("prepare clickhouse batch: %v", err)
-		}
-
-		for _, f := range facts {
-			mdStr := "{}"
-			if f.MetadataJSON != nil {
-				var md any
-				if err := json.Unmarshal(f.MetadataJSON, &md); err == nil {
-					mdBytes, _ := json.Marshal(md)
-					mdStr = string(mdBytes)
+		if toCreatedAt != nil {
+			cut := 0
+			for i, f := range facts {
+				if f.CreatedAt.After(*toCreatedAt) {
+					break
 				}
+				cut = i + 1
 			}
-
-			campaignID := ""
-			if f.CampaignID != nil {
-				campaignID = *f.CampaignID
+			if cut == 0 {
+				break
 			}
-			messageID := ""
-			if f.MessageID != nil {
-				messageID = *f.MessageID
-			}
-			provider := ""
-			if f.Provider != nil {
-				provider = *f.Provider
-			}
-			providerMessageID := ""
-			if f.ProviderMessageID != nil {
-				providerMessageID = *f.ProviderMessageID
-			}
-			providerEventID := ""
-			if f.ProviderEventID != nil {
-				providerEventID = *f.ProviderEventID
-			}
-			recipientDomain := ""
-			if f.RecipientDomain != nil {
-				recipientDomain = *f.RecipientDomain
-			}
-
-			if err := batch.Append(
-				f.SourceEventID, f.SourceEventType, f.WorkspaceID, campaignID, messageID,
-				provider, providerMessageID, providerEventID, f.EventType, recipientDomain,
-				f.OccurredAt, f.ReceivedAt, mdStr, f.CreatedAt,
-			); err != nil {
-				log.Fatalf("append to batch: %v", err)
-			}
+			facts = facts[:cut]
 		}
 
-		if err := batch.Send(); err != nil {
+		if err := batchWriter.CreateBatch(ctx, facts); err != nil {
 			log.Fatalf("send clickhouse batch: %v", err)
 		}
 
 		total += len(facts)
-		lastID = facts[len(facts)-1].ID
-		log.Printf("backfilled %d records (total: %d, last id: %s)", len(facts), total, lastID)
+		last := facts[len(facts)-1]
+		cursorCreatedAt = &last.CreatedAt
+		cursorID = last.ID
+		log.Printf("backfilled %d records (total: %d, last_id: %s)", len(facts), total, last.ID)
 	}
 
 	if total == 0 {
@@ -189,6 +137,19 @@ func backfill(ctx context.Context, pgPool *pgxpool.Pool, chClient *clickhouse.Cl
 	} else {
 		fmt.Printf("backfill complete: %d records migrated to clickhouse\n", total)
 	}
+
+	if updateCursor {
+		now := time.Now()
+		err := syncStateRepo.UpdateSyncCursor(ctx, &ports.SyncCursor{
+			StreamName:    "analytics_email_events",
+			LastCreatedAt: cursorCreatedAt,
+			LastFactID:    cursorID,
+			LastSyncedAt:  &now,
+		})
+		if err != nil {
+			log.Printf("warning: failed to update live sync cursor: %v", err)
+		} else {
+			fmt.Println("live sync cursor updated to reflect backfilled position")
+		}
+	}
 }
-
-

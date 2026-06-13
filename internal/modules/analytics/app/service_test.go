@@ -796,7 +796,7 @@ func TestGetCampaignFunnel_NilRepo(t *testing.T) {
 		CampaignID:  "camp-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -948,7 +948,7 @@ func TestGetCampaignTimeSeries_NilRepo(t *testing.T) {
 		CampaignID:  "camp-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -1039,7 +1039,7 @@ func TestGetCampaignBreakdown_NilRepo(t *testing.T) {
 		CampaignID:  "camp-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -1142,7 +1142,7 @@ func TestGetCampaignEvents_NilRepo(t *testing.T) {
 		CampaignID:  "camp-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -1299,7 +1299,7 @@ func TestGetDeliverabilityTimeSeries_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -1538,7 +1538,7 @@ func TestSearchEvents_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -1649,7 +1649,7 @@ func TestGetMessageTimeline_NilRepo(t *testing.T) {
 		UserID:      "user-1",
 		MessageID:   "msg-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -1745,7 +1745,7 @@ func TestGetProviderEventTrace_NilRepo(t *testing.T) {
 		UserID:          "user-1",
 		ProviderEventID: "pe-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -1838,7 +1838,7 @@ func TestGetCampaignIncidentTimeline_NilRepo(t *testing.T) {
 		CampaignID:  "camp-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -1991,7 +1991,7 @@ func TestGetOutboxLag_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -2093,7 +2093,7 @@ func TestGetConsumerFailures_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -2195,7 +2195,7 @@ func TestGetDLQVolume_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -2300,7 +2300,7 @@ func TestGetWebhookDeliveryTimeSeries_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -2415,7 +2415,7 @@ func TestGetWebhookReliability_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -2460,11 +2460,11 @@ func TestGetWebhookReliability_RepoError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 type stubUsageQueryRepo struct {
-	GetUsageTimeSeriesFunc    func(ctx context.Context, workspaceID string, from, to time.Time, interval string) (*domain.UsageTimeSeriesResult, error)
-	GetUsageFeaturesFunc      func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.UsageFeaturesResult, error)
-	GetRiskSignalsFunc        func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.RiskSignalsResult, error)
-	GetSendVolumeForecastFunc func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.SendVolumeForecastResult, error)
-	GetAnomaliesFunc          func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.AnomaliesResult, error)
+	GetUsageTimeSeriesFunc     func(ctx context.Context, workspaceID string, from, to time.Time, interval string) (*domain.UsageTimeSeriesResult, error)
+	GetUsageFeaturesFunc       func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.UsageFeaturesResult, error)
+	GetRiskSignalsFunc         func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.RiskSignalsResult, error)
+	GetSendVolumeForecastFunc  func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.SendVolumeForecastResult, error)
+	GetAnomaliesFunc           func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.AnomaliesResult, error)
 	ListDistinctWorkspacesFunc func(ctx context.Context, since time.Time) ([]string, error)
 }
 
@@ -2564,7 +2564,7 @@ func TestGetUsageTimeSeries_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -2677,7 +2677,7 @@ func TestGetUsageFeatures_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -2777,7 +2777,7 @@ func TestGetRiskSignals_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -2863,7 +2863,7 @@ func TestGetSendVolumeForecast_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -2949,7 +2949,7 @@ func TestGetAnomalies_NilRepo(t *testing.T) {
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
 	})
-	if err != domain.ErrAnalyticsQueryInvalid {
+	if err != domain.ErrAnalyticsStoreUnavailable {
 		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
 	}
 }
@@ -2972,5 +2972,206 @@ func TestGetAnomalies_RepoError(t *testing.T) {
 	})
 	if err != repoErr {
 		t.Fatalf("expected repo error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SyncFactsToClickHouse
+// ---------------------------------------------------------------------------
+
+type stubFactBatchRepo struct {
+	ListFactsAfterCursorFunc func(ctx context.Context, cursorCreatedAt *time.Time, cursorID string, limit int) ([]domain.EmailEventFact, error)
+}
+
+func (s *stubFactBatchRepo) ListFactsAfterCursor(ctx context.Context, cursorCreatedAt *time.Time, cursorID string, limit int) ([]domain.EmailEventFact, error) {
+	return s.ListFactsAfterCursorFunc(ctx, cursorCreatedAt, cursorID, limit)
+}
+
+type stubSyncStateRepo struct {
+	GetSyncCursorFunc    func(ctx context.Context, streamName string) (*ports.SyncCursor, error)
+	UpdateSyncCursorFunc func(ctx context.Context, cursor *ports.SyncCursor) error
+}
+
+func (s *stubSyncStateRepo) GetSyncCursor(ctx context.Context, streamName string) (*ports.SyncCursor, error) {
+	return s.GetSyncCursorFunc(ctx, streamName)
+}
+func (s *stubSyncStateRepo) UpdateSyncCursor(ctx context.Context, cursor *ports.SyncCursor) error {
+	return s.UpdateSyncCursorFunc(ctx, cursor)
+}
+
+type stubCHBatchWriter struct {
+	CreateBatchFunc func(ctx context.Context, facts []domain.EmailEventFact) error
+}
+
+func (s *stubCHBatchWriter) CreateBatch(ctx context.Context, facts []domain.EmailEventFact) error {
+	return s.CreateBatchFunc(ctx, facts)
+}
+
+func newTestServiceWithSyncRepos(
+	factBatchRepo ports.FactBatchRepository,
+	syncStateRepo ports.SyncStateRepository,
+	chBatchWriter ports.ClickHouseBatchWriter,
+	clock func() time.Time,
+) *Service {
+	return NewService(Options{
+		FactBatchRepo:         factBatchRepo,
+		SyncStateRepo:         syncStateRepo,
+		ClickHouseBatchWriter: chBatchWriter,
+		Clock:                 clock,
+		Logger:                slog.Default(),
+	})
+}
+
+func TestSyncFactsToClickHouse_NoRows(t *testing.T) {
+	svc := newTestServiceWithSyncRepos(
+		&stubFactBatchRepo{
+			ListFactsAfterCursorFunc: func(_ context.Context, _ *time.Time, _ string, _ int) ([]domain.EmailEventFact, error) {
+				return nil, nil
+			},
+		},
+		&stubSyncStateRepo{
+			GetSyncCursorFunc: func(_ context.Context, _ string) (*ports.SyncCursor, error) {
+				return &ports.SyncCursor{StreamName: "test"}, nil
+			},
+		},
+		&stubCHBatchWriter{},
+		func() time.Time { return fixedTime },
+	)
+
+	result, err := svc.SyncFactsToClickHouse(context.Background(), SyncFactsToClickHouseInput{
+		StreamName: "test",
+		BatchSize:  100,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.SyncedCount != 0 {
+		t.Fatalf("expected 0 synced, got %d", result.SyncedCount)
+	}
+}
+
+func TestSyncFactsToClickHouse_OneBatch(t *testing.T) {
+	now := time.Date(2025, 6, 13, 12, 0, 0, 0, time.UTC)
+	facts := []domain.EmailEventFact{
+		{ID: "fact-1", SourceEventID: "src-1", WorkspaceID: "ws-1", EventType: domain.EventTypeDelivered, OccurredAt: now, ReceivedAt: now, CreatedAt: now},
+		{ID: "fact-2", SourceEventID: "src-2", WorkspaceID: "ws-1", EventType: domain.EventTypeDelivered, OccurredAt: now, ReceivedAt: now, CreatedAt: now.Add(1 * time.Second)},
+	}
+
+	var capturedFacts []domain.EmailEventFact
+	var updatedCursor *ports.SyncCursor
+
+	svc := newTestServiceWithSyncRepos(
+		&stubFactBatchRepo{
+			ListFactsAfterCursorFunc: func(_ context.Context, _ *time.Time, _ string, _ int) ([]domain.EmailEventFact, error) {
+				return facts, nil
+			},
+		},
+		&stubSyncStateRepo{
+			GetSyncCursorFunc: func(_ context.Context, _ string) (*ports.SyncCursor, error) {
+				return &ports.SyncCursor{StreamName: "test"}, nil
+			},
+			UpdateSyncCursorFunc: func(_ context.Context, cursor *ports.SyncCursor) error {
+				updatedCursor = cursor
+				return nil
+			},
+		},
+		&stubCHBatchWriter{
+			CreateBatchFunc: func(_ context.Context, f []domain.EmailEventFact) error {
+				capturedFacts = f
+				return nil
+			},
+		},
+		func() time.Time { return now },
+	)
+
+	result, err := svc.SyncFactsToClickHouse(context.Background(), SyncFactsToClickHouseInput{
+		StreamName: "test",
+		BatchSize:  100,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.SyncedCount != 2 {
+		t.Fatalf("expected 2 synced, got %d", result.SyncedCount)
+	}
+	if result.LastFactID != "fact-2" {
+		t.Fatalf("expected fact-2, got %s", result.LastFactID)
+	}
+	if len(capturedFacts) != 2 {
+		t.Fatalf("expected 2 facts, got %d", len(capturedFacts))
+	}
+	if updatedCursor == nil {
+		t.Fatal("expected cursor to be updated")
+	}
+	if updatedCursor.LastFactID != "fact-2" {
+		t.Fatalf("expected cursor last_fact_id fact-2, got %s", updatedCursor.LastFactID)
+	}
+}
+
+func TestSyncFactsToClickHouse_NilRepos(t *testing.T) {
+	svc := NewService(Options{Logger: slog.Default()})
+	_, err := svc.SyncFactsToClickHouse(context.Background(), SyncFactsToClickHouseInput{
+		StreamName: "test",
+	})
+	if err != domain.ErrAnalyticsStoreUnavailable {
+		t.Fatalf("expected ErrAnalyticsQueryInvalid, got %v", err)
+	}
+}
+
+func TestSyncFactsToClickHouse_CHFailureDoesNotAdvanceCursor(t *testing.T) {
+	chErr := errors.New("clickhouse connection refused")
+	svc := newTestServiceWithSyncRepos(
+		&stubFactBatchRepo{
+			ListFactsAfterCursorFunc: func(_ context.Context, _ *time.Time, _ string, _ int) ([]domain.EmailEventFact, error) {
+				return []domain.EmailEventFact{
+					{ID: "fact-1", SourceEventID: "src-1", WorkspaceID: "ws-1", EventType: domain.EventTypeDelivered, CreatedAt: time.Now()},
+				}, nil
+			},
+		},
+		&stubSyncStateRepo{
+			GetSyncCursorFunc: func(_ context.Context, _ string) (*ports.SyncCursor, error) {
+				return &ports.SyncCursor{StreamName: "test"}, nil
+			},
+		},
+		&stubCHBatchWriter{
+			CreateBatchFunc: func(_ context.Context, _ []domain.EmailEventFact) error {
+				return chErr
+			},
+		},
+		time.Now,
+	)
+
+	_, err := svc.SyncFactsToClickHouse(context.Background(), SyncFactsToClickHouseInput{
+		StreamName: "test",
+		BatchSize:  100,
+	})
+	if err == nil {
+		t.Fatal("expected error from ClickHouse failure")
+	}
+}
+
+func TestSyncFactsToClickHouse_PGReadFailureDoesNotAdvanceCursor(t *testing.T) {
+	pgErr := errors.New("postgres connection lost")
+	svc := newTestServiceWithSyncRepos(
+		&stubFactBatchRepo{
+			ListFactsAfterCursorFunc: func(_ context.Context, _ *time.Time, _ string, _ int) ([]domain.EmailEventFact, error) {
+				return nil, pgErr
+			},
+		},
+		&stubSyncStateRepo{
+			GetSyncCursorFunc: func(_ context.Context, _ string) (*ports.SyncCursor, error) {
+				return &ports.SyncCursor{StreamName: "test"}, nil
+			},
+		},
+		&stubCHBatchWriter{},
+		time.Now,
+	)
+
+	_, err := svc.SyncFactsToClickHouse(context.Background(), SyncFactsToClickHouseInput{
+		StreamName: "test",
+		BatchSize:  100,
+	})
+	if err != pgErr {
+		t.Fatalf("expected pg error, got %v", err)
 	}
 }

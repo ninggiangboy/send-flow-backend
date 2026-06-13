@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
 	"github.com/jackc/pgx/v5/pgxpool"
+	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
 )
 
 type OutboxLagSampler struct {

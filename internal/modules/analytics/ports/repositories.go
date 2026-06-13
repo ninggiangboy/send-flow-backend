@@ -101,3 +101,23 @@ type OperationsEvent struct {
 type OperationsEventWriter interface {
 	Create(ctx context.Context, event OperationsEvent) error
 }
+
+type SyncCursor struct {
+	StreamName    string
+	LastCreatedAt *time.Time
+	LastFactID    string
+	LastSyncedAt  *time.Time
+}
+
+type FactBatchRepository interface {
+	ListFactsAfterCursor(ctx context.Context, cursorCreatedAt *time.Time, cursorID string, limit int) ([]domain.EmailEventFact, error)
+}
+
+type SyncStateRepository interface {
+	GetSyncCursor(ctx context.Context, streamName string) (*SyncCursor, error)
+	UpdateSyncCursor(ctx context.Context, cursor *SyncCursor) error
+}
+
+type ClickHouseBatchWriter interface {
+	CreateBatch(ctx context.Context, facts []domain.EmailEventFact) error
+}

@@ -450,6 +450,115 @@ func TestOperationsRepositoryIntegration_GetWebhookDeliveryTimeSeries(t *testing
 	}
 }
 
+// --- Batch writer integration tests ---
+
+func TestBatchWriterIntegration_CreateBatch(t *testing.T) {
+	conn := chConn()
+	ctx := context.Background()
+	cleanTables(ctx, t, conn)
+	writer := NewBatchWriter(conn)
+
+	now := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	facts := []domain.EmailEventFact{
+		{
+			SourceEventID: "src-batch-1", SourceEventType: "test.event",
+			WorkspaceID: "ws-1", CampaignID: "camp-1", MessageID: "msg-1",
+			Provider: "sendgrid", ProviderMessageID: "sg-msg-1",
+			ProviderEventID: "pe-1",
+			EventType:       domain.EventTypeDelivered, RecipientDomain: "example.com",
+			OccurredAt: now, ReceivedAt: now, CreatedAt: now,
+		},
+		{
+			SourceEventID: "src-batch-2", SourceEventType: "test.event",
+			WorkspaceID: "ws-1", CampaignID: "camp-1", MessageID: "msg-2",
+			Provider: "ses", ProviderMessageID: "ses-msg-1",
+			ProviderEventID: "pe-2",
+			EventType:       domain.EventTypeBounced, RecipientDomain: "test.com",
+			OccurredAt: now.Add(time.Minute), ReceivedAt: now.Add(time.Minute),
+			CreatedAt: now.Add(time.Minute),
+		},
+	}
+
+	err := writer.CreateBatch(ctx, facts)
+	if err != nil {
+		t.Fatalf("CreateBatch: %v", err)
+	}
+
+	var count uint64
+	row := conn.QueryRow(ctx, "SELECT count() FROM email_events WHERE workspace_id = ?", "ws-1")
+	if err := row.Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 events, got %d", count)
+	}
+}
+
+func TestBatchWriterIntegration_EmptyBatch(t *testing.T) {
+	conn := chConn()
+	ctx := context.Background()
+	cleanTables(ctx, t, conn)
+	writer := NewBatchWriter(conn)
+
+	err := writer.CreateBatch(ctx, nil)
+	if err != nil {
+		t.Fatalf("CreateBatch with nil: %v", err)
+	}
+
+	err = writer.CreateBatch(ctx, []domain.EmailEventFact{})
+	if err != nil {
+		t.Fatalf("CreateBatch with empty slice: %v", err)
+	}
+}
+
+func TestBatchWriterIntegration_DedupeWindowFiltersExisting(t *testing.T) {
+	conn := chConn()
+	ctx := context.Background()
+	cleanTables(ctx, t, conn)
+
+	// Insert one fact directly
+	now := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	insertEmailEvent(ctx, t, conn, domain.EmailEventFact{
+		SourceEventID: "dup-1", SourceEventType: "test.event",
+		WorkspaceID: "ws-1", CampaignID: "camp-1", MessageID: "msg-1",
+		Provider: "sendgrid", EventType: domain.EventTypeDelivered,
+		OccurredAt: now, ReceivedAt: now,
+	})
+
+	writer := NewBatchWriter(conn, WithDedupeWindow(10*time.Minute))
+	facts := []domain.EmailEventFact{
+		{
+			SourceEventID: "dup-1", SourceEventType: "test.event",
+			WorkspaceID: "ws-1", CampaignID: "camp-1", MessageID: "msg-1",
+			Provider: "sendgrid", EventType: domain.EventTypeDelivered,
+			RecipientDomain: "example.com",
+			OccurredAt:      now, ReceivedAt: now, CreatedAt: now,
+		},
+		{
+			SourceEventID: "new-1", SourceEventType: "test.event",
+			WorkspaceID: "ws-1", CampaignID: "camp-1", MessageID: "msg-2",
+			Provider: "ses", EventType: domain.EventTypeAccepted,
+			RecipientDomain: "test.com",
+			OccurredAt:      now, ReceivedAt: now, CreatedAt: now,
+		},
+	}
+
+	err := writer.CreateBatch(ctx, facts)
+	if err != nil {
+		t.Fatalf("CreateBatch: %v", err)
+	}
+
+	// Should only have 2 rows (1 pre-existing + 1 new, duplicate filtered out)
+	var count uint64
+	row := conn.QueryRow(ctx, "SELECT count() FROM email_events WHERE workspace_id = ?", "ws-1")
+	if err := row.Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 events (1 pre-existing + 1 new, dup filtered), got %d", count)
+	}
+}
+
 func TestOperationsRepositoryIntegration_GetWebhookReliability(t *testing.T) {
 	conn := chConn()
 	ctx := context.Background()

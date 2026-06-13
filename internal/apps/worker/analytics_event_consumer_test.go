@@ -166,8 +166,7 @@ func TestAnalyticsEventConsumer_MalformedPayload(t *testing.T) {
 	}
 }
 
-func TestAnalyticsEventConsumer_ClickHouseFailureIsRetryable(t *testing.T) {
-	chErr := errors.New("clickhouse connection refused")
+func TestAnalyticsEventConsumer_ClickHouseFailureDoesNotBlockIngestion(t *testing.T) {
 	registry := analyticsapp.NewMapperRegistry()
 	registry.Register("test.event.v1", func(envelope events.Envelope) (*analyticsapp.MappedEvent, error) {
 		return &analyticsapp.MappedEvent{
@@ -193,11 +192,6 @@ func TestAnalyticsEventConsumer_ClickHouseFailureIsRetryable(t *testing.T) {
 				return nil
 			},
 		},
-		ClickHouseFactRepo: &mockAnalyticsFactRepo{
-			create: func(_ context.Context, _ analyticsdomain.EmailEventFact) error {
-				return chErr
-			},
-		},
 		ProjectionWrite: &mockAnalyticsProjWrite{
 			incrementWorkspaceOverview: func(_ context.Context, _, _ string, _ time.Time) error { return nil },
 			incrementCampaignSummary:   func(_ context.Context, _, _, _ string, _ time.Time) error { return nil },
@@ -213,8 +207,8 @@ func TestAnalyticsEventConsumer_ClickHouseFailureIsRetryable(t *testing.T) {
 	rawPayload := validAnalyticsEnvelope(t, "test.event.v1")
 
 	err := consumer.HandleEvent(context.Background(), "evt-1", rawPayload)
-	if err == nil {
-		t.Fatal("expected retryable error for ClickHouse failure")
+	if err != nil {
+		t.Fatalf("expected no error since ClickHouse failure does not block ingestion, got %v", err)
 	}
 }
 

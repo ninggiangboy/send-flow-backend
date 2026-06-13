@@ -16,6 +16,7 @@ build/
 # Binary artifacts
 /api
 /worker
+/backfill-clickhouse
 
 # Go test output
 *.test

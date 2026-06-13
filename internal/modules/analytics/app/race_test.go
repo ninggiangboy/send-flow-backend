@@ -16,7 +16,7 @@ func TestIngestEmailEventFact_ConcurrentDuplicate(t *testing.T) {
 	t.Parallel()
 
 	var (
-		mu             sync.Mutex
+		mu              sync.Mutex
 		factCreateCalls int32
 		projCalls       int32
 	)

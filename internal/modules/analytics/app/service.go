@@ -89,7 +89,9 @@ type GetCampaignEventsInput struct {
 
 type Options struct {
 	FactRepo                ports.EventFactRepository
-	ClickHouseFactRepo      ports.EventFactRepository
+	FactBatchRepo           ports.FactBatchRepository
+	SyncStateRepo           ports.SyncStateRepository
+	ClickHouseBatchWriter   ports.ClickHouseBatchWriter
 	ProjectionRead          ports.ProjectionReadRepository
 	ProjectionWrite         ports.ProjectionWriteRepository
 	CampaignQueryRepo       ports.CampaignQueryRepository
@@ -109,7 +111,9 @@ type Options struct {
 
 type Service struct {
 	factRepo                ports.EventFactRepository
-	clickHouseFactRepo      ports.EventFactRepository
+	factBatchRepo           ports.FactBatchRepository
+	syncStateRepo           ports.SyncStateRepository
+	clickHouseBatchWriter   ports.ClickHouseBatchWriter
 	projectionRead          ports.ProjectionReadRepository
 	projectionWrite         ports.ProjectionWriteRepository
 	campaignQueryRepo       ports.CampaignQueryRepository
@@ -136,7 +140,9 @@ func NewService(opts Options) *Service {
 	}
 	return &Service{
 		factRepo:                opts.FactRepo,
-		clickHouseFactRepo:      opts.ClickHouseFactRepo,
+		factBatchRepo:           opts.FactBatchRepo,
+		syncStateRepo:           opts.SyncStateRepo,
+		clickHouseBatchWriter:   opts.ClickHouseBatchWriter,
 		projectionRead:          opts.ProjectionRead,
 		projectionWrite:         opts.ProjectionWrite,
 		campaignQueryRepo:       opts.CampaignQueryRepo,
@@ -153,26 +159,6 @@ func NewService(opts Options) *Service {
 		clock:                   opts.Clock,
 		log:                     opts.Logger.With("service", "analytics"),
 	}
-}
-
-func (s *Service) ensureClickHouseFact(ctx context.Context, fact domain.EmailEventFact) error {
-	_, err := s.clickHouseFactRepo.FindBySourceEventID(ctx, fact.SourceEventID)
-	if err == nil {
-		return nil
-	}
-	if !errors.Is(err, domain.ErrAnalyticsProjectionNotFound) {
-		s.log.Error("failed to check clickhouse fact existence",
-			"source_event_id", fact.SourceEventID,
-			"workspace_id", fact.WorkspaceID,
-			"error", err,
-		)
-		return err
-	}
-	s.log.Info("fact missing in clickhouse, inserting",
-		"source_event_id", fact.SourceEventID,
-		"workspace_id", fact.WorkspaceID,
-	)
-	return s.clickHouseFactRepo.Create(ctx, fact)
 }
 
 func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEventFactInput) error {
@@ -198,11 +184,6 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 			return err
 		}
 		if existing != nil {
-			if s.clickHouseFactRepo != nil {
-				if err := s.ensureClickHouseFact(txCtx, *existing); err != nil {
-					return err
-				}
-			}
 			s.log.Debug("duplicate analytics event, skipping",
 				"source_event_id", input.SourceEventID,
 				"workspace_id", input.WorkspaceID,
@@ -248,23 +229,6 @@ func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEve
 				"error", err,
 			)
 			return err
-		}
-
-		if s.clickHouseFactRepo != nil {
-			if err := s.clickHouseFactRepo.Create(txCtx, fact); err != nil {
-				if errors.Is(err, domain.ErrAnalyticsEventDuplicate) {
-					s.log.Debug("duplicate analytics event in clickhouse, skipping",
-						"source_event_id", input.SourceEventID,
-					)
-				} else {
-					s.log.Error("failed to write analytics fact to clickhouse",
-						"source_event_id", input.SourceEventID,
-						"workspace_id", input.WorkspaceID,
-						"error", err,
-					)
-					return err
-				}
-			}
 		}
 
 		if err := s.projectionWrite.IncrementWorkspaceOverview(txCtx, input.WorkspaceID, input.CanonicalType, input.OccurredAt); err != nil {
@@ -366,6 +330,112 @@ type IngestOperationsEventInput struct {
 	Target          string
 	Metadata        map[string]any
 	OccurredAt      time.Time
+}
+
+type SyncFactsToClickHouseInput struct {
+	StreamName string
+	BatchSize  int
+}
+
+type SyncFactsToClickHouseResult struct {
+	SyncedCount int
+	LastFactID  string
+	LagSeconds  int64
+}
+
+func (s *Service) SyncFactsToClickHouse(ctx context.Context, input SyncFactsToClickHouseInput) (*SyncFactsToClickHouseResult, error) {
+	if s.syncStateRepo == nil || s.factBatchRepo == nil || s.clickHouseBatchWriter == nil {
+		return nil, domain.ErrAnalyticsStoreUnavailable
+	}
+
+	cursor, err := s.syncStateRepo.GetSyncCursor(ctx, input.StreamName)
+	if err != nil {
+		s.log.Error("failed to get sync cursor",
+			"stream_name", input.StreamName,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	batchSize := input.BatchSize
+	if batchSize <= 0 {
+		batchSize = 1000
+	}
+
+	facts, err := s.factBatchRepo.ListFactsAfterCursor(ctx, cursor.LastCreatedAt, cursor.LastFactID, batchSize)
+	if err != nil {
+		s.log.Error("failed to list facts after cursor",
+			"stream_name", input.StreamName,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	if len(facts) == 0 {
+		return &SyncFactsToClickHouseResult{}, nil
+	}
+
+	if err := s.clickHouseBatchWriter.CreateBatch(ctx, facts); err != nil {
+		s.log.Error("failed to write batch to clickhouse",
+			"stream_name", input.StreamName,
+			"batch_size", len(facts),
+			"error", err,
+		)
+		return nil, err
+	}
+
+	last := facts[len(facts)-1]
+	now := s.clock()
+
+	lagSeconds := int64(0)
+	if cursor.LastSyncedAt != nil {
+		lagSeconds = int64(now.Sub(*cursor.LastSyncedAt).Seconds())
+	}
+
+	cursor.LastCreatedAt = &last.CreatedAt
+	cursor.LastFactID = last.ID
+	cursor.LastSyncedAt = &now
+
+	if err := s.syncStateRepo.UpdateSyncCursor(ctx, cursor); err != nil {
+		s.log.Error("failed to update sync cursor",
+			"stream_name", input.StreamName,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	return &SyncFactsToClickHouseResult{
+		SyncedCount: len(facts),
+		LastFactID:  last.ID,
+		LagSeconds:  lagSeconds,
+	}, nil
+}
+
+type SyncCursorStatus struct {
+	StreamName   string     `json:"stream_name"`
+	LastSyncedAt *time.Time `json:"last_synced_at"`
+	LastFactID   string     `json:"last_fact_id"`
+	LagSeconds   int64      `json:"lag_seconds"`
+}
+
+func (s *Service) GetSyncCursorStatus(ctx context.Context, streamName string) (*SyncCursorStatus, error) {
+	if s.syncStateRepo == nil {
+		return nil, domain.ErrAnalyticsStoreUnavailable
+	}
+	cursor, err := s.syncStateRepo.GetSyncCursor(ctx, streamName)
+	if err != nil {
+		return nil, err
+	}
+	lagSeconds := int64(0)
+	if cursor.LastSyncedAt != nil {
+		lagSeconds = int64(s.clock().Sub(*cursor.LastSyncedAt).Seconds())
+	}
+	return &SyncCursorStatus{
+		StreamName:   cursor.StreamName,
+		LastSyncedAt: cursor.LastSyncedAt,
+		LastFactID:   cursor.LastFactID,
+		LagSeconds:   lagSeconds,
+	}, nil
 }
 
 func (s *Service) IngestOperationsEvent(ctx context.Context, input IngestOperationsEventInput) error {
@@ -540,7 +610,7 @@ func (s *Service) GetCampaignFunnel(ctx context.Context, input GetCampaignFunnel
 	}
 
 	if s.campaignQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
@@ -568,7 +638,7 @@ func (s *Service) GetCampaignTimeSeries(ctx context.Context, input GetCampaignTi
 	}
 
 	if s.campaignQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	if err := domain.ValidateInterval(input.Interval); err != nil {
@@ -578,7 +648,7 @@ func (s *Service) GetCampaignTimeSeries(ctx context.Context, input GetCampaignTi
 		return nil, err
 	}
 	if input.EventType != "" && !domain.KnownEventTypes[input.EventType] {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	ts, err := s.campaignQueryRepo.GetCampaignTimeSeries(ctx, input.WorkspaceID, input.CampaignID, input.From, input.To, input.Interval, input.EventType)
@@ -603,7 +673,7 @@ func (s *Service) GetCampaignBreakdown(ctx context.Context, input GetCampaignBre
 	}
 
 	if s.campaignQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	if err := domain.ValidateGroupBy(input.GroupBy); err != nil {
@@ -673,7 +743,7 @@ func (s *Service) GetDeliverabilityTimeSeries(ctx context.Context, input GetDeli
 	}
 
 	if s.deliverabilityQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	if input.Interval == "" {
@@ -709,7 +779,7 @@ func (s *Service) GetDeliverabilityBreakdown(ctx context.Context, input GetDeliv
 	}
 
 	if s.deliverabilityQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	if input.GroupBy == "" {
@@ -748,7 +818,7 @@ func (s *Service) GetDeliverabilityLatency(ctx context.Context, input GetDeliver
 	}
 
 	if s.deliverabilityQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
@@ -777,7 +847,7 @@ func (s *Service) GetDeliverabilityIncidents(ctx context.Context, input GetDeliv
 	}
 
 	if s.deliverabilityQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
@@ -806,7 +876,7 @@ func (s *Service) GetCampaignEvents(ctx context.Context, input GetCampaignEvents
 	}
 
 	if s.campaignQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	filter := domain.CampaignQueryFilter{
@@ -882,7 +952,7 @@ func (s *Service) SearchEvents(ctx context.Context, input SearchEventsInput) (*d
 	}
 
 	if s.forensicQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	filter := domain.ForensicQueryFilter{
@@ -925,7 +995,7 @@ func (s *Service) GetMessageTimeline(ctx context.Context, input GetMessageTimeli
 	}
 
 	if s.forensicQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	result, err := s.forensicQueryRepo.GetMessageTimeline(ctx, input.WorkspaceID, input.MessageID)
@@ -949,7 +1019,7 @@ func (s *Service) GetProviderEventTrace(ctx context.Context, input GetProviderEv
 	}
 
 	if s.forensicQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	result, err := s.forensicQueryRepo.GetProviderEventTrace(ctx, input.WorkspaceID, input.ProviderEventID)
@@ -973,7 +1043,7 @@ func (s *Service) GetCampaignIncidentTimeline(ctx context.Context, input GetCamp
 	}
 
 	if s.forensicQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
@@ -1041,7 +1111,7 @@ func (s *Service) GetOutboxLag(ctx context.Context, input GetOutboxLagInput) (*d
 		}
 	}
 	if s.operationsQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
 		return nil, err
@@ -1066,7 +1136,7 @@ func (s *Service) GetConsumerFailures(ctx context.Context, input GetConsumerFail
 		}
 	}
 	if s.operationsQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
 		return nil, err
@@ -1091,7 +1161,7 @@ func (s *Service) GetDLQVolume(ctx context.Context, input GetDLQVolumeInput) (*d
 		}
 	}
 	if s.operationsQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
 		return nil, err
@@ -1116,7 +1186,7 @@ func (s *Service) GetWebhookDeliveryTimeSeries(ctx context.Context, input GetWeb
 		}
 	}
 	if s.operationsQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 	if input.Interval == "" {
 		input.Interval = "day"
@@ -1148,7 +1218,7 @@ func (s *Service) GetWebhookReliability(ctx context.Context, input GetWebhookRel
 		}
 	}
 	if s.operationsQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
 		return nil, err
@@ -1211,7 +1281,7 @@ func (s *Service) GetUsageTimeSeries(ctx context.Context, input GetUsageTimeSeri
 		}
 	}
 	if s.usageQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 
 	if input.Interval == "" {
@@ -1243,7 +1313,7 @@ func (s *Service) GetUsageFeatures(ctx context.Context, input GetUsageFeaturesIn
 		}
 	}
 	if s.usageQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
 		return nil, err
@@ -1267,7 +1337,7 @@ func (s *Service) GetRiskSignals(ctx context.Context, input GetRiskSignalsInput)
 		}
 	}
 	if s.usageQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
 		return nil, err
@@ -1291,7 +1361,7 @@ func (s *Service) GetSendVolumeForecast(ctx context.Context, input GetSendVolume
 		}
 	}
 	if s.usageQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
 		return nil, err
@@ -1315,7 +1385,7 @@ func (s *Service) GetAnomalies(ctx context.Context, input GetAnomaliesInput) (*d
 		}
 	}
 	if s.usageQueryRepo == nil {
-		return nil, domain.ErrAnalyticsQueryInvalid
+		return nil, domain.ErrAnalyticsStoreUnavailable
 	}
 	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
 		return nil, err

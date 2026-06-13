@@ -57,6 +57,11 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
+	syncMetrics, err := observability.NewSyncMetrics(nil)
+	if err != nil {
+		return err
+	}
+
 	pgClient, err := postgres.New(ctx, cfg)
 	if err != nil {
 		return err
@@ -272,6 +277,11 @@ func Run(ctx context.Context) error {
 			60*time.Second,
 		)
 		if err := registry.Register(outboxLagSampler); err != nil {
+			return err
+		}
+
+		clickHouseSync := NewAnalyticsClickHouseSyncProcessor(analyticsSvc, log, WithSyncMetrics(syncMetrics))
+		if err := registry.Register(clickHouseSync); err != nil {
 			return err
 		}
 	}

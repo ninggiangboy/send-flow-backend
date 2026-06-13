@@ -80,6 +80,8 @@ func NewSenderService(readRepo *senderpostgres.ReadRepository, writeRepo *sender
 func NewAnalyticsRepos(writePool *pgxpool.Pool, chClient *platformclickhouse.Client) analyticsapp.Options {
 	opts := analyticsapp.Options{
 		FactRepo:        analyticspostgres.NewEventFactRepository(writePool),
+		FactBatchRepo:   analyticspostgres.NewFactBatchRepository(writePool),
+		SyncStateRepo:   analyticspostgres.NewSyncStateRepository(writePool),
 		ProjectionRead:  analyticspostgres.NewProjectionRepository(writePool),
 		ProjectionWrite: analyticspostgres.NewProjectionRepository(writePool),
 		TxManager:       transaction.NewManager(writePool),
@@ -87,7 +89,7 @@ func NewAnalyticsRepos(writePool *pgxpool.Pool, chClient *platformclickhouse.Cli
 		IDGen:           id.NewUUIDGenerator().New,
 	}
 	if chClient != nil {
-		opts.ClickHouseFactRepo = analyticsclickhouse.NewFactRepository(chClient.Conn())
+		opts.ClickHouseBatchWriter = analyticsclickhouse.NewBatchWriter(chClient.Conn())
 		opts.CampaignQueryRepo = analyticsclickhouse.NewCampaignRepository(chClient.Conn())
 		opts.DeliverabilityQueryRepo = analyticsclickhouse.NewDeliverabilityRepository(chClient.Conn())
 		opts.ForensicQueryRepo = analyticsclickhouse.NewForensicsRepository(chClient.Conn())

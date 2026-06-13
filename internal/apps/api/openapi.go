@@ -2444,13 +2444,17 @@ type analyticsProviderEventPathInput struct {
 	ProviderEventID string `path:"provider_event_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Provider event ID."`
 }
 
+type analyticsSyncStreamPathInput struct {
+	StreamName string `path:"stream_name" example:"analytics_email_events" doc:"ClickHouse sync stream name."`
+}
+
 func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
 	huma.Register(api, protectedOperation(huma.Operation{
 		OperationID: "get-analytics-overview",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/overview",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get workspace analytics overview",
+		Summary:     "Get workspace analytics overview (Postgres projection-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2462,7 +2466,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get campaign analytics summary",
+		Summary:     "Get campaign analytics summary (Postgres projection-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
 		_ = input
@@ -2474,7 +2478,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}/funnel",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get campaign analytics funnel",
+		Summary:     "Get campaign analytics funnel (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
 		_ = input
@@ -2486,7 +2490,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}/timeseries",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get campaign analytics time series",
+		Summary:     "Get campaign analytics time series (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
 		_ = input
@@ -2498,7 +2502,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}/breakdown",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get campaign analytics breakdown",
+		Summary:     "Get campaign analytics breakdown (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
 		_ = input
@@ -2510,7 +2514,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}/events",
 		Tags:        []string{"Analytics"},
-		Summary:     "List campaign analytics events",
+		Summary:     "List campaign analytics events (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
 		_ = input
@@ -2522,7 +2526,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/deliverability",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get deliverability analytics",
+		Summary:     "Get deliverability analytics (Postgres projection-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2534,7 +2538,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/deliverability/timeseries",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get deliverability time series",
+		Summary:     "Get deliverability time series (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2546,7 +2550,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/deliverability/breakdown",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get deliverability breakdown",
+		Summary:     "Get deliverability breakdown (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2558,7 +2562,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/deliverability/latency",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get deliverability latency percentiles",
+		Summary:     "Get deliverability latency percentiles (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2570,7 +2574,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/deliverability/incidents",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get deliverability incident windows",
+		Summary:     "Get deliverability incident windows (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2582,7 +2586,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/events",
 		Tags:        []string{"Analytics"},
-		Summary:     "Search analytics events across the workspace",
+		Summary:     "Search analytics events across the workspace (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2594,7 +2598,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/messages/{message_id}/timeline",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get message event timeline",
+		Summary:     "Get message event timeline (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsMessagePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2606,7 +2610,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/provider-events/{provider_event_id}",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get provider event trace",
+		Summary:     "Get provider event trace (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsProviderEventPathInput) (*emptyOutput, error) {
 		_ = input
@@ -2618,7 +2622,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/campaigns/{campaign_id}/incident-timeline",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get campaign incident timeline",
+		Summary:     "Get campaign incident timeline (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
 		_ = input
@@ -2630,7 +2634,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/operations/outbox-lag",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get outbox lag analytics",
+		Summary:     "Get outbox lag analytics (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2642,7 +2646,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/operations/consumer-failures",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get consumer failure analytics",
+		Summary:     "Get consumer failure analytics (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2654,7 +2658,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/operations/dlq",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get dead letter queue volume analytics",
+		Summary:     "Get dead letter queue volume analytics (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2666,7 +2670,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/webhooks/delivery-timeseries",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get webhook delivery time series",
+		Summary:     "Get webhook delivery time series (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2678,7 +2682,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/webhooks/reliability",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get webhook delivery reliability",
+		Summary:     "Get webhook delivery reliability (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2690,7 +2694,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/usage/timeseries",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get workspace usage time series",
+		Summary:     "Get workspace usage time series (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2702,7 +2706,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/usage/features",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get workspace feature adoption metrics",
+		Summary:     "Get workspace feature adoption metrics (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2714,7 +2718,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/risk/signals",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get workspace risk signals",
+		Summary:     "Get workspace risk signals (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2726,7 +2730,7 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/forecast/send-volume",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get send volume forecast",
+		Summary:     "Get send volume forecast (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2738,11 +2742,23 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workspaces/{workspace_id}/analytics/anomalies",
 		Tags:        []string{"Analytics"},
-		Summary:     "Get workspace anomaly detections",
+		Summary:     "Get workspace anomaly detections (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
 		_ = input
 		return delegateHTTP[emptyOutput](ctx, nil, analytics.getAnomalies)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "get-clickhouse-sync-status",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/analytics/sync/{stream_name}/status",
+		Tags:        []string{"Analytics"},
+		Summary:     "Get ClickHouse sync stream freshness and lag. This endpoint shows the sync cursor state for a given stream (e.g. analytics_email_events), including last_synced_at and lag in seconds.",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *analyticsSyncStreamPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, analytics.getSyncStatus)
 	})
 }
 
@@ -2760,6 +2776,9 @@ func analyticsErrorCodes() map[int][]string {
 		},
 		http.StatusNotFound: {
 			"analytics.projection_not_found",
+		},
+		http.StatusServiceUnavailable: {
+			"analytics.store_unavailable",
 		},
 		http.StatusInternalServerError: {
 			"internal.error",
