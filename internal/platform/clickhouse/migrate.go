@@ -32,7 +32,7 @@ func Migrate(ctx context.Context, conn driver.Conn, migrationsFS fs.FS) error {
 	sort.Strings(files)
 
 	for _, file := range files {
-		var count uint8
+		var count uint64
 		if err := conn.QueryRow(ctx, "SELECT count() FROM schema_migrations WHERE version = ?", file).Scan(&count); err != nil {
 			return fmt.Errorf("check migration %s: %w", file, err)
 		}
