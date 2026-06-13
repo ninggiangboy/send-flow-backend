@@ -364,6 +364,25 @@ func (r *UsageRepository) GetSendVolumeForecast(ctx context.Context, workspaceID
 	}, nil
 }
 
+func (r *UsageRepository) ListDistinctWorkspaces(ctx context.Context, since time.Time) ([]string, error) {
+	query := `SELECT DISTINCT workspace_id FROM email_events WHERE occurred_at >= ?`
+	rows, err := r.conn.Query(ctx, query, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var workspaces []string
+	for rows.Next() {
+		var ws string
+		if err := rows.Scan(&ws); err != nil {
+			return nil, err
+		}
+		workspaces = append(workspaces, ws)
+	}
+	return workspaces, nil
+}
+
 func (r *UsageRepository) GetAnomalies(ctx context.Context, workspaceID string, from, to time.Time) (*domain.AnomaliesResult, error) {
 	query := `
 		SELECT

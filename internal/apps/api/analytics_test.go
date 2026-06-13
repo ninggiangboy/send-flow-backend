@@ -824,6 +824,542 @@ func TestAnalyticsGetWebhookReliability_Success(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Stubs for deliverability
+// ---------------------------------------------------------------------------
+
+type stubAPIDeliverabilityRepo struct {
+	GetDeliverabilityTimeSeriesFunc func(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain, interval string) (*domain.DeliverabilityTimeSeriesResult, error)
+	GetDeliverabilityBreakdownFunc  func(ctx context.Context, workspaceID string, from, to time.Time, groupBy, provider, recipientDomain string) (*domain.DeliverabilityBreakdownResult, error)
+	GetDeliverabilityLatencyFunc    func(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityLatencyResult, error)
+	GetDeliverabilityIncidentsFunc  func(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityIncidentResult, error)
+}
+
+func (s *stubAPIDeliverabilityRepo) GetDeliverabilityTimeSeries(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain, interval string) (*domain.DeliverabilityTimeSeriesResult, error) {
+	return s.GetDeliverabilityTimeSeriesFunc(ctx, workspaceID, from, to, provider, recipientDomain, interval)
+}
+func (s *stubAPIDeliverabilityRepo) GetDeliverabilityBreakdown(ctx context.Context, workspaceID string, from, to time.Time, groupBy, provider, recipientDomain string) (*domain.DeliverabilityBreakdownResult, error) {
+	return s.GetDeliverabilityBreakdownFunc(ctx, workspaceID, from, to, groupBy, provider, recipientDomain)
+}
+func (s *stubAPIDeliverabilityRepo) GetDeliverabilityLatency(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityLatencyResult, error) {
+	return s.GetDeliverabilityLatencyFunc(ctx, workspaceID, from, to, provider, recipientDomain)
+}
+func (s *stubAPIDeliverabilityRepo) GetDeliverabilityIncidents(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityIncidentResult, error) {
+	return s.GetDeliverabilityIncidentsFunc(ctx, workspaceID, from, to, provider, recipientDomain)
+}
+
+func setupAnalyticsRouterWithDeliverability(t *testing.T, deliveryRepo *stubAPIDeliverabilityRepo) http.Handler {
+	t.Helper()
+	svc := analyticsapp.NewService(analyticsapp.Options{
+		DeliverabilityQueryRepo: deliveryRepo,
+		Logger:                  slog.Default(),
+	})
+	healthSvc := platformhealth.NewService(platformhealth.Options{
+		AppName:       "sendflow",
+		PostgresCheck: func(context.Context) error { return nil },
+		RedisCheck:    func(context.Context) error { return nil },
+	})
+	metrics, _ := observability.NewHTTPMetrics(nil)
+	return newRouter(&RouterDeps{
+		HealthSvc:       healthSvc,
+		AnalyticsSvc:    svc,
+		SecureCookies:   false,
+		FrontendBaseURL: "http://localhost:3000",
+		HTTPMetrics:     metrics,
+		Log:             slog.Default(),
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Deliverability: GetDeliverabilityTimeSeries
+// ---------------------------------------------------------------------------
+
+func TestAnalyticsGetDeliverabilityTimeSeries_Success(t *testing.T) {
+	router := setupAnalyticsRouterWithDeliverability(t, &stubAPIDeliverabilityRepo{
+		GetDeliverabilityTimeSeriesFunc: func(_ context.Context, _ string, _, _ time.Time, _, _, _ string) (*domain.DeliverabilityTimeSeriesResult, error) {
+			return &domain.DeliverabilityTimeSeriesResult{
+				Status:      "ready",
+				WorkspaceID: "ws-1",
+				Buckets: []domain.DeliverabilityTimeSeriesBucket{
+					{BucketStart: time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC), Provider: "sendgrid", EventType: "delivered", Count: 100},
+				},
+			}, nil
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/deliverability/timeseries?interval=day", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var env analyticsEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	var result deliverabilityTimeSeriesResponseDoc
+	if err := json.Unmarshal(env.Data, &result); err != nil {
+		t.Fatalf("failed to unmarshal data: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Buckets) != 1 {
+		t.Fatalf("expected 1 bucket, got %d", len(result.Buckets))
+	}
+}
+
+func TestAnalyticsGetDeliverabilityTimeSeries_InvalidInterval(t *testing.T) {
+	router := setupAnalyticsRouterWithDeliverability(t, &stubAPIDeliverabilityRepo{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/deliverability/timeseries?interval=month", nil)
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Deliverability: GetDeliverabilityBreakdown
+// ---------------------------------------------------------------------------
+
+func TestAnalyticsGetDeliverabilityBreakdown_Success(t *testing.T) {
+	router := setupAnalyticsRouterWithDeliverability(t, &stubAPIDeliverabilityRepo{
+		GetDeliverabilityBreakdownFunc: func(_ context.Context, _ string, _, _ time.Time, _, _, _ string) (*domain.DeliverabilityBreakdownResult, error) {
+			return &domain.DeliverabilityBreakdownResult{
+				Status:      "ready",
+				WorkspaceID: "ws-1",
+				GroupBy:     "provider",
+				Rows: []domain.DeliverabilityBreakdownRow{
+					{Provider: "sendgrid", EventType: "delivered", Count: 100, Rate: 0.95},
+				},
+			}, nil
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/deliverability/breakdown?group_by=provider", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var env analyticsEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	var result deliverabilityBreakdownResponseDoc
+	if err := json.Unmarshal(env.Data, &result); err != nil {
+		t.Fatalf("failed to unmarshal data: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+}
+
+func TestAnalyticsGetDeliverabilityBreakdown_InvalidGroup(t *testing.T) {
+	router := setupAnalyticsRouterWithDeliverability(t, &stubAPIDeliverabilityRepo{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/deliverability/breakdown?group_by=unknown", nil)
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Deliverability: GetDeliverabilityLatency
+// ---------------------------------------------------------------------------
+
+func TestAnalyticsGetDeliverabilityLatency_Success(t *testing.T) {
+	router := setupAnalyticsRouterWithDeliverability(t, &stubAPIDeliverabilityRepo{
+		GetDeliverabilityLatencyFunc: func(_ context.Context, _ string, _, _ time.Time, _, _ string) (*domain.DeliverabilityLatencyResult, error) {
+			return &domain.DeliverabilityLatencyResult{
+				Status:      "ready",
+				WorkspaceID: "ws-1",
+				Rows: []domain.DeliverabilityLatencyRow{
+					{Provider: "sendgrid", EventType: "delivered", Count: 100, P50LatencyMs: 120, P95LatencyMs: 500, P99LatencyMs: 1000, AvgLatencyMs: 200},
+				},
+			}, nil
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/deliverability/latency", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var env analyticsEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	var result deliverabilityLatencyResponseDoc
+	if err := json.Unmarshal(env.Data, &result); err != nil {
+		t.Fatalf("failed to unmarshal data: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Deliverability: GetDeliverabilityIncidents
+// ---------------------------------------------------------------------------
+
+func TestAnalyticsGetDeliverabilityIncidents_Success(t *testing.T) {
+	router := setupAnalyticsRouterWithDeliverability(t, &stubAPIDeliverabilityRepo{
+		GetDeliverabilityIncidentsFunc: func(_ context.Context, _ string, _, _ time.Time, _, _ string) (*domain.DeliverabilityIncidentResult, error) {
+			return &domain.DeliverabilityIncidentResult{
+				Status:      "ready",
+				WorkspaceID: "ws-1",
+				Provider:    "sendgrid",
+				Rows: []domain.DeliverabilityIncidentRow{
+					{Provider: "sendgrid", EventType: "bounced", IncidentStart: "2025-01-15T10:00:00Z", EventCount: 50, Rate: 0.05},
+				},
+			}, nil
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/deliverability/incidents", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var env analyticsEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	var result deliverabilityIncidentResponseDoc
+	if err := json.Unmarshal(env.Data, &result); err != nil {
+		t.Fatalf("failed to unmarshal data: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Stubs for Phase 6 (usage/risk/forecast/anomalies)
+// ---------------------------------------------------------------------------
+
+type stubAPIUsageRepo struct {
+	GetUsageTimeSeriesFunc    func(ctx context.Context, workspaceID string, from, to time.Time, interval string) (*domain.UsageTimeSeriesResult, error)
+	GetUsageFeaturesFunc      func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.UsageFeaturesResult, error)
+	GetRiskSignalsFunc        func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.RiskSignalsResult, error)
+	GetSendVolumeForecastFunc func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.SendVolumeForecastResult, error)
+	GetAnomaliesFunc          func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.AnomaliesResult, error)
+	ListDistinctWorkspacesFunc func(ctx context.Context, since time.Time) ([]string, error)
+}
+
+func (s *stubAPIUsageRepo) GetUsageTimeSeries(ctx context.Context, workspaceID string, from, to time.Time, interval string) (*domain.UsageTimeSeriesResult, error) {
+	return s.GetUsageTimeSeriesFunc(ctx, workspaceID, from, to, interval)
+}
+func (s *stubAPIUsageRepo) GetUsageFeatures(ctx context.Context, workspaceID string, from, to time.Time) (*domain.UsageFeaturesResult, error) {
+	return s.GetUsageFeaturesFunc(ctx, workspaceID, from, to)
+}
+func (s *stubAPIUsageRepo) GetRiskSignals(ctx context.Context, workspaceID string, from, to time.Time) (*domain.RiskSignalsResult, error) {
+	return s.GetRiskSignalsFunc(ctx, workspaceID, from, to)
+}
+func (s *stubAPIUsageRepo) GetSendVolumeForecast(ctx context.Context, workspaceID string, from, to time.Time) (*domain.SendVolumeForecastResult, error) {
+	return s.GetSendVolumeForecastFunc(ctx, workspaceID, from, to)
+}
+func (s *stubAPIUsageRepo) GetAnomalies(ctx context.Context, workspaceID string, from, to time.Time) (*domain.AnomaliesResult, error) {
+	return s.GetAnomaliesFunc(ctx, workspaceID, from, to)
+}
+func (s *stubAPIUsageRepo) ListDistinctWorkspaces(ctx context.Context, since time.Time) ([]string, error) {
+	return s.ListDistinctWorkspacesFunc(ctx, since)
+}
+
+func setupAnalyticsRouterWithUsage(t *testing.T, usageRepo *stubAPIUsageRepo) http.Handler {
+	t.Helper()
+	svc := analyticsapp.NewService(analyticsapp.Options{
+		UsageQueryRepo: usageRepo,
+		Logger:         slog.Default(),
+	})
+	healthSvc := platformhealth.NewService(platformhealth.Options{
+		AppName:       "sendflow",
+		PostgresCheck: func(context.Context) error { return nil },
+		RedisCheck:    func(context.Context) error { return nil },
+	})
+	metrics, _ := observability.NewHTTPMetrics(nil)
+	return newRouter(&RouterDeps{
+		HealthSvc:       healthSvc,
+		AnalyticsSvc:    svc,
+		SecureCookies:   false,
+		FrontendBaseURL: "http://localhost:3000",
+		HTTPMetrics:     metrics,
+		Log:             slog.Default(),
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6: GetUsageTimeSeries
+// ---------------------------------------------------------------------------
+
+func TestAnalyticsGetUsageTimeSeries_Success(t *testing.T) {
+	router := setupAnalyticsRouterWithUsage(t, &stubAPIUsageRepo{
+		GetUsageTimeSeriesFunc: func(_ context.Context, _ string, _, _ time.Time, _ string) (*domain.UsageTimeSeriesResult, error) {
+			return &domain.UsageTimeSeriesResult{
+				Status:      "ready",
+				WorkspaceID: "ws-1",
+				Buckets: []domain.UsageTimeSeriesBucket{
+					{BucketStart: time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC), EventType: "delivered", Count: 100},
+				},
+			}, nil
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/usage/timeseries?interval=day", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var env analyticsEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	var result usageTimeSeriesResponseDoc
+	if err := json.Unmarshal(env.Data, &result); err != nil {
+		t.Fatalf("failed to unmarshal data: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Buckets) != 1 {
+		t.Fatalf("expected 1 bucket, got %d", len(result.Buckets))
+	}
+}
+
+func TestAnalyticsGetUsageTimeSeries_InvalidInterval(t *testing.T) {
+	router := setupAnalyticsRouterWithUsage(t, &stubAPIUsageRepo{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/usage/timeseries?interval=month", nil)
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6: GetUsageFeatures
+// ---------------------------------------------------------------------------
+
+func TestAnalyticsGetUsageFeatures_Success(t *testing.T) {
+	router := setupAnalyticsRouterWithUsage(t, &stubAPIUsageRepo{
+		GetUsageFeaturesFunc: func(_ context.Context, _ string, _, _ time.Time) (*domain.UsageFeaturesResult, error) {
+			return &domain.UsageFeaturesResult{
+				Status:      "ready",
+				WorkspaceID: "ws-1",
+				Rows: []domain.UsageFeatureRow{
+					{Feature: "campaigns", ActiveCount: 3, EventCount: 100, BucketStart: "2025-01-15T00:00:00Z"},
+				},
+			}, nil
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/usage/features", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var env analyticsEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	var result usageFeaturesResponseDoc
+	if err := json.Unmarshal(env.Data, &result); err != nil {
+		t.Fatalf("failed to unmarshal data: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6: GetRiskSignals
+// ---------------------------------------------------------------------------
+
+func TestAnalyticsGetRiskSignals_Success(t *testing.T) {
+	router := setupAnalyticsRouterWithUsage(t, &stubAPIUsageRepo{
+		GetRiskSignalsFunc: func(_ context.Context, _ string, _, _ time.Time) (*domain.RiskSignalsResult, error) {
+			return &domain.RiskSignalsResult{
+				Status:      "ready",
+				WorkspaceID: "ws-1",
+				Signals: []domain.RiskSignalRow{
+					{SignalType: "high_bounce_rate", Severity: "medium", Metric: "bounce_rate", Value: 8.5, Threshold: 5.0, DetectedAt: "2025-01-15T10:00:00Z", CampaignID: "camp-1"},
+				},
+			}, nil
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/risk/signals", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var env analyticsEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	var result riskSignalsResponseDoc
+	if err := json.Unmarshal(env.Data, &result); err != nil {
+		t.Fatalf("failed to unmarshal data: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Signals) != 1 {
+		t.Fatalf("expected 1 signal, got %d", len(result.Signals))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6: GetSendVolumeForecast
+// ---------------------------------------------------------------------------
+
+func TestAnalyticsGetSendVolumeForecast_Success(t *testing.T) {
+	router := setupAnalyticsRouterWithUsage(t, &stubAPIUsageRepo{
+		GetSendVolumeForecastFunc: func(_ context.Context, _ string, _, _ time.Time) (*domain.SendVolumeForecastResult, error) {
+			return &domain.SendVolumeForecastResult{
+				Status:      "ready",
+				WorkspaceID: "ws-1",
+				Rows: []domain.SendVolumeForecastRow{
+					{BucketStart: "2025-01-22T00:00:00Z", ForecastLow: 80, ForecastMid: 100, ForecastHigh: 120, Confidence: 0.95},
+				},
+			}, nil
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/forecast/send-volume", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var env analyticsEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	var result sendVolumeForecastResponseDoc
+	if err := json.Unmarshal(env.Data, &result); err != nil {
+		t.Fatalf("failed to unmarshal data: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6: GetAnomalies
+// ---------------------------------------------------------------------------
+
+func TestAnalyticsGetAnomalies_Success(t *testing.T) {
+	router := setupAnalyticsRouterWithUsage(t, &stubAPIUsageRepo{
+		GetAnomaliesFunc: func(_ context.Context, _ string, _, _ time.Time) (*domain.AnomaliesResult, error) {
+			return &domain.AnomaliesResult{
+				Status:      "ready",
+				WorkspaceID: "ws-1",
+				Anomalies: []domain.AnomalyRow{
+					{AnomalyID: "anomaly_ws-1_bounced_20250115", AnomalyType: "volume_spike", Severity: "high", Metric: "bounced_count", Observed: 50, Expected: 10, Deviation: 5.0, DetectedAt: "2025-01-15T10:00:00Z", WindowStart: "2025-01-15T00:00:00Z", WindowEnd: "2025-01-15T23:59:59Z"},
+				},
+			}, nil
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/anomalies", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var env analyticsEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	var result anomaliesResponseDoc
+	if err := json.Unmarshal(env.Data, &result); err != nil {
+		t.Fatalf("failed to unmarshal data: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Anomalies) != 1 {
+		t.Fatalf("expected 1 anomaly, got %d", len(result.Anomalies))
+	}
+}
+
+func TestAnalyticsGetAnomalies_Empty(t *testing.T) {
+	router := setupAnalyticsRouterWithUsage(t, &stubAPIUsageRepo{
+		GetAnomaliesFunc: func(_ context.Context, _ string, _, _ time.Time) (*domain.AnomaliesResult, error) {
+			return &domain.AnomaliesResult{
+				Status:      "ready",
+				WorkspaceID: "ws-1",
+				Anomalies:   []domain.AnomalyRow{},
+			}, nil
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/analytics/anomalies", nil)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var env analyticsEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	var result anomaliesResponseDoc
+	if err := json.Unmarshal(env.Data, &result); err != nil {
+		t.Fatalf("failed to unmarshal data: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status ready, got %s", result.Status)
+	}
+	if len(result.Anomalies) != 0 {
+		t.Fatalf("expected 0 anomalies, got %d", len(result.Anomalies))
+	}
+}
+
 func TestAnalyticsGetCampaignEvents_Pagination(t *testing.T) {
 	router := setupAnalyticsRouter(t, &stubCampaignQueryRepo{
 		GetCampaignEventsFunc: func(_ context.Context, filter domain.CampaignQueryFilter) (*domain.CampaignEventsResult, error) {

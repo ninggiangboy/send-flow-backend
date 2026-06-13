@@ -93,6 +93,7 @@ func NewAnalyticsRepos(writePool *pgxpool.Pool, chClient *platformclickhouse.Cli
 		opts.ForensicQueryRepo = analyticsclickhouse.NewForensicsRepository(chClient.Conn())
 		opts.OperationsQueryRepo = analyticsclickhouse.NewOperationsRepository(chClient.Conn())
 		opts.UsageQueryRepo = analyticsclickhouse.NewUsageRepository(chClient.Conn())
+		opts.AnomalySignalWriteRepo = analyticsclickhouse.NewAnomalySignalRepository(chClient.Conn())
 	}
 	return opts
 }

@@ -97,6 +97,7 @@ type Options struct {
 	ForensicQueryRepo       ports.ForensicQueryRepository
 	OperationsQueryRepo     ports.OperationsQueryRepository
 	UsageQueryRepo          ports.UsageQueryRepository
+	AnomalySignalWriteRepo  ports.AnomalySignalWriteRepository
 	TxManager               ports.TransactionManager
 	OutboxWriter            ports.OutboxWriter
 	AccessChecker           ports.WorkspaceAccessChecker
@@ -115,6 +116,7 @@ type Service struct {
 	forensicQueryRepo       ports.ForensicQueryRepository
 	operationsQueryRepo     ports.OperationsQueryRepository
 	usageQueryRepo          ports.UsageQueryRepository
+	anomalySignalWriteRepo  ports.AnomalySignalWriteRepository
 	txManager               ports.TransactionManager
 	outboxWriter            ports.OutboxWriter
 	accessChecker           ports.WorkspaceAccessChecker
@@ -140,6 +142,7 @@ func NewService(opts Options) *Service {
 		forensicQueryRepo:       opts.ForensicQueryRepo,
 		operationsQueryRepo:     opts.OperationsQueryRepo,
 		usageQueryRepo:          opts.UsageQueryRepo,
+		anomalySignalWriteRepo:  opts.AnomalySignalWriteRepo,
 		txManager:               opts.TxManager,
 		outboxWriter:            opts.OutboxWriter,
 		accessChecker:           opts.AccessChecker,
@@ -1263,4 +1266,60 @@ func (s *Service) GetAnomalies(ctx context.Context, input GetAnomaliesInput) (*d
 		return nil, err
 	}
 	return result, nil
+}
+
+func (s *Service) DetectAnomaliesAllWorkspaces(ctx context.Context) error {
+	log := s.log.With("usecase", "detect_anomalies_all_workspaces")
+
+	if s.usageQueryRepo == nil {
+		log.Warn("usage query repo not available, skipping anomaly detection")
+		return nil
+	}
+	if s.anomalySignalWriteRepo == nil {
+		log.Warn("anomaly signal write repo not available, skipping anomaly detection")
+		return nil
+	}
+
+	now := s.clock()
+	since := now.Add(-30 * 24 * time.Hour)
+
+	workspaces, err := s.usageQueryRepo.ListDistinctWorkspaces(ctx, since)
+	if err != nil {
+		log.Error("failed to list workspaces", "error", err)
+		return err
+	}
+
+	if len(workspaces) == 0 {
+		log.Info("no workspaces with recent activity, skipping detection")
+		return nil
+	}
+
+	log.Info("detecting anomalies across workspaces", "workspace_count", len(workspaces))
+
+	detectFrom := now.Add(-7 * 24 * time.Hour)
+	detectTo := now
+
+	for _, ws := range workspaces {
+		wsLog := log.With("workspace_id", ws)
+
+		result, err := s.usageQueryRepo.GetAnomalies(ctx, ws, detectFrom, detectTo)
+		if err != nil {
+			wsLog.Error("failed to detect anomalies", "error", err)
+			continue
+		}
+
+		if len(result.Anomalies) == 0 {
+			wsLog.Debug("no anomalies detected")
+			continue
+		}
+
+		if err := s.anomalySignalWriteRepo.SaveAnomalySignals(ctx, ws, result.Anomalies); err != nil {
+			wsLog.Error("failed to persist anomaly signals", "error", err)
+			continue
+		}
+
+		wsLog.Info("anomalies detected and persisted", "count", len(result.Anomalies))
+	}
+
+	return nil
 }

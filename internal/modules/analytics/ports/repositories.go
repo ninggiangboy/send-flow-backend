@@ -73,6 +73,11 @@ type UsageQueryRepository interface {
 	GetRiskSignals(ctx context.Context, workspaceID string, from, to time.Time) (*domain.RiskSignalsResult, error)
 	GetSendVolumeForecast(ctx context.Context, workspaceID string, from, to time.Time) (*domain.SendVolumeForecastResult, error)
 	GetAnomalies(ctx context.Context, workspaceID string, from, to time.Time) (*domain.AnomaliesResult, error)
+	ListDistinctWorkspaces(ctx context.Context, since time.Time) ([]string, error)
+}
+
+type AnomalySignalWriteRepository interface {
+	SaveAnomalySignals(ctx context.Context, workspaceID string, signals []domain.AnomalyRow) error
 }
 
 type OutboxWriter interface {

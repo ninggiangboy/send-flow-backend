@@ -248,6 +248,17 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
+	if clickHouseClient != nil {
+		anomalyProcessor := NewAnalyticsAnomalyProcessor(
+			analyticsSvc,
+			log,
+			15*time.Minute,
+		)
+		if err := registry.Register(anomalyProcessor); err != nil {
+			return err
+		}
+	}
+
 	notificationOpts := shared.NewNotificationRepos(pgReadPool, pgWritePool, emailSender)
 	notificationOpts.Logger = log
 	notificationSvc := notificationapp.NewService(notificationOpts)

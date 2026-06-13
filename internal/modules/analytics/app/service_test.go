@@ -2465,6 +2465,7 @@ type stubUsageQueryRepo struct {
 	GetRiskSignalsFunc        func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.RiskSignalsResult, error)
 	GetSendVolumeForecastFunc func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.SendVolumeForecastResult, error)
 	GetAnomaliesFunc          func(ctx context.Context, workspaceID string, from, to time.Time) (*domain.AnomaliesResult, error)
+	ListDistinctWorkspacesFunc func(ctx context.Context, since time.Time) ([]string, error)
 }
 
 func (s *stubUsageQueryRepo) GetUsageTimeSeries(ctx context.Context, workspaceID string, from, to time.Time, interval string) (*domain.UsageTimeSeriesResult, error) {
@@ -2481,6 +2482,9 @@ func (s *stubUsageQueryRepo) GetSendVolumeForecast(ctx context.Context, workspac
 }
 func (s *stubUsageQueryRepo) GetAnomalies(ctx context.Context, workspaceID string, from, to time.Time) (*domain.AnomaliesResult, error) {
 	return s.GetAnomaliesFunc(ctx, workspaceID, from, to)
+}
+func (s *stubUsageQueryRepo) ListDistinctWorkspaces(ctx context.Context, since time.Time) ([]string, error) {
+	return s.ListDistinctWorkspacesFunc(ctx, since)
 }
 
 func newTestServiceWithUsageQuery(
