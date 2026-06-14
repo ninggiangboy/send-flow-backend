@@ -64,17 +64,17 @@ type recipientPayload struct {
 }
 
 type Handler struct {
-	txRequestsRead      ports.TransactionalRequestReadRepository
-	txRequestsWrite     ports.TransactionalRequestWriteRepository
-	messagesRead        ports.MessageReadRepository
-	messagesWrite       ports.MessageWriteRepository
-	senderChecker       ports.SenderReadinessChecker
-	contentRenderer     ports.ContentRenderer
-	suppressionChecker  ports.SuppressionChecker
-	outboxWriter        ports.OutboxWriter
-	txManager           ports.UnitOfWork
-	idGen               func() (string, error)
-	log                 *slog.Logger
+	txRequestsRead     ports.TransactionalRequestReadRepository
+	txRequestsWrite    ports.TransactionalRequestWriteRepository
+	messagesRead       ports.MessageReadRepository
+	messagesWrite      ports.MessageWriteRepository
+	senderChecker      ports.SenderReadinessChecker
+	contentRenderer    ports.ContentRenderer
+	suppressionChecker ports.SuppressionChecker
+	outboxWriter       ports.OutboxWriter
+	txManager          ports.UnitOfWork
+	idGen              func() (string, error)
+	log                *slog.Logger
 }
 
 func New(

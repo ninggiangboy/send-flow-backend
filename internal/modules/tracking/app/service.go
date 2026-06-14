@@ -73,15 +73,15 @@ func NewService(opts Options) *Service {
 		Logger:          opts.Logger,
 	})
 	recordUnsubscribeH := recordunsubscribe.New(recordunsubscribe.Options{
-		EventReadRepo:     opts.EventReadRepo,
-		EventWriteRepo:    opts.EventWriteRepo,
-		MessageResolver:   opts.MessageResolver,
+		EventReadRepo:       opts.EventReadRepo,
+		EventWriteRepo:      opts.EventWriteRepo,
+		MessageResolver:     opts.MessageResolver,
 		RecipientSuppressor: opts.RecipientSuppressor,
-		OutboxWriter:      opts.OutboxWriter,
-		TxManager:         opts.TxManager,
-		IDGen:             opts.IDGen,
-		TokenSigner:       opts.TokenSigner,
-		Logger:            opts.Logger,
+		OutboxWriter:        opts.OutboxWriter,
+		TxManager:           opts.TxManager,
+		IDGen:               opts.IDGen,
+		TokenSigner:         opts.TokenSigner,
+		Logger:              opts.Logger,
 	})
 
 	return &Service{
@@ -90,8 +90,8 @@ func NewService(opts Options) *Service {
 			IDGen:         opts.IDGen,
 			Logger:        opts.Logger,
 		}),
-		recordOpenH: recordOpenH,
-		recordClickH: recordClickH,
+		recordOpenH:        recordOpenH,
+		recordClickH:       recordClickH,
 		recordUnsubscribeH: recordUnsubscribeH,
 		handleProviderEventH: handleproviderevent.New(handleproviderevent.Options{
 			RecordOpenH:        recordOpenH,

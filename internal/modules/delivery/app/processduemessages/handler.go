@@ -51,20 +51,20 @@ type ProcessDueMessagesResult struct {
 }
 
 type Handler struct {
-	messagesRead      ports.MessageReadRepository
-	messagesWrite     ports.MessageWriteRepository
-	attemptsRead      ports.AttemptReadRepository
-	attemptsWrite     ports.AttemptWriteRepository
-	retryStatesRead   ports.RetryStateReadRepository
-	retryStatesWrite  ports.RetryStateWriteRepository
-	senderChecker     ports.SenderReadinessChecker
+	messagesRead       ports.MessageReadRepository
+	messagesWrite      ports.MessageWriteRepository
+	attemptsRead       ports.AttemptReadRepository
+	attemptsWrite      ports.AttemptWriteRepository
+	retryStatesRead    ports.RetryStateReadRepository
+	retryStatesWrite   ports.RetryStateWriteRepository
+	senderChecker      ports.SenderReadinessChecker
 	suppressionChecker ports.SuppressionChecker
-	contentRenderer   ports.ContentRenderer
-	emailProvider     ports.EmailProvider
-	outboxWriter      ports.OutboxWriter
-	txManager         ports.UnitOfWork
-	idGen             func() (string, error)
-	log               *slog.Logger
+	contentRenderer    ports.ContentRenderer
+	emailProvider      ports.EmailProvider
+	outboxWriter       ports.OutboxWriter
+	txManager          ports.UnitOfWork
+	idGen              func() (string, error)
+	log                *slog.Logger
 }
 
 func New(

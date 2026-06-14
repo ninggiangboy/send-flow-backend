@@ -47,12 +47,12 @@ type GetNotificationStatusResult = getnotificationstatus.Result
 type ListNotificationsResult = listnotifications.Result
 
 type Service struct {
-	sendWelcomeEmailH           *sendwelcomeemail.Handler
-	sendWorkspaceInvitationH    *sendworkspaceinvitationemail.Handler
-	sendSystemAlertH            *sendsystemalert.Handler
-	processRetryBatchH          *processretrybatch.Handler
-	getNotificationStatusH      *getnotificationstatus.Handler
-	listNotificationsH          *listnotifications.Handler
+	sendWelcomeEmailH        *sendwelcomeemail.Handler
+	sendWorkspaceInvitationH *sendworkspaceinvitationemail.Handler
+	sendSystemAlertH         *sendsystemalert.Handler
+	processRetryBatchH       *processretrybatch.Handler
+	getNotificationStatusH   *getnotificationstatus.Handler
+	listNotificationsH       *listnotifications.Handler
 }
 
 func NewService(opts Options) *Service {

@@ -109,7 +109,7 @@ func (m *mockEmailSender) SendNotificationEmail(ctx context.Context, to []string
 func TestServiceSendWelcomeEmail_DelegatesToHandler(t *testing.T) {
 	called := false
 	svc := NewService(Options{
-		MessagesRead:  &mockMessageReadRepo{},
+		MessagesRead: &mockMessageReadRepo{},
 		MessagesWrite: &mockMessageWriteRepo{
 			create: func(ctx context.Context, msg domain.NotificationMessage) error { called = true; return nil },
 			update: func(ctx context.Context, msg domain.NotificationMessage) error { return nil },
@@ -164,7 +164,7 @@ func TestServiceGetNotificationStatus_ReadsDenied(t *testing.T) {
 func TestServiceSendSystemAlert_DelegatesToHandler(t *testing.T) {
 	called := false
 	svc := NewService(Options{
-		MessagesRead:  &mockMessageReadRepo{},
+		MessagesRead: &mockMessageReadRepo{},
 		MessagesWrite: &mockMessageWriteRepo{
 			create: func(ctx context.Context, msg domain.NotificationMessage) error { called = true; return nil },
 			update: func(ctx context.Context, msg domain.NotificationMessage) error { return nil },
@@ -201,7 +201,7 @@ func TestServiceSendSystemAlert_DelegatesToHandler(t *testing.T) {
 
 func TestServiceProcessRetryBatch_DelegatesToHandler(t *testing.T) {
 	svc := NewService(Options{
-		MessagesRead:  &mockMessageReadRepo{},
+		MessagesRead: &mockMessageReadRepo{},
 		MessagesWrite: &mockMessageWriteRepo{
 			create: func(ctx context.Context, msg domain.NotificationMessage) error { return nil },
 			update: func(ctx context.Context, msg domain.NotificationMessage) error { return nil },

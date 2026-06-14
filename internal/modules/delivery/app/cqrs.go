@@ -31,12 +31,12 @@ type QueryBus interface {
 }
 
 type commandBus struct {
-	logger               *slog.Logger
-	acceptTransactional  *accepttransactionalsend.Handler
-	queueCampaign        *queuecampaignmessages.Handler
-	handleCampaign       *handlecampaignscheduled.Handler
-	handleProvider       *handleproviderevent.Handler
-	processDueMsgs       *processduemessages.Handler
+	logger              *slog.Logger
+	acceptTransactional *accepttransactionalsend.Handler
+	queueCampaign       *queuecampaignmessages.Handler
+	handleCampaign      *handlecampaignscheduled.Handler
+	handleProvider      *handleproviderevent.Handler
+	processDueMsgs      *processduemessages.Handler
 }
 
 func newCommandBus(
@@ -186,10 +186,10 @@ func (b *commandBus) ProcessDueMessages(ctx context.Context, input ProcessDueMes
 }
 
 type queryBus struct {
-	logger             *slog.Logger
-	listMessages       *listmessages.Handler
-	getMessage         *getmessage.Handler
-	getTransactional   *gettransactionalmessage.Handler
+	logger           *slog.Logger
+	listMessages     *listmessages.Handler
+	getMessage       *getmessage.Handler
+	getTransactional *gettransactionalmessage.Handler
 }
 
 func newQueryBus(

@@ -14,7 +14,7 @@ type Options struct {
 }
 
 type Command struct {
-	WorkspaceID   string
+	WorkspaceID    string
 	SenderDomainID string
 }
 

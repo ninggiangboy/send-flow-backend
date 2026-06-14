@@ -33,9 +33,9 @@ type Command struct {
 }
 
 type Result struct {
-	Config   domain.WebhookConfig
+	Config    domain.WebhookConfig
 	RawSecret string
-	Hint     string
+	Hint      string
 }
 
 type Handler struct {

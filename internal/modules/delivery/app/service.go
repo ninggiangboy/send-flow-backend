@@ -259,10 +259,10 @@ type ProcessDueMessagesResult struct {
 }
 
 type (
-	NonRetryableError         = usecase.NonRetryableError
-	RecipientSuppressor       = handleproviderevent.RecipientSuppressor
-	SuppressFromSignalInput   = handleproviderevent.SuppressFromSignalInput
-	SuppressFromSignalResult  = handleproviderevent.SuppressFromSignalResult
+	NonRetryableError        = usecase.NonRetryableError
+	RecipientSuppressor      = handleproviderevent.RecipientSuppressor
+	SuppressFromSignalInput  = handleproviderevent.SuppressFromSignalInput
+	SuppressFromSignalResult = handleproviderevent.SuppressFromSignalResult
 )
 
 // Facade methods delegating to handlers via buses

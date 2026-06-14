@@ -5,13 +5,13 @@ import (
 	"log/slog"
 	"time"
 
-	senderdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/createsenderdomain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/disablesenderdomain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/getsenderdomain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/getsenderreadiness"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/listsenderdomains"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/refreshsenderdomaindnsstatus"
+	senderdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/ports"
 )
 

@@ -62,13 +62,13 @@ type Result struct {
 }
 
 type Handler struct {
-	messagesRead       ports.MessageReadRepository
-	messagesWrite      ports.MessageWriteRepository
+	messagesRead        ports.MessageReadRepository
+	messagesWrite       ports.MessageWriteRepository
 	recipientSuppressor RecipientSuppressor
-	outboxWriter       ports.OutboxWriter
-	txManager          ports.UnitOfWork
-	idGen              func() (string, error)
-	log                *slog.Logger
+	outboxWriter        ports.OutboxWriter
+	txManager           ports.UnitOfWork
+	idGen               func() (string, error)
+	log                 *slog.Logger
 }
 
 func New(
@@ -81,13 +81,13 @@ func New(
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
-		messagesRead:       messagesRead,
-		messagesWrite:      messagesWrite,
+		messagesRead:        messagesRead,
+		messagesWrite:       messagesWrite,
 		recipientSuppressor: recipientSuppressor,
-		outboxWriter:       outboxWriter,
-		txManager:          txManager,
-		idGen:              idGen,
-		log:                logger.With("usecase", "handle_provider_event"),
+		outboxWriter:        outboxWriter,
+		txManager:           txManager,
+		idGen:               idGen,
+		log:                 logger.With("usecase", "handle_provider_event"),
 	}
 }
 

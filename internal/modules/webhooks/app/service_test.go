@@ -288,9 +288,9 @@ func TestDisableWebhookConfig(t *testing.T) {
 				return ports.DeliveryHTTPResponse{}, nil
 			},
 		},
-		IDGen:     fixedIDGen,
-		Clock:     fixedClock,
-		Logger:    slog.Default(),
+		IDGen:  fixedIDGen,
+		Clock:  fixedClock,
+		Logger: slog.Default(),
 		TxManager: &mockTxManager{
 			runInTxFn: func(ctx context.Context, fn func(context.Context) error) error {
 				return fn(ctx)

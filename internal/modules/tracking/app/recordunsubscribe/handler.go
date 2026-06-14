@@ -37,27 +37,27 @@ type RecipientSuppressor interface {
 }
 
 type Options struct {
-	EventReadRepo     ports.TrackingEventReadRepository
-	EventWriteRepo    ports.TrackingEventWriteRepository
-	MessageResolver   ports.DeliveryMessageResolver
+	EventReadRepo       ports.TrackingEventReadRepository
+	EventWriteRepo      ports.TrackingEventWriteRepository
+	MessageResolver     ports.DeliveryMessageResolver
 	RecipientSuppressor RecipientSuppressor
-	OutboxWriter      ports.OutboxWriter
-	TxManager         ports.TransactionManager
-	IDGen             func() (string, error)
-	TokenSigner       *unsubscribetoken.Signer
-	Logger            *slog.Logger
+	OutboxWriter        ports.OutboxWriter
+	TxManager           ports.TransactionManager
+	IDGen               func() (string, error)
+	TokenSigner         *unsubscribetoken.Signer
+	Logger              *slog.Logger
 }
 
 type Handler struct {
-	eventReadRepo     ports.TrackingEventReadRepository
-	eventWriteRepo    ports.TrackingEventWriteRepository
-	messageResolver   ports.DeliveryMessageResolver
+	eventReadRepo       ports.TrackingEventReadRepository
+	eventWriteRepo      ports.TrackingEventWriteRepository
+	messageResolver     ports.DeliveryMessageResolver
 	recipientSuppressor RecipientSuppressor
-	outboxWriter      ports.OutboxWriter
-	txManager         ports.TransactionManager
-	idGen             func() (string, error)
-	tokenSigner       *unsubscribetoken.Signer
-	log               *slog.Logger
+	outboxWriter        ports.OutboxWriter
+	txManager           ports.TransactionManager
+	idGen               func() (string, error)
+	tokenSigner         *unsubscribetoken.Signer
+	log                 *slog.Logger
 }
 
 func New(opts Options) *Handler {
@@ -65,15 +65,15 @@ func New(opts Options) *Handler {
 		opts.Logger = slog.Default()
 	}
 	return &Handler{
-		eventReadRepo:     opts.EventReadRepo,
-		eventWriteRepo:    opts.EventWriteRepo,
-		messageResolver:   opts.MessageResolver,
+		eventReadRepo:       opts.EventReadRepo,
+		eventWriteRepo:      opts.EventWriteRepo,
+		messageResolver:     opts.MessageResolver,
 		recipientSuppressor: opts.RecipientSuppressor,
-		outboxWriter:      opts.OutboxWriter,
-		txManager:         opts.TxManager,
-		idGen:             opts.IDGen,
-		tokenSigner:       opts.TokenSigner,
-		log:               opts.Logger.With("usecase", "record_unsubscribe"),
+		outboxWriter:        opts.OutboxWriter,
+		txManager:           opts.TxManager,
+		idGen:               opts.IDGen,
+		tokenSigner:         opts.TokenSigner,
+		log:                 opts.Logger.With("usecase", "record_unsubscribe"),
 	}
 }
 

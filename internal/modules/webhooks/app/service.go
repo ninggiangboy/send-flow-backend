@@ -37,18 +37,18 @@ type Options struct {
 }
 
 type Service struct {
-	listWebhookConfigsH    *listwebhookconfigs.Handler
-	createWebhookConfigH   *createwebhookconfig.Handler
-	updateWebhookConfigH   *updatewebhookconfig.Handler
-	disableWebhookConfigH  *disablewebhookconfig.Handler
-	rotateSecretH          *rotatesecret.Handler
-	deliverWebhookH        *deliverwebhook.Handler
-	processDueDeliveryH    *processduedelivery.Handler
-	retryWebhookDeliveryH  *retrywebhookdelivery.Handler
-	listDeliveriesH        *listdeliveries.Handler
-	getDeliveryH           *getdelivery.Handler
-	handleSourceEventH     *handlesourceevent.Handler
-	deliveryWrite          ports.DeliveryWriteRepository
+	listWebhookConfigsH   *listwebhookconfigs.Handler
+	createWebhookConfigH  *createwebhookconfig.Handler
+	updateWebhookConfigH  *updatewebhookconfig.Handler
+	disableWebhookConfigH *disablewebhookconfig.Handler
+	rotateSecretH         *rotatesecret.Handler
+	deliverWebhookH       *deliverwebhook.Handler
+	processDueDeliveryH   *processduedelivery.Handler
+	retryWebhookDeliveryH *retrywebhookdelivery.Handler
+	listDeliveriesH       *listdeliveries.Handler
+	getDeliveryH          *getdelivery.Handler
+	handleSourceEventH    *handlesourceevent.Handler
+	deliveryWrite         ports.DeliveryWriteRepository
 }
 
 func NewService(opts Options) *Service {
