@@ -76,12 +76,24 @@ func (m *HTTPMetrics) Middleware(route string, log *slog.Logger) func(http.Handl
 
 type ResponseRecorder struct {
 	http.ResponseWriter
-	Status int
+	Status      int
+	wroteHeader bool
 }
 
 func (r *ResponseRecorder) WriteHeader(status int) {
+	if r.wroteHeader {
+		return
+	}
 	r.Status = status
+	r.wroteHeader = true
 	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *ResponseRecorder) Write(b []byte) (int, error) {
+	if !r.wroteHeader {
+		r.WriteHeader(r.Status)
+	}
+	return r.ResponseWriter.Write(b)
 }
 
 func (r *ResponseRecorder) Flush() {

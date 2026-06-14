@@ -8,7 +8,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "10s",
   "time": {
     "from": "now-6h",
@@ -33,6 +33,25 @@
           "text": "All",
           "value": "$__all"
         }
+      },
+      {
+        "name": "instance_id",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(up{job=~\"$job\"}, service_id)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "label": "Instance"
       }
     ]
   },
@@ -54,7 +73,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(process_cpu_seconds_total{job=~\"$job\"}[5m]) or rate(sendflow_process_cpu_seconds_total{job=~\"$job\"}[5m]))"
+          "expr": "sum(rate(process_cpu_seconds_total{job=~\"$job\", service_id=~\"$instance_id\"}[5m]) or rate(sendflow_process_cpu_seconds_total{job=~\"$job\", service_id=~\"$instance_id\"}[5m]))"
         }
       ],
       "fieldConfig": {
@@ -94,7 +113,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(process_resident_memory_bytes{job=~\"$job\"} or sendflow_process_resident_memory_bytes{job=~\"$job\"})"
+          "expr": "sum(process_resident_memory_bytes{job=~\"$job\", service_id=~\"$instance_id\"} or sendflow_process_resident_memory_bytes{job=~\"$job\", service_id=~\"$instance_id\"})"
         }
       ],
       "fieldConfig": {
@@ -134,7 +153,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(go_goroutines{job=~\"$job\"})"
+          "expr": "sum(go_goroutines{job=~\"$job\", service_id=~\"$instance_id\"})"
         }
       ],
       "fieldConfig": {
@@ -174,7 +193,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(go_memstats_heap_alloc_bytes{job=~\"$job\"})"
+          "expr": "sum(go_memstats_heap_alloc_bytes{job=~\"$job\", service_id=~\"$instance_id\"})"
         }
       ],
       "fieldConfig": {
@@ -214,7 +233,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(process_open_fds{job=~\"$job\"})"
+          "expr": "sum(process_open_fds{job=~\"$job\", service_id=~\"$instance_id\"})"
         }
       ],
       "fieldConfig": {
@@ -254,7 +273,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(go_threads{job=~\"$job\"})"
+          "expr": "sum(go_threads{job=~\"$job\", service_id=~\"$instance_id\"})"
         }
       ],
       "fieldConfig": {
@@ -294,8 +313,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (job) (rate(process_cpu_seconds_total{job=~\"$job\"}[5m]) or rate(sendflow_process_cpu_seconds_total{job=~\"$job\"}[5m]))",
-          "legendFormat": "{{job}}"
+          "expr": "sum by (job, service_id) (rate(process_cpu_seconds_total{job=~\"$job\", service_id=~\"$instance_id\"}[5m]) or rate(sendflow_process_cpu_seconds_total{job=~\"$job\", service_id=~\"$instance_id\"}[5m]))",
+          "legendFormat": "{{job}} {{service_id}}"
         }
       ],
       "fieldConfig": {
@@ -342,13 +361,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "process_resident_memory_bytes{job=~\"$job\"} or sendflow_process_resident_memory_bytes{job=~\"$job\"}",
-          "legendFormat": "{{job}} rss"
+          "expr": "process_resident_memory_bytes{job=~\"$job\", service_id=~\"$instance_id\"} or sendflow_process_resident_memory_bytes{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}} rss"
         },
         {
           "refId": "B",
-          "expr": "process_virtual_memory_bytes{job=~\"$job\"}",
-          "legendFormat": "{{job}} virtual"
+          "expr": "process_virtual_memory_bytes{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}} virtual"
         }
       ],
       "fieldConfig": {
@@ -395,13 +414,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "go_goroutines{job=~\"$job\"}",
-          "legendFormat": "{{job}} goroutines"
+          "expr": "go_goroutines{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}} goroutines"
         },
         {
           "refId": "B",
-          "expr": "go_threads{job=~\"$job\"}",
-          "legendFormat": "{{job}} threads"
+          "expr": "go_threads{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}} threads"
         }
       ],
       "fieldConfig": {
@@ -448,13 +467,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "go_memstats_heap_alloc_bytes{job=~\"$job\"}",
-          "legendFormat": "{{job}} heap alloc"
+          "expr": "go_memstats_heap_alloc_bytes{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}} heap alloc"
         },
         {
           "refId": "B",
-          "expr": "go_memstats_heap_sys_bytes{job=~\"$job\"}",
-          "legendFormat": "{{job}} heap sys"
+          "expr": "go_memstats_heap_sys_bytes{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}} heap sys"
         }
       ],
       "fieldConfig": {
@@ -501,8 +520,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (job, le) (rate(go_gc_duration_seconds_bucket{job=~\"$job\"}[5m])))",
-          "legendFormat": "{{job}}"
+          "expr": "histogram_quantile(0.95, sum by (job, service_id, le) (rate(go_gc_duration_seconds_bucket{job=~\"$job\", service_id=~\"$instance_id\"}[5m])))",
+          "legendFormat": "{{job}} {{service_id}}"
         }
       ],
       "fieldConfig": {
@@ -549,8 +568,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(go_gc_duration_seconds_count{job=~\"$job\"}[5m])",
-          "legendFormat": "{{job}}"
+          "expr": "rate(go_gc_duration_seconds_count{job=~\"$job\", service_id=~\"$instance_id\"}[5m])",
+          "legendFormat": "{{job}} {{service_id}}"
         }
       ],
       "fieldConfig": {
@@ -597,8 +616,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "go_memstats_heap_objects{job=~\"$job\"}",
-          "legendFormat": "{{job}}"
+          "expr": "go_memstats_heap_objects{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}}"
         }
       ],
       "fieldConfig": {
@@ -645,13 +664,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "go_memstats_stack_inuse_bytes{job=~\"$job\"}",
-          "legendFormat": "{{job}} stack"
+          "expr": "go_memstats_stack_inuse_bytes{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}} stack"
         },
         {
           "refId": "B",
-          "expr": "go_memstats_stack_sys_bytes{job=~\"$job\"}",
-          "legendFormat": "{{job}} stack sys"
+          "expr": "go_memstats_stack_sys_bytes{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}} stack sys"
         }
       ],
       "fieldConfig": {
@@ -698,13 +717,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "process_open_fds{job=~\"$job\"}",
-          "legendFormat": "{{job}} open"
+          "expr": "process_open_fds{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}} open"
         },
         {
           "refId": "B",
-          "expr": "process_max_fds{job=~\"$job\"}",
-          "legendFormat": "{{job}} max"
+          "expr": "process_max_fds{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}} max"
         }
       ],
       "fieldConfig": {
@@ -751,8 +770,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - process_start_time_seconds{job=~\"$job\"}",
-          "legendFormat": "{{job}} uptime"
+          "expr": "time() - process_start_time_seconds{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}} uptime"
         }
       ],
       "fieldConfig": {
@@ -799,8 +818,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "up{job=~\"$job\"}",
-          "legendFormat": "{{job}}"
+          "expr": "up{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}}"
         }
       ],
       "fieldConfig": {
@@ -847,8 +866,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "scrape_samples_scraped{job=~\"$job\"}",
-          "legendFormat": "{{job}}"
+          "expr": "scrape_samples_scraped{job=~\"$job\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}}"
         }
       ],
       "fieldConfig": {

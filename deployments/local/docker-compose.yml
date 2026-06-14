@@ -1,4 +1,41 @@
 services:
+  consul:
+    image: hashicorp/consul:1.21
+    container_name: sendflow-consul
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+    ports:
+      - "8500:8500"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  traefik:
+    image: traefik:v3.4
+    container_name: sendflow-traefik
+    depends_on:
+      consul:
+        condition: service_healthy
+    command:
+      - "--entrypoints.web.address=:8088"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--providers.file.filename=/etc/traefik/dynamic.yml"
+      - "--providers.consulcatalog=true"
+      - "--providers.consulcatalog.endpoint.address=consul:8500"
+      - "--providers.consulcatalog.exposedbydefault=false"
+      - "--providers.consulcatalog.refreshinterval=5s"
+    ports:
+      - "8088:8088"
+      - "8089:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+
   postgres:
     image: bitnami/postgresql:latest
     container_name: sendflow-postgres

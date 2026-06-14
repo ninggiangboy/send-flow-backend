@@ -2,14 +2,20 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: "sendflow-api"
+  - job_name: "sendflow-services"
     metrics_path: /api/metrics
-    static_configs:
-      - targets: ["host.docker.internal:8081"]
-  - job_name: "sendflow-worker"
-    metrics_path: /api/metrics
-    static_configs:
-      - targets: ["host.docker.internal:8082"]
+    consul_sd_configs:
+      - server: "consul:8500"
+        services:
+          - "sendflow-api"
+          - "sendflow-worker"
+    relabel_configs:
+      - source_labels: [__meta_consul_service]
+        target_label: job
+      - source_labels: [__meta_consul_service]
+        target_label: service
+      - source_labels: [__meta_consul_service_id]
+        target_label: service_id
   - job_name: "redpanda"
     metrics_path: /metrics
     static_configs:

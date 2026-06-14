@@ -1,0 +1,20 @@
+http:
+  middlewares:
+    sendflow-security:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: "no-referrer"
+        customResponseHeaders:
+          X-Gateway: "traefik"
+
+    sendflow-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 200
+
+    sendflow-auth-ratelimit:
+      rateLimit:
+        average: 10
+        burst: 20

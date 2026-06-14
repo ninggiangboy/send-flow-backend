@@ -21,16 +21,40 @@ scrape_configs:
           - localhost
         labels:
           job: sendflow-files
+          service: api
+          __path__: /var/log/sendflow/api-*.log
+      - targets:
+          - localhost
+        labels:
+          job: sendflow-files
           service: worker
           __path__: /var/log/sendflow/worker.log
+      - targets:
+          - localhost
+        labels:
+          job: sendflow-files
+          service: worker
+          __path__: /var/log/sendflow/worker-*.log
     pipeline_stages:
+      - regex:
+          source: filename
+          expression: '/var/log/sendflow/(?P<file_service>api|worker)(?:-(?P<file_instance>[0-9]+))?\.log'
       - json:
           expressions:
             level: level
             app: app
             env: env
+            log_service: service
+            instance_id: instance_id
             msg: msg
+      - template:
+          source: instance_id
+          template: '{{ if .Value }}{{ .Value }}{{ else if .file_instance }}sendflow-{{ .file_service }}-local-{{ .file_instance }}{{ else }}sendflow-{{ .file_service }}-local{{ end }}'
+      - template:
+          source: level
+          template: '{{ if .Value }}{{ .Value }}{{ else }}UNKNOWN{{ end }}'
       - labels:
+          instance_id:
           level:
           app:
           env:

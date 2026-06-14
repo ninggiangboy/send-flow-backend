@@ -35,6 +35,22 @@ func TestLoadFromEnv_ParsesValues(t *testing.T) {
 	t.Setenv("OBJECT_STORAGE_BUCKET", "sendflow-local")
 	t.Setenv("OBJECT_STORAGE_FORCE_PATH_STYLE", "true")
 	t.Setenv("OBJECT_STORAGE_USE_SSL", "false")
+	t.Setenv("SERVICE_DISCOVERY_PROVIDER", "consul")
+	t.Setenv("CONSUL_HTTP_ADDR", "http://localhost:8500")
+	t.Setenv("CONSUL_SERVICE_NAME", "sendflow-api")
+	t.Setenv("CONSUL_SERVICE_ID", "sendflow-api-local")
+	t.Setenv("CONSUL_SERVICE_ADDRESS", "host.docker.internal")
+	t.Setenv("CONSUL_SERVICE_PORT", "8081")
+	t.Setenv("CONSUL_HEALTH_CHECK_PATH", "/api/readyz")
+	t.Setenv("CONSUL_WORKER_SERVICE_NAME", "sendflow-worker")
+	t.Setenv("CONSUL_WORKER_SERVICE_ID", "sendflow-worker-local")
+	t.Setenv("CONSUL_WORKER_SERVICE_ADDRESS", "host.docker.internal")
+	t.Setenv("CONSUL_WORKER_HEALTH_CHECK_PATH", "/api/readyz")
+	t.Setenv("SERVICE_NAME", "worker")
+	t.Setenv("INSTANCE_ADDR", ":19090")
+	t.Setenv("POD_NAME", "send-flow-worker-abc")
+	t.Setenv("POD_NAMESPACE", "send-flow")
+	t.Setenv("NODE_NAME", "node-a")
 	t.Setenv("SHUTDOWN_TIMEOUT", "5s")
 	t.Setenv("WORKER_HTTP_ADDR", ":9090")
 	t.Setenv("WORKER_ENABLED_CONSUMERS", "delivery, analytics, ")
@@ -93,6 +109,36 @@ func TestLoadFromEnv_ParsesValues(t *testing.T) {
 	if cfg.ObjectStorage.Bucket != "sendflow-local" {
 		t.Fatalf("unexpected object storage bucket: %s", cfg.ObjectStorage.Bucket)
 	}
+	if !cfg.ServiceDiscovery.Enabled() {
+		t.Fatal("expected service discovery enabled")
+	}
+	if cfg.ServiceDiscovery.ServicePort != 8081 {
+		t.Fatalf("unexpected service discovery port: %d", cfg.ServiceDiscovery.ServicePort)
+	}
+	if cfg.ServiceDiscovery.HealthCheckPath != "/api/readyz" {
+		t.Fatalf("unexpected service discovery health check path: %s", cfg.ServiceDiscovery.HealthCheckPath)
+	}
+	if !cfg.WorkerDiscovery.Enabled() {
+		t.Fatal("expected worker service discovery enabled")
+	}
+	if cfg.WorkerDiscovery.ServiceName != "sendflow-worker" {
+		t.Fatalf("unexpected worker service name: %s", cfg.WorkerDiscovery.ServiceName)
+	}
+	if cfg.WorkerDiscovery.ServicePort != 9090 {
+		t.Fatalf("unexpected worker service discovery port: %d", cfg.WorkerDiscovery.ServicePort)
+	}
+	if cfg.RuntimeIdentity.ServiceName != "worker" {
+		t.Fatalf("unexpected runtime service name: %s", cfg.RuntimeIdentity.ServiceName)
+	}
+	if cfg.RuntimeIdentity.InstanceID != "sendflow-worker-local" {
+		t.Fatalf("unexpected runtime instance ID: %s", cfg.RuntimeIdentity.InstanceID)
+	}
+	if cfg.RuntimeIdentity.InstanceAddr != ":19090" {
+		t.Fatalf("unexpected runtime instance addr: %s", cfg.RuntimeIdentity.InstanceAddr)
+	}
+	if cfg.RuntimeIdentity.PodName != "send-flow-worker-abc" || cfg.RuntimeIdentity.Namespace != "send-flow" || cfg.RuntimeIdentity.NodeName != "node-a" {
+		t.Fatalf("unexpected kubernetes identity: %#v", cfg.RuntimeIdentity)
+	}
 }
 
 func TestMain(m *testing.M) {
@@ -133,6 +179,26 @@ func TestMain(m *testing.M) {
 	_ = os.Unsetenv("OBJECT_STORAGE_BUCKET")
 	_ = os.Unsetenv("OBJECT_STORAGE_FORCE_PATH_STYLE")
 	_ = os.Unsetenv("OBJECT_STORAGE_USE_SSL")
+	_ = os.Unsetenv("SERVICE_DISCOVERY_PROVIDER")
+	_ = os.Unsetenv("CONSUL_HTTP_ADDR")
+	_ = os.Unsetenv("CONSUL_SERVICE_NAME")
+	_ = os.Unsetenv("CONSUL_SERVICE_ID")
+	_ = os.Unsetenv("CONSUL_SERVICE_ADDRESS")
+	_ = os.Unsetenv("CONSUL_SERVICE_PORT")
+	_ = os.Unsetenv("CONSUL_HEALTH_CHECK_PATH")
+	_ = os.Unsetenv("WORKER_SERVICE_DISCOVERY_PROVIDER")
+	_ = os.Unsetenv("WORKER_CONSUL_HTTP_ADDR")
+	_ = os.Unsetenv("CONSUL_WORKER_SERVICE_NAME")
+	_ = os.Unsetenv("CONSUL_WORKER_SERVICE_ID")
+	_ = os.Unsetenv("CONSUL_WORKER_SERVICE_ADDRESS")
+	_ = os.Unsetenv("CONSUL_WORKER_SERVICE_PORT")
+	_ = os.Unsetenv("CONSUL_WORKER_HEALTH_CHECK_PATH")
+	_ = os.Unsetenv("SERVICE_NAME")
+	_ = os.Unsetenv("INSTANCE_ID")
+	_ = os.Unsetenv("INSTANCE_ADDR")
+	_ = os.Unsetenv("POD_NAME")
+	_ = os.Unsetenv("POD_NAMESPACE")
+	_ = os.Unsetenv("NODE_NAME")
 	_ = os.Unsetenv("JWT_ACCESS_SECRET")
 	_ = os.Unsetenv("JWT_REFRESH_SECRET")
 	_ = os.Unsetenv("UNSUBSCRIBE_TOKEN_SECRET")

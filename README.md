@@ -59,29 +59,113 @@ sequenceDiagram
     autonumber
     participant Client as Dashboard/API client
     participant API as API service
+    participant Auth as Identity/Access
+    participant Setup as Sender/Audience/Content
+    participant Campaign as Campaign app
+    participant Delivery as Delivery app
+    participant Ingestion as Ingestion/Tracking
+    participant Webhooks as Customer webhooks
+    participant Ops as Operations app
     participant DB as PostgreSQL
     participant Outbox as Outbox publisher
     participant Kafka as Kafka/Redpanda
     participant Worker as Worker service
     participant ESP as Email provider
+    participant Recipient as Recipient
     participant Analytics as ClickHouse
 
-    Client->>API: Create campaign
-    API->>DB: Save campaign + outbox event
-    API-->>Client: 202 Accepted
+    rect rgba(240, 240, 240, 0.25)
+        Client->>API: POST /api/v1/auth/signup or /auth/login
+        API->>Auth: signup/login, MFA, OAuth, refresh session
+        Auth->>DB: Persist user, session, tokens, workspace membership
+        Auth->>DB: Save outbox event: user.registered.v1
+        API-->>Client: JWT session + workspace context
+    end
 
-    Outbox->>DB: Poll unpublished events
-    Outbox->>Kafka: Publish campaign event
-    Outbox->>DB: Mark published
+    rect rgba(240, 240, 240, 0.25)
+        Client->>API: POST /api/v1/workspaces/{id}/sender-domains
+        API->>Setup: Create sender domain and DNS records
+        Setup->>DB: Persist sender domain
+        Client->>API: POST /sender-domains/{domain_id}/verify
+        API->>Setup: Refresh DNS readiness
+        Setup->>DB: Mark verified/failed
 
-    Kafka->>Worker: Consume message queued event
-    Worker->>DB: Check suppression + rate limit
-    Worker->>ESP: Send email
-    ESP-->>Worker: Accepted
-    Worker->>DB: Persist delivery state
-    Worker->>Kafka: Publish delivery event
-    Kafka->>Analytics: Consume delivery event
-    Analytics->>Analytics: Update projections
+        Client->>API: POST /contacts, /lists, /segments, /audience/imports
+        API->>Setup: Manage audience and import/export jobs
+        Setup->>DB: Persist contacts, lists, segments, jobs
+
+        Client->>API: POST /templates and /templates/{id}/publish
+        API->>Setup: Validate, render, publish template version
+        Setup->>DB: Persist template and immutable version
+    end
+
+    rect rgba(240, 240, 240, 0.25)
+        Client->>API: POST /api/v1/workspaces/{id}/campaigns
+        API->>Campaign: Create/update campaign draft
+        Campaign->>DB: Save campaign, audience ref, template ref
+
+        Client->>API: POST /campaigns/{campaign_id}/schedule
+        API->>Campaign: Validate audience, published template, sender readiness
+        Campaign->>DB: Save scheduled campaign + campaign.scheduled.v1 outbox event
+        API-->>Client: Campaign scheduled
+
+        Outbox->>DB: Poll unpublished outbox_events
+        Outbox->>Kafka: Publish campaign.scheduled.v1
+        Outbox->>DB: Mark published
+
+        Kafka->>Worker: CampaignScheduledConsumer
+        Worker->>Delivery: Queue campaign messages
+        Delivery->>DB: Resolve candidates and create delivery messages
+        Delivery->>DB: Save delivery.message_queued.v1 outbox events
+    end
+
+    rect rgba(240, 240, 240, 0.25)
+        Client->>API: POST /api/v1/transactional/send with API key
+        API->>Auth: Authenticate API key and scope transactional.send
+        API->>Delivery: Accept transactional send
+        Delivery->>DB: Idempotency, render template, create message
+        Delivery->>DB: Save delivery.message_queued.v1 outbox event
+        API-->>Client: 202 Accepted + message_id
+    end
+
+    rect rgba(240, 240, 240, 0.25)
+        Outbox->>Kafka: Publish delivery.message_queued.v1
+        Kafka->>Worker: DueMessageProcessor / delivery consumer
+        Worker->>Delivery: Check suppression, sender readiness, retry state
+        Delivery->>ESP: Send email
+        ESP-->>Delivery: Accepted or failed
+        Delivery->>DB: Persist attempt, message state, retry state
+        Delivery->>DB: Save delivery accepted/bounced/retry outbox event
+    end
+
+    rect rgba(240, 240, 240, 0.25)
+        ESP->>API: POST /api/v1/webhooks/providers/{provider}
+        API->>Ingestion: Verify, deduplicate, normalize provider webhook
+        Ingestion->>DB: Store raw webhook and normalized provider event
+        Ingestion->>DB: Save ingestion.provider_event.normalized.v1 outbox event
+
+        Recipient->>API: GET /o/{tracking_id}, /t/{tracking_id}, /u/{token}
+        API->>Ingestion: Record open, click, unsubscribe
+        Ingestion->>DB: Persist tracking event and suppression update
+        Ingestion->>DB: Save tracking event outbox event
+    end
+
+    rect rgba(240, 240, 240, 0.25)
+        Outbox->>Kafka: Publish delivery, ingestion, tracking, identity events
+        Kafka->>Worker: Analytics, notification, webhook consumers
+        Worker->>Analytics: Map events into facts, projections, timelines
+        Worker->>Webhooks: Create and deliver customer webhook attempts
+        Worker->>ESP: Send welcome, invitation, and system notifications
+        Worker->>DB: Persist notification and webhook delivery state
+    end
+
+    rect rgba(240, 240, 240, 0.25)
+        Client->>API: GET /analytics/*, /messages/*, /operations/*
+        API->>Analytics: Query funnels, timeseries, timelines, incidents
+        API->>Ops: Query outbox, DLQ, replay jobs, sync lag
+        Ops->>DB: Read operational state or create replay job
+        API-->>Client: Reports, delivery status, operations views
+    end
 ```
 
 ## Tech Stack
@@ -196,6 +280,7 @@ make dev-down      # Stop and remove local infra
 make dev-logs      # Tail Docker Compose logs
 make api           # Run API locally
 make worker        # Run worker locally
+make start 2       # Run 2 API and 2 worker instances with automatic ports
 make build         # Build ./bin/api and ./bin/worker
 make format        # gofmt for cmd/ and internal/
 make vet           # go vet ./...
@@ -213,8 +298,12 @@ make migrate-down  # Rollback one migration step
 | Service | URL |
 |---|---|
 | API | http://localhost:8081 |
+| API Gateway | http://localhost:8088 |
 | OpenAPI JSON | http://localhost:8081/openapi.json |
+| Gateway OpenAPI JSON | http://localhost:8088/openapi.json |
 | Worker health/metrics | http://localhost:8082 |
+| Consul | http://localhost:8500 |
+| Traefik Dashboard | http://localhost:8089/dashboard/ |
 | Redpanda Console | http://localhost:8080 |
 | Kafka Connect | http://localhost:8083 |
 | Mailpit UI | http://localhost:8025 |
@@ -226,10 +315,24 @@ make migrate-down  # Rollback one migration step
 
 ```bash
 curl http://localhost:8081/api/readyz
+curl http://localhost:8088/api/readyz
 curl http://localhost:8082/api/readyz
 ```
 
 Health responses include `version`, `git_sha`, and `build_time` when binaries are built through `make build`.
+
+## Local API Gateway
+
+`make dev-up` starts Consul and Traefik with the rest of the local infrastructure. When `SERVICE_DISCOVERY_PROVIDER=consul` is set, API processes register in Consul, and Traefik discovers them through Consul Catalog. Worker processes also register as `sendflow-worker` so Prometheus and Grafana can discover every local worker instance without hard-coded scrape ports.
+
+```bash
+make dev-up
+make api
+curl http://localhost:8500/v1/catalog/service/sendflow-api
+curl http://localhost:8088/api/readyz
+```
+
+Use `make start N` to run N API and N worker instances. Local ports are selected randomly from available high ports and skipped if they are already used by another process or by an earlier instance in the same run. Override the range with `LOCAL_RANDOM_PORT_MIN` and `LOCAL_RANDOM_PORT_MAX` when needed. API and worker service IDs are unique in Consul. Traefik load balances the registered API instances, while Prometheus discovers both `sendflow-api` and `sendflow-worker`; Grafana dashboards expose an `instance` filter for checking each process.
 
 ## Staging Deployment
 

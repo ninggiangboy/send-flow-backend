@@ -14,24 +14,27 @@ import (
 )
 
 type Config struct {
-	AppName         string
-	AppEnv          string
-	HTTPAddr        string
-	LogLevel        string
-	AutoMigrate     bool
-	DatabaseURL     string
-	DatabaseReadURL string
-	RedisAddr       string
-	RedisPassword   string
-	RedisDB         int
-	KafkaBrokers    string
-	ClickHouseDSN   string
-	EmailProvider   string
-	FrontendBaseURL string
-	SMTP            SMTPConfig
-	SES             SESConfig
-	ObjectStorage   ObjectStorageConfig
-	ShutdownTimeout time.Duration
+	AppName          string
+	AppEnv           string
+	RuntimeIdentity  RuntimeIdentityConfig
+	HTTPAddr         string
+	LogLevel         string
+	AutoMigrate      bool
+	DatabaseURL      string
+	DatabaseReadURL  string
+	RedisAddr        string
+	RedisPassword    string
+	RedisDB          int
+	KafkaBrokers     string
+	ClickHouseDSN    string
+	EmailProvider    string
+	FrontendBaseURL  string
+	SMTP             SMTPConfig
+	SES              SESConfig
+	ObjectStorage    ObjectStorageConfig
+	ServiceDiscovery ServiceDiscoveryConfig
+	WorkerDiscovery  ServiceDiscoveryConfig
+	ShutdownTimeout  time.Duration
 
 	WorkerHTTPAddr            string
 	WorkerEnabledConsumers    []string
@@ -54,6 +57,15 @@ type Config struct {
 	MFAChallengeTTL        time.Duration
 	FakeWebhookSecret      string
 	UnsubscribeTokenSecret string
+}
+
+type RuntimeIdentityConfig struct {
+	ServiceName  string
+	InstanceID   string
+	InstanceAddr string
+	PodName      string
+	Namespace    string
+	NodeName     string
 }
 
 type DatabaseConfig struct {
@@ -85,6 +97,16 @@ type ObjectStorageConfig struct {
 	Bucket          string
 	ForcePathStyle  bool
 	UseSSL          bool
+}
+
+type ServiceDiscoveryConfig struct {
+	Provider        string
+	ConsulHTTPAddr  string
+	ServiceName     string
+	ServiceID       string
+	ServiceAddress  string
+	ServicePort     int
+	HealthCheckPath string
 }
 
 type SMTPConfig struct {
@@ -141,6 +163,14 @@ func LoadFromEnv() (Config, error) {
 			SecretAccessKey: os.Getenv("OBJECT_STORAGE_SECRET_ACCESS_KEY"),
 			Bucket:          getenv("OBJECT_STORAGE_BUCKET", "sendflow-local"),
 		},
+		ServiceDiscovery: ServiceDiscoveryConfig{
+			Provider:        strings.ToLower(strings.TrimSpace(os.Getenv("SERVICE_DISCOVERY_PROVIDER"))),
+			ConsulHTTPAddr:  getenv("CONSUL_HTTP_ADDR", "http://localhost:8500"),
+			ServiceName:     getenv("CONSUL_SERVICE_NAME", "sendflow-api"),
+			ServiceID:       getenv("CONSUL_SERVICE_ID", "sendflow-api-local"),
+			ServiceAddress:  getenv("CONSUL_SERVICE_ADDRESS", "host.docker.internal"),
+			HealthCheckPath: getenv("CONSUL_HEALTH_CHECK_PATH", "/api/readyz"),
+		},
 		WorkerHTTPAddr:            getenv("WORKER_HTTP_ADDR", ":8082"),
 		WorkerEnabledConsumers:    parseCSV("WORKER_ENABLED_CONSUMERS"),
 		WorkerConsumerGroupPrefix: getenv("WORKER_CONSUMER_GROUP_PREFIX", "send-flow"),
@@ -178,6 +208,26 @@ func LoadFromEnv() (Config, error) {
 	} else {
 		cfg.ObjectStorage.UseSSL = v
 	}
+	if v, err := parseInt("CONSUL_SERVICE_PORT", 8081); err != nil {
+		errs = append(errs, fmt.Errorf("CONSUL_SERVICE_PORT: %w", err))
+	} else {
+		cfg.ServiceDiscovery.ServicePort = v
+	}
+	cfg.WorkerDiscovery = ServiceDiscoveryConfig{
+		Provider:        strings.ToLower(strings.TrimSpace(getenv("WORKER_SERVICE_DISCOVERY_PROVIDER", cfg.ServiceDiscovery.Provider))),
+		ConsulHTTPAddr:  getenv("WORKER_CONSUL_HTTP_ADDR", cfg.ServiceDiscovery.ConsulHTTPAddr),
+		ServiceName:     getenv("CONSUL_WORKER_SERVICE_NAME", "sendflow-worker"),
+		ServiceID:       getenv("CONSUL_WORKER_SERVICE_ID", "sendflow-worker-local"),
+		ServiceAddress:  getenv("CONSUL_WORKER_SERVICE_ADDRESS", cfg.ServiceDiscovery.ServiceAddress),
+		HealthCheckPath: getenv("CONSUL_WORKER_HEALTH_CHECK_PATH", "/api/readyz"),
+		ServicePort:     portFromAddr(cfg.WorkerHTTPAddr, 8082),
+	}
+	if v, err := parseInt("CONSUL_WORKER_SERVICE_PORT", cfg.WorkerDiscovery.ServicePort); err != nil {
+		errs = append(errs, fmt.Errorf("CONSUL_WORKER_SERVICE_PORT: %w", err))
+	} else {
+		cfg.WorkerDiscovery.ServicePort = v
+	}
+	cfg.RuntimeIdentity = runtimeIdentity(cfg)
 	if v, err := parseDuration("SHUTDOWN_TIMEOUT", 10*time.Second); err != nil {
 		errs = append(errs, fmt.Errorf("SHUTDOWN_TIMEOUT: %w", err))
 	} else {
@@ -239,6 +289,47 @@ func LoadFromEnv() (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func runtimeIdentity(cfg Config) RuntimeIdentityConfig {
+	serviceName := strings.TrimSpace(os.Getenv("SERVICE_NAME"))
+	podName := strings.TrimSpace(os.Getenv("POD_NAME"))
+	identity := RuntimeIdentityConfig{
+		ServiceName:  serviceName,
+		InstanceID:   strings.TrimSpace(os.Getenv("INSTANCE_ID")),
+		InstanceAddr: strings.TrimSpace(os.Getenv("INSTANCE_ADDR")),
+		PodName:      podName,
+		Namespace:    strings.TrimSpace(os.Getenv("POD_NAMESPACE")),
+		NodeName:     strings.TrimSpace(os.Getenv("NODE_NAME")),
+	}
+	if identity.InstanceAddr == "" {
+		switch serviceName {
+		case "worker":
+			identity.InstanceAddr = cfg.WorkerHTTPAddr
+		case "api":
+			identity.InstanceAddr = cfg.HTTPAddr
+		}
+	}
+	if identity.InstanceID == "" {
+		switch serviceName {
+		case "worker":
+			identity.InstanceID = strings.TrimSpace(os.Getenv("CONSUL_WORKER_SERVICE_ID"))
+		case "api":
+			identity.InstanceID = strings.TrimSpace(os.Getenv("CONSUL_SERVICE_ID"))
+		}
+	}
+	if identity.InstanceID == "" {
+		identity.InstanceID = podName
+	}
+	if identity.InstanceID == "" {
+		switch serviceName {
+		case "worker":
+			identity.InstanceID = cfg.WorkerDiscovery.ServiceID
+		case "api":
+			identity.InstanceID = cfg.ServiceDiscovery.ServiceID
+		}
+	}
+	return identity
 }
 
 var devSecrets = []string{
@@ -329,6 +420,52 @@ func (c Config) Validate() error {
 			return errors.New("OBJECT_STORAGE_BUCKET is required when OBJECT_STORAGE_ENDPOINT is set")
 		}
 	}
+	if c.ServiceDiscovery.Enabled() {
+		if c.ServiceDiscovery.Provider != "consul" {
+			return errors.New("SERVICE_DISCOVERY_PROVIDER must be empty or consul")
+		}
+		if c.ServiceDiscovery.ConsulHTTPAddr == "" {
+			return errors.New("CONSUL_HTTP_ADDR is required when service discovery is enabled")
+		}
+		if c.ServiceDiscovery.ServiceName == "" {
+			return errors.New("CONSUL_SERVICE_NAME is required when service discovery is enabled")
+		}
+		if c.ServiceDiscovery.ServiceID == "" {
+			return errors.New("CONSUL_SERVICE_ID is required when service discovery is enabled")
+		}
+		if c.ServiceDiscovery.ServiceAddress == "" {
+			return errors.New("CONSUL_SERVICE_ADDRESS is required when service discovery is enabled")
+		}
+		if c.ServiceDiscovery.ServicePort <= 0 {
+			return errors.New("CONSUL_SERVICE_PORT must be > 0 when service discovery is enabled")
+		}
+		if c.ServiceDiscovery.HealthCheckPath == "" || !strings.HasPrefix(c.ServiceDiscovery.HealthCheckPath, "/") {
+			return errors.New("CONSUL_HEALTH_CHECK_PATH must start with / when service discovery is enabled")
+		}
+	}
+	if c.WorkerDiscovery.Enabled() {
+		if c.WorkerDiscovery.Provider != "consul" {
+			return errors.New("WORKER_SERVICE_DISCOVERY_PROVIDER must be empty or consul")
+		}
+		if c.WorkerDiscovery.ConsulHTTPAddr == "" {
+			return errors.New("WORKER_CONSUL_HTTP_ADDR is required when worker service discovery is enabled")
+		}
+		if c.WorkerDiscovery.ServiceName == "" {
+			return errors.New("CONSUL_WORKER_SERVICE_NAME is required when worker service discovery is enabled")
+		}
+		if c.WorkerDiscovery.ServiceID == "" {
+			return errors.New("CONSUL_WORKER_SERVICE_ID is required when worker service discovery is enabled")
+		}
+		if c.WorkerDiscovery.ServiceAddress == "" {
+			return errors.New("CONSUL_WORKER_SERVICE_ADDRESS is required when worker service discovery is enabled")
+		}
+		if c.WorkerDiscovery.ServicePort <= 0 {
+			return errors.New("CONSUL_WORKER_SERVICE_PORT must be > 0 when worker service discovery is enabled")
+		}
+		if c.WorkerDiscovery.HealthCheckPath == "" || !strings.HasPrefix(c.WorkerDiscovery.HealthCheckPath, "/") {
+			return errors.New("CONSUL_WORKER_HEALTH_CHECK_PATH must start with / when worker service discovery is enabled")
+		}
+	}
 	if c.WorkerHTTPAddr == "" {
 		return errors.New("WORKER_HTTP_ADDR is required")
 	}
@@ -357,6 +494,23 @@ func (c Config) KafkaEnabled() bool {
 
 func (c Config) ObjectStorageEnabled() bool {
 	return c.ObjectStorage.Endpoint != ""
+}
+
+func (c ServiceDiscoveryConfig) Enabled() bool {
+	return c.Provider != ""
+}
+
+func portFromAddr(addr string, fallback int) int {
+	addr = strings.TrimSpace(addr)
+	idx := strings.LastIndex(addr, ":")
+	if idx < 0 || idx == len(addr)-1 {
+		return fallback
+	}
+	port, err := strconv.Atoi(addr[idx+1:])
+	if err != nil || port <= 0 {
+		return fallback
+	}
+	return port
 }
 
 func (c Config) needsObjectStorage() bool {

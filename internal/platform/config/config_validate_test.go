@@ -161,6 +161,50 @@ func TestValidate_ValidConfig(t *testing.T) {
 	}
 }
 
+func TestValidate_ServiceDiscoveryDisabledByDefault(t *testing.T) {
+	cfg := validConfig()
+	if cfg.ServiceDiscovery.Enabled() {
+		t.Fatal("expected service discovery disabled by default")
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error when service discovery is disabled, got: %v", err)
+	}
+}
+
+func TestValidate_ServiceDiscoveryRequiresConsulProvider(t *testing.T) {
+	cfg := validConfig()
+	cfg.ServiceDiscovery = ServiceDiscoveryConfig{
+		Provider:        "nomad",
+		ConsulHTTPAddr:  "http://localhost:8500",
+		ServiceName:     "sendflow-api",
+		ServiceID:       "sendflow-api-local",
+		ServiceAddress:  "host.docker.internal",
+		ServicePort:     8081,
+		HealthCheckPath: "/api/readyz",
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for unsupported service discovery provider")
+	}
+}
+
+func TestValidate_ServiceDiscoveryRequiresValidHealthPath(t *testing.T) {
+	cfg := validConfig()
+	cfg.ServiceDiscovery = ServiceDiscoveryConfig{
+		Provider:        "consul",
+		ConsulHTTPAddr:  "http://localhost:8500",
+		ServiceName:     "sendflow-api",
+		ServiceID:       "sendflow-api-local",
+		ServiceAddress:  "host.docker.internal",
+		ServicePort:     8081,
+		HealthCheckPath: "api/readyz",
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for invalid service discovery health check path")
+	}
+}
+
 func TestValidate_WorkerHTTPAddrRequired(t *testing.T) {
 	cfg := validConfig()
 	cfg.WorkerHTTPAddr = ""

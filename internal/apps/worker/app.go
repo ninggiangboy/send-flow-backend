@@ -33,6 +33,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/observability"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/postgres"
 	platformredis "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/servicediscovery"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -403,17 +404,32 @@ func Run(ctx context.Context) error {
 		close(httpErrCh)
 	}()
 
+	var consulRegistrar *servicediscovery.ConsulRegistrar
+	if cfg.WorkerDiscovery.Enabled() {
+		consulRegistrar = servicediscovery.NewConsulRegistrar(cfg.WorkerDiscovery)
+		registerCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := consulRegistrar.Register(registerCtx); err != nil {
+			cancel()
+			stopWorkers()
+			_ = server.Close()
+			return err
+		}
+		cancel()
+		log.Info("worker service registered", "provider", cfg.WorkerDiscovery.Provider, "service_id", cfg.WorkerDiscovery.ServiceID)
+	}
+
+	var runErr error
 	select {
 	case <-ctx.Done():
-	case runErr := <-workerErrCh:
-		if runErr != nil {
+	case workerErr := <-workerErrCh:
+		if workerErr != nil {
 			stopWorkers()
-			return runErr
+			runErr = workerErr
 		}
 	case serveErr := <-httpErrCh:
 		if serveErr != nil {
 			stopWorkers()
-			return serveErr
+			runErr = serveErr
 		}
 	}
 
@@ -422,7 +438,17 @@ func Run(ctx context.Context) error {
 	defer cancel()
 
 	log.Info("worker stopping")
-	return server.Shutdown(shutdownCtx)
+	if consulRegistrar != nil {
+		if err := consulRegistrar.Deregister(shutdownCtx); err != nil {
+			log.Warn("failed to deregister worker service", "provider", cfg.WorkerDiscovery.Provider, "service_id", cfg.WorkerDiscovery.ServiceID, "error", err)
+		} else {
+			log.Info("worker service deregistered", "provider", cfg.WorkerDiscovery.Provider, "service_id", cfg.WorkerDiscovery.ServiceID)
+		}
+	}
+	if err := server.Shutdown(shutdownCtx); err != nil && runErr == nil {
+		runErr = err
+	}
+	return runErr
 }
 
 func newRouter(healthSvc *platformhealth.Service, httpMetrics *observability.HTTPMetrics) http.Handler {

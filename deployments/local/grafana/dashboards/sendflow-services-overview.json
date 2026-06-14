@@ -8,7 +8,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "10s",
   "time": {
     "from": "now-6h",
@@ -35,13 +35,32 @@
         }
       },
       {
+        "name": "instance_id",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(up{job=~\"$job\"}, service_id)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "label": "Instance"
+      },
+      {
         "name": "method",
         "type": "query",
         "datasource": {
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "query": "label_values(sendflow_http_requests_total{job=~\"$job\"}, method)",
+        "query": "label_values(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\"}, method)",
         "refresh": 1,
         "includeAll": true,
         "multi": true,
@@ -59,7 +78,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "query": "label_values(sendflow_http_requests_total{job=~\"$job\", method=~\"$method\"}, route)",
+        "query": "label_values(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\"}, route)",
         "refresh": 1,
         "includeAll": true,
         "multi": true,
@@ -77,7 +96,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "query": "label_values(sendflow_http_requests_total{job=~\"$job\"}, status)",
+        "query": "label_values(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\"}, status)",
         "refresh": 1,
         "includeAll": true,
         "multi": true,
@@ -108,7 +127,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(sendflow_http_requests_total{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m]))"
+          "expr": "sum(rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m]))"
         }
       ],
       "fieldConfig": {
@@ -148,7 +167,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(sendflow_http_requests_total{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"2..\"}[5m]))"
+          "expr": "sum(rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"2..\"}[5m]))"
         }
       ],
       "fieldConfig": {
@@ -188,7 +207,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(sendflow_http_requests_total{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"4..\"}[5m]))"
+          "expr": "sum(rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"4..\"}[5m]))"
         }
       ],
       "fieldConfig": {
@@ -228,7 +247,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(sendflow_http_requests_total{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"5..\"}[5m]))"
+          "expr": "sum(rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"5..\"}[5m]))"
         }
       ],
       "fieldConfig": {
@@ -268,7 +287,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))"
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))"
         }
       ],
       "fieldConfig": {
@@ -294,7 +313,7 @@
     {
       "id": 6,
       "type": "stat",
-      "title": "Services Up",
+      "title": "Active Service Instances",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -308,7 +327,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(up{job=~\"sendflow-.*\"})"
+          "expr": "sum(up{job=~\"sendflow-.*\", service_id=~\"$instance_id\"})"
         }
       ],
       "fieldConfig": {
@@ -332,6 +351,152 @@
       }
     },
     {
+      "id": 23,
+      "type": "stat",
+      "title": "Active API Instances",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(up{job=\"sendflow-api\", service_id=~\"$instance_id\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Active Worker Instances",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(up{job=\"sendflow-worker\", service_id=~\"$instance_id\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 25,
+      "type": "table",
+      "title": "Per-instance Health And Runtime",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=~\"sendflow-.*\", service_id=~\"$instance_id\"}",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (job, service_id) (rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m]))",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (job, service_id, le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "D",
+          "expr": "sum by (job, service_id) (rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", status=~\"5..\"}[5m])) / clamp_min(sum by (job, service_id) (rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\"}[5m])), 0.001)",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "E",
+          "expr": "sum by (job, service_id) (rate(process_cpu_seconds_total{job=~\"$job\", service_id=~\"$instance_id\"}[5m]) or rate(sendflow_process_cpu_seconds_total{job=~\"$job\", service_id=~\"$instance_id\"}[5m]))",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "F",
+          "expr": "sum by (job, service_id) (process_resident_memory_bytes{job=~\"$job\", service_id=~\"$instance_id\"} or sendflow_process_resident_memory_bytes{job=~\"$job\", service_id=~\"$instance_id\"})",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "G",
+          "expr": "sum by (job, service_id) (go_goroutines{job=~\"$job\", service_id=~\"$instance_id\"})",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
       "id": 7,
       "type": "row",
       "title": "Traffic",
@@ -339,7 +504,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 4
+        "y": 16
       },
       "collapsed": false,
       "panels": []
@@ -347,7 +512,7 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Request Rate By Service",
+      "title": "Request Rate By Instance",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -356,13 +521,13 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 5
+        "y": 17
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (job) (rate(sendflow_http_requests_total{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m]))",
-          "legendFormat": "{{job}}"
+          "expr": "sum by (job, service_id) (rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m]))",
+          "legendFormat": "{{job}} {{service_id}}"
         }
       ],
       "fieldConfig": {
@@ -404,12 +569,12 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 5
+        "y": 17
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(15, sum by (route) (rate(sendflow_http_requests_total{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))",
+          "expr": "topk(15, sum by (route) (rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))",
           "legendFormat": "{{route}}"
         }
       ],
@@ -452,12 +617,12 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 13
+        "y": 25
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (method) (rate(sendflow_http_requests_total{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m]))",
+          "expr": "sum by (method) (rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m]))",
           "legendFormat": "{{method}}"
         }
       ],
@@ -500,12 +665,12 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 13
+        "y": 25
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (status) (rate(sendflow_http_requests_total{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m]))",
+          "expr": "sum by (status) (rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m]))",
           "legendFormat": "{{status}}"
         }
       ],
@@ -548,12 +713,12 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 13
+        "y": 25
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(10, sum by (route, status) (rate(sendflow_http_requests_total{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"4..|5..\"}[5m])))",
+          "expr": "topk(10, sum by (route, status) (rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"4..|5..\"}[5m])))",
           "legendFormat": "{{route}} {{status}}"
         }
       ],
@@ -592,7 +757,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 33
       },
       "collapsed": false,
       "panels": []
@@ -609,22 +774,22 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 22
+        "y": 34
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))",
           "legendFormat": "p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))",
           "legendFormat": "p95"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))",
           "legendFormat": "p99"
         }
       ],
@@ -667,12 +832,12 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 22
+        "y": 34
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (route, le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (route, le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))",
           "legendFormat": "{{route}}"
         }
       ],
@@ -715,12 +880,12 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 30
+        "y": 42
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m]))",
+          "expr": "sum by (le) (rate(sendflow_http_request_duration_seconds_bucket{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m]))",
           "legendFormat": "le={{le}}"
         }
       ],
@@ -763,12 +928,12 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 30
+        "y": 42
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(20, sum by (method, route) (rate(sendflow_http_requests_total{job=~\"$job\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))"
+          "expr": "topk(20, sum by (method, route) (rate(sendflow_http_requests_total{job=~\"$job\", service_id=~\"$instance_id\", method=~\"$method\", route=~\"$route\", status=~\"$status\"}[5m])))"
         }
       ],
       "options": {
@@ -788,7 +953,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 50
       },
       "collapsed": false,
       "panels": []
@@ -796,7 +961,7 @@
     {
       "id": 19,
       "type": "stat",
-      "title": "Service Targets",
+      "title": "Service Targets By Instance",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -805,13 +970,13 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 39
+        "y": 51
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "up{job=~\"sendflow-.*\"}",
-          "legendFormat": "{{job}}"
+          "expr": "up{job=~\"sendflow-.*\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}}"
         }
       ],
       "fieldConfig": {
@@ -874,13 +1039,13 @@
         "h": 5,
         "w": 8,
         "x": 8,
-        "y": 39
+        "y": 51
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "scrape_duration_seconds{job=~\"sendflow-.*\"}",
-          "legendFormat": "{{job}}"
+          "expr": "scrape_duration_seconds{job=~\"sendflow-.*\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}}"
         }
       ],
       "fieldConfig": {
@@ -922,13 +1087,13 @@
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 39
+        "y": 51
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "scrape_samples_scraped{job=~\"sendflow-.*\"}",
-          "legendFormat": "{{job}}"
+          "expr": "scrape_samples_scraped{job=~\"sendflow-.*\", service_id=~\"$instance_id\"}",
+          "legendFormat": "{{job}} {{service_id}}"
         }
       ],
       "fieldConfig": {
@@ -970,12 +1135,12 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 56
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "{job=\"sendflow-files\"} | json | route!=\"/api/metrics\" | route!=\"/api/healthz\" | route!=\"/api/readyz\" | line_format `{{.level}} [{{.app}}/{{.env}}] {{.msg}}{{with .usecase}} usecase={{.}}{{end}}{{with .user_id}} user={{.}}{{end}}{{with .workspace_id}} workspace={{.}}{{end}}{{with .request_id}} request={{.}}{{end}}{{with .trace_id}} trace={{.}}{{end}}{{with .route}} route={{.}}{{end}}{{with .status}} status={{.}}{{end}}{{with .duration_ms}} duration_ms={{.}}{{end}}{{with .error}} error={{.}}{{end}}`"
+          "expr": "{job=\"sendflow-files\"} | json | route!=\"/api/metrics\" | route!=\"/api/healthz\" | route!=\"/api/readyz\" | line_format `{{.level}} [{{.app}}/{{.env}}]{{with .service}} service={{.}}{{end}}{{with .instance_id}} instance={{.}}{{end}} {{.msg}}{{with .usecase}} usecase={{.}}{{end}}{{with .user_id}} user={{.}}{{end}}{{with .workspace_id}} workspace={{.}}{{end}}{{with .request_id}} request={{.}}{{end}}{{with .trace_id}} trace={{.}}{{end}}{{with .route}} route={{.}}{{end}}{{with .status}} status={{.}}{{end}}{{with .duration_ms}} duration_ms={{.}}{{end}}{{with .error}} error={{.}}{{end}}`"
         }
       ],
       "options": {

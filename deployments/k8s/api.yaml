@@ -14,13 +14,18 @@ spec:
     metadata:
       labels:
         app: send-flow-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /api/metrics
+        prometheus.io/port: "8081"
     spec:
       containers:
         - name: api
           image: ghcr.io/replace-owner/send-flow-backend:latest
           imagePullPolicy: Always
           ports:
-            - containerPort: 8081
+            - name: http
+              containerPort: 8081
           env:
             - name: APP_NAME
               value: send-flow-api
@@ -28,6 +33,26 @@ spec:
               value: production
             - name: LOG_LEVEL
               value: info
+            - name: SERVICE_NAME
+              value: api
+            - name: INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: INSTANCE_ADDR
+              value: ":8081"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: HTTP_ADDR
               value: ":8081"
             - name: DATABASE_URL
@@ -82,3 +107,41 @@ spec:
     - name: http
       port: 80
       targetPort: 8081
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: send-flow-api
+  namespace: send-flow
+  labels:
+    app: send-flow-api
+spec:
+  selector:
+    matchLabels:
+      app: send-flow-api
+  namespaceSelector:
+    matchNames:
+      - send-flow
+  endpoints:
+    - port: http
+      path: /api/metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: send-flow-api
+  namespace: send-flow
+  labels:
+    app: send-flow-api
+spec:
+  selector:
+    matchLabels:
+      app: send-flow-api
+  namespaceSelector:
+    matchNames:
+      - send-flow
+  podMetricsEndpoints:
+    - port: http
+      path: /api/metrics
+      interval: 15s

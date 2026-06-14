@@ -58,6 +58,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
 	platformredis "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/servicediscovery"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
@@ -429,11 +430,25 @@ func Run(ctx context.Context) error {
 		close(errCh)
 	}()
 
+	var consulRegistrar *servicediscovery.ConsulRegistrar
+	if cfg.ServiceDiscovery.Enabled() {
+		consulRegistrar = servicediscovery.NewConsulRegistrar(cfg.ServiceDiscovery)
+		registerCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := consulRegistrar.Register(registerCtx); err != nil {
+			cancel()
+			_ = server.Close()
+			return err
+		}
+		cancel()
+		log.Info("api service registered", "provider", cfg.ServiceDiscovery.Provider, "service_id", cfg.ServiceDiscovery.ServiceID)
+	}
+
+	var runErr error
 	select {
 	case <-ctx.Done():
 	case serveErr := <-errCh:
 		if serveErr != nil {
-			return serveErr
+			runErr = serveErr
 		}
 	}
 
@@ -441,7 +456,17 @@ func Run(ctx context.Context) error {
 	defer cancel()
 
 	log.Info("api server stopping")
-	return server.Shutdown(shutdownCtx)
+	if consulRegistrar != nil {
+		if err := consulRegistrar.Deregister(shutdownCtx); err != nil {
+			log.Warn("api service deregistration failed", "provider", cfg.ServiceDiscovery.Provider, "service_id", cfg.ServiceDiscovery.ServiceID, "error", err)
+		} else {
+			log.Info("api service deregistered", "provider", cfg.ServiceDiscovery.Provider, "service_id", cfg.ServiceDiscovery.ServiceID)
+		}
+	}
+	if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil && runErr == nil {
+		runErr = shutdownErr
+	}
+	return runErr
 }
 
 type RouterDeps struct {
@@ -484,14 +509,16 @@ func newRouter(deps *RouterDeps) http.Handler {
 			http.MethodDelete,
 			http.MethodOptions,
 		},
-		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Requested-With"},
-		ExposeHeaders:    []string{"Content-Length"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Requested-With", "X-Request-Id"},
+		ExposeHeaders:    []string{"Content-Length", "X-Request-Id"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			reqCtx := &requestLogContext{RequestID: requestID(r)}
+			reqID := requestID(r)
+			reqCtx := &requestLogContext{RequestID: reqID}
+			w.Header().Set("X-Request-Id", reqID)
 			r = r.WithContext(context.WithValue(r.Context(), ctxRequestContext, reqCtx))
 			start := time.Now()
 			rec := &observability.ResponseRecorder{ResponseWriter: w, Status: http.StatusOK}
