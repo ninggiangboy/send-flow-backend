@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -58,7 +57,7 @@ func (s *refreshStoreStub) Replace(context.Context, string, string, string, time
 func TestExecuteRevokesAndDeletesRefreshToken(t *testing.T) {
 	refresh := &refreshStoreStub{}
 	write := &sessionWriteStub{}
-	h := New(usecase.Deps{
+	h := New(Options{
 		SessionsRead:  &sessionReadStub{sess: &domain.Session{ID: "s1", UserID: "u1", RefreshJTI: "r1", ExpiresAt: time.Now().UTC().Add(1 * time.Hour)}},
 		SessionsWrite: write,
 		RefreshStore:  refresh,
@@ -76,7 +75,7 @@ func TestExecuteAlreadyRevokedIsNoop(t *testing.T) {
 	refresh := &refreshStoreStub{}
 	write := &sessionWriteStub{}
 	revokedAt := time.Now().UTC().Add(-1 * time.Minute)
-	h := New(usecase.Deps{
+	h := New(Options{
 		SessionsRead:  &sessionReadStub{sess: &domain.Session{ID: "s1", UserID: "u1", RefreshJTI: "r1", RevokedAt: &revokedAt, ExpiresAt: time.Now().UTC().Add(1 * time.Hour)}},
 		SessionsWrite: write,
 		RefreshStore:  refresh,
@@ -96,7 +95,7 @@ func TestExecuteAlreadyRevokedIsNoop(t *testing.T) {
 func TestExecuteRejectsNonOwnedSession(t *testing.T) {
 	refresh := &refreshStoreStub{}
 	write := &sessionWriteStub{}
-	h := New(usecase.Deps{
+	h := New(Options{
 		SessionsRead:  &sessionReadStub{sess: &domain.Session{ID: "s1", UserID: "u1", RefreshJTI: "r1", ExpiresAt: time.Now().UTC().Add(1 * time.Hour)}},
 		SessionsWrite: write,
 		RefreshStore:  refresh,

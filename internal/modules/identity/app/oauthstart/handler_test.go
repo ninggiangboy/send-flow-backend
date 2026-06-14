@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
@@ -48,7 +47,7 @@ func (s *oauthStateStoreStub) GetAndDelete(context.Context, string) (*ports.OAut
 }
 
 func TestExecuteProviderDisabled(t *testing.T) {
-	h := New(usecase.Deps{Providers: map[string]ports.OAuthProvider{"google": &oauthProviderStub{enabled: false}}, Logger: testLogger})
+	h := New(Options{Providers: map[string]ports.OAuthProvider{"google": &oauthProviderStub{enabled: false}}, Logger: testLogger})
 	_, err := h.Execute(context.Background(), Command{Provider: "google", Now: time.Now().UTC()})
 	if !errors.Is(err, domain.ErrProviderDisabled) {
 		t.Fatalf("expected provider disabled, got %v", err)
@@ -57,11 +56,11 @@ func TestExecuteProviderDisabled(t *testing.T) {
 
 func TestExecuteSuccess(t *testing.T) {
 	store := &oauthStateStoreStub{}
-	h := New(usecase.Deps{
-		IDGen:         idGenStub{id: "state-1"},
+	h := New(Options{
+		IdGen:         idGenStub{id: "state-1"},
 		Providers:     map[string]ports.OAuthProvider{"google": &oauthProviderStub{enabled: true}},
-		OAuthState:    store,
-		OAuthStateTTL: 5 * time.Minute,
+		OauthState:    store,
+		OauthStateTTL: 5 * time.Minute,
 		Logger:        testLogger,
 	})
 	res, err := h.Execute(context.Background(), Command{Provider: "google", RedirectURI: "http://localhost/cb", Now: time.Now().UTC()})

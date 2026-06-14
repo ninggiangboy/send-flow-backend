@@ -2,11 +2,13 @@ package listworkspaces
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
+
+var testLogger = slog.Default()
 
 type workspacesReadStub struct {
 	workspaces []domain.Workspace
@@ -21,14 +23,12 @@ func (s *workspacesReadStub) ListByUser(_ context.Context, _ string) ([]domain.W
 }
 
 func TestExecuteSuccess(t *testing.T) {
-	h := New(usecase.Deps{
-		WorkspacesRead: &workspacesReadStub{
-			workspaces: []domain.Workspace{
-				{ID: "ws1", Name: "Workspace 1"},
-				{ID: "ws2", Name: "Workspace 2"},
-			},
+	h := New(&workspacesReadStub{
+		workspaces: []domain.Workspace{
+			{ID: "ws1", Name: "Workspace 1"},
+			{ID: "ws2", Name: "Workspace 2"},
 		},
-	})
+	}, testLogger)
 
 	result, err := h.Execute(context.Background(), "u1")
 	if err != nil {
@@ -40,11 +40,9 @@ func TestExecuteSuccess(t *testing.T) {
 }
 
 func TestExecuteEmpty(t *testing.T) {
-	h := New(usecase.Deps{
-		WorkspacesRead: &workspacesReadStub{
-			workspaces: []domain.Workspace{},
-		},
-	})
+	h := New(&workspacesReadStub{
+		workspaces: []domain.Workspace{},
+	}, testLogger)
 
 	result, err := h.Execute(context.Background(), "u1")
 	if err != nil {
@@ -56,11 +54,9 @@ func TestExecuteEmpty(t *testing.T) {
 }
 
 func TestExecuteError(t *testing.T) {
-	h := New(usecase.Deps{
-		WorkspacesRead: &workspacesReadStub{
-			err: domain.ErrWorkspaceNotFound,
-		},
-	})
+	h := New(&workspacesReadStub{
+		err: domain.ErrWorkspaceNotFound,
+	}, testLogger)
 
 	_, err := h.Execute(context.Background(), "u1")
 	if err == nil {

@@ -9,13 +9,34 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
+type Options struct {
+	Providers      map[string]ports.OAuthProvider
+	OauthState     ports.OAuthStateStore
+	ExternalsRead  ports.ExternalAccountReadRepository
+	ExternalsWrite ports.ExternalAccountWriteRepository
+	UsersRead      ports.UserReadRepository
+	UsersWrite     ports.UserWriteRepository
+	IdGen          ports.IDGenerator
+	UnitOfWork     ports.UnitOfWork
+	SessionFactory *usecase.SessionFactory
+	Logger         *slog.Logger
+}
+
 type Handler struct {
-	deps       usecase.Deps
-	newSession usecase.NewSession
-	log        *slog.Logger
+	providers      map[string]ports.OAuthProvider
+	oauthState     ports.OAuthStateStore
+	externalsRead  ports.ExternalAccountReadRepository
+	externalsWrite ports.ExternalAccountWriteRepository
+	usersRead      ports.UserReadRepository
+	usersWrite     ports.UserWriteRepository
+	idGen          ports.IDGenerator
+	unitOfWork     ports.UnitOfWork
+	sessionFactory *usecase.SessionFactory
+	log            *slog.Logger
 }
 
 type Command struct {
@@ -29,17 +50,28 @@ type Command struct {
 	Now          time.Time
 }
 
-func New(deps usecase.Deps, newSession usecase.NewSession) *Handler {
-	return &Handler{deps: deps, newSession: newSession, log: deps.Logger.With("usecase", "oauth_exchange")}
+func New(opts Options) *Handler {
+	return &Handler{
+		providers:      opts.Providers,
+		oauthState:     opts.OauthState,
+		externalsRead:  opts.ExternalsRead,
+		externalsWrite: opts.ExternalsWrite,
+		usersRead:      opts.UsersRead,
+		usersWrite:     opts.UsersWrite,
+		idGen:          opts.IdGen,
+		unitOfWork:     opts.UnitOfWork,
+		sessionFactory: opts.SessionFactory,
+		log:            opts.Logger.With("usecase", "oauth_exchange"),
+	}
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionContext, *domain.OAuthIdentity, error) {
-	p, ok := h.deps.Providers[cmd.Provider]
+	p, ok := h.providers[cmd.Provider]
 	if !ok {
 		h.log.Warn("unknown OAuth provider", "provider", cmd.Provider)
 		return nil, nil, domain.ErrNotFound
 	}
-	stored, err := h.deps.OAuthState.GetAndDelete(ctx, cmd.State)
+	stored, err := h.oauthState.GetAndDelete(ctx, cmd.State)
 	if err != nil || stored == nil || stored.Provider != cmd.Provider || stored.RedirectURI != cmd.RedirectURI {
 		h.log.Warn("invalid OAuth state", "provider", cmd.Provider)
 		return nil, nil, domain.ErrInvalidOAuthState
@@ -53,19 +85,19 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 		h.log.Error("OAuth provider exchange failed", "provider", cmd.Provider, "error", err)
 		return nil, nil, fmt.Errorf("oauth exchange: %w", err)
 	}
-	account, err := h.deps.ExternalsRead.FindByProviderIdentity(ctx, cmd.Provider, identity.ProviderUserID)
+	account, err := h.externalsRead.FindByProviderIdentity(ctx, cmd.Provider, identity.ProviderUserID)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		h.log.Error("failed to find external account", "provider", cmd.Provider, "error", err)
 		return nil, nil, err
 	}
 	var user *domain.User
 	if account != nil {
-		user, err = h.deps.UsersRead.FindByID(ctx, account.UserID)
+		user, err = h.usersRead.FindByID(ctx, account.UserID)
 		if err != nil {
 			h.log.Error("failed to find linked user", "provider", cmd.Provider, "user_id", account.UserID, "error", err)
 			return nil, nil, err
 		}
-		if err := h.deps.ExternalsWrite.TouchLogin(ctx, account.ID, cmd.Now); err != nil {
+		if err := h.externalsWrite.TouchLogin(ctx, account.ID, cmd.Now); err != nil {
 			h.log.Warn("failed to update last login", "provider", cmd.Provider, "user_id", user.ID, "error", err)
 		}
 		h.log.Info("OAuth exchange: linked existing account", "provider", cmd.Provider, "user_id", user.ID)
@@ -76,39 +108,39 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 			return nil, nil, domain.ErrUnauthorized
 		}
 		linkAccount := func(txCtx context.Context) error {
-			fetched, err := h.deps.UsersRead.FindByEmail(txCtx, email.String())
+			fetched, err := h.usersRead.FindByEmail(txCtx, email.String())
 			if err != nil && !errors.Is(err, domain.ErrNotFound) {
 				return fmt.Errorf("find user by email: %w", err)
 			}
 			if fetched == nil {
-				uID, err := h.deps.IDGen.New()
+				uID, err := h.idGen.New()
 				if err != nil {
 					return fmt.Errorf("generate user ID: %w", err)
 				}
 				u := domain.NewOAuthUser(uID, email, "oauth_"+cmd.Provider, cmd.Now)
-				if err := h.deps.UsersWrite.Create(txCtx, u); err != nil {
+				if err := h.usersWrite.Create(txCtx, u); err != nil {
 					return fmt.Errorf("create user: %w", err)
 				}
 				fetched = &u
 				h.log.Info("OAuth exchange: new user created", "provider", cmd.Provider, "user_id", fetched.ID)
 			}
-			accID, err := h.deps.IDGen.New()
+			accID, err := h.idGen.New()
 			if err != nil {
 				return fmt.Errorf("generate external account ID: %w", err)
 			}
 			acc := domain.NewExternalAuthAccount(accID, fetched.ID, cmd.Provider, identity.ProviderUserID, identity.Email, identity.EmailVerified, cmd.Now)
-			if err := h.deps.ExternalsWrite.Create(txCtx, acc); err != nil {
+			if err := h.externalsWrite.Create(txCtx, acc); err != nil {
 				return fmt.Errorf("create external account: %w", err)
 			}
 			user = fetched
 			return nil
 		}
-		if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, linkAccount); err != nil {
+		if err := transaction.RunInTx(ctx, h.unitOfWork, linkAccount); err != nil {
 			h.log.Error("failed to link OAuth account", "provider", cmd.Provider, "error", err)
 			return nil, nil, err
 		}
 	}
-	sctx, err := h.newSession(ctx, usecase.NewSessionInput{User: *user, Method: "oauth_" + cmd.Provider, IP: cmd.IP, UA: cmd.UA, Now: cmd.Now})
+	sctx, err := h.sessionFactory.NewSession(ctx, usecase.NewSessionInput{User: *user, Method: "oauth_" + cmd.Provider, IP: cmd.IP, UA: cmd.UA, Now: cmd.Now})
 	if err != nil {
 		return nil, nil, err
 	}

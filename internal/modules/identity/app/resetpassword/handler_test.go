@@ -39,6 +39,14 @@ type tokenHasherStub struct{}
 
 func (tokenHasherStub) HashToken(token string) string { return "hashed-" + token }
 
+type tokenGenStub struct{}
+
+func (tokenGenStub) RandomToken(n int) (string, error) { return "token", nil }
+
+type idGenStub struct{}
+
+func (idGenStub) New() (string, error) { return "id", nil }
+
 type hasherStub struct {
 	hash string
 	err  error
@@ -74,7 +82,7 @@ func (s *sessionsWriteStub) RotateTokens(ctx context.Context, sessionID, accessJ
 }
 
 func TestExecute_PasswordPolicyViolation(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		PasswordValidator: &passwordValidatorStub{err: errors.New("weak")},
 		Logger:            testLogger,
 	})
@@ -85,10 +93,10 @@ func TestExecute_PasswordPolicyViolation(t *testing.T) {
 }
 
 func TestExecute_InvalidResetToken(t *testing.T) {
-	h := New(usecase.Deps{
+	authTokenSvc := usecase.NewAuthTokenService(&authTokenRepoStub{err: domain.ErrNotFound}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
 		PasswordValidator: &passwordValidatorStub{},
-		AuthTokens:        &authTokenRepoStub{err: domain.ErrNotFound},
-		TokenHasher:       tokenHasherStub{},
+		AuthTokens:        authTokenSvc,
 		Logger:            testLogger,
 	})
 	err := h.Execute(context.Background(), Command{Token: "t", NewPassword: "StrongPassword123!", Now: time.Now()})
@@ -98,10 +106,10 @@ func TestExecute_InvalidResetToken(t *testing.T) {
 }
 
 func TestExecute_ConsumeTokenFails(t *testing.T) {
-	h := New(usecase.Deps{
+	authTokenSvc := usecase.NewAuthTokenService(&authTokenRepoStub{err: errors.New("unexpected")}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
 		PasswordValidator: &passwordValidatorStub{},
-		AuthTokens:        &authTokenRepoStub{err: errors.New("unexpected")},
-		TokenHasher:       tokenHasherStub{},
+		AuthTokens:        authTokenSvc,
 		Logger:            testLogger,
 	})
 	err := h.Execute(context.Background(), Command{Token: "t", NewPassword: "StrongPassword123!", Now: time.Now()})
@@ -111,19 +119,21 @@ func TestExecute_ConsumeTokenFails(t *testing.T) {
 }
 
 func TestExecute_HashFails(t *testing.T) {
-	h := New(usecase.Deps{
-		PasswordValidator: &passwordValidatorStub{},
-		AuthTokens: &authTokenRepoStub{
-			token: &domain.AuthToken{
-				ID: "t1", UserID: "u1",
-				ExpiresAt: time.Now().Add(1 * time.Hour),
-			},
+	repo := &authTokenRepoStub{
+		token: &domain.AuthToken{
+			ID: "t1", UserID: "u1",
+			ExpiresAt: time.Now().Add(1 * time.Hour),
 		},
-		TokenHasher:   tokenHasherStub{},
-		Hasher:        &hasherStub{err: errors.New("hash fail")},
-		UsersWrite:    &userWriteStub{},
-		SessionsWrite: &sessionsWriteStub{},
-		Logger:        testLogger,
+	}
+	authTokenSvc := usecase.NewAuthTokenService(repo, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
+		PasswordValidator: &passwordValidatorStub{},
+		AuthTokens:        authTokenSvc,
+		Hasher:            &hasherStub{err: errors.New("hash fail")},
+		UsersWrite:        &userWriteStub{},
+		SessionsWrite:     &sessionsWriteStub{},
+		AuthTokensRepo:    repo,
+		Logger:            testLogger,
 	})
 	err := h.Execute(context.Background(), Command{Token: "t", NewPassword: "StrongPassword123!", Now: time.Now()})
 	if err == nil {
@@ -132,19 +142,21 @@ func TestExecute_HashFails(t *testing.T) {
 }
 
 func TestExecute_Success(t *testing.T) {
-	h := New(usecase.Deps{
-		PasswordValidator: &passwordValidatorStub{},
-		AuthTokens: &authTokenRepoStub{
-			token: &domain.AuthToken{
-				ID: "t1", UserID: "u1",
-				ExpiresAt: time.Now().Add(1 * time.Hour),
-			},
+	repo := &authTokenRepoStub{
+		token: &domain.AuthToken{
+			ID: "t1", UserID: "u1",
+			ExpiresAt: time.Now().Add(1 * time.Hour),
 		},
-		TokenHasher:   tokenHasherStub{},
-		Hasher:        &hasherStub{hash: "hashed-pw"},
-		UsersWrite:    &userWriteStub{},
-		SessionsWrite: &sessionsWriteStub{},
-		Logger:        testLogger,
+	}
+	authTokenSvc := usecase.NewAuthTokenService(repo, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
+		PasswordValidator: &passwordValidatorStub{},
+		AuthTokens:        authTokenSvc,
+		Hasher:            &hasherStub{hash: "hashed-pw"},
+		UsersWrite:        &userWriteStub{},
+		SessionsWrite:     &sessionsWriteStub{},
+		AuthTokensRepo:    repo,
+		Logger:            testLogger,
 	})
 	err := h.Execute(context.Background(), Command{Token: "t", NewPassword: "StrongPassword123!", Now: time.Now()})
 	if err != nil {

@@ -5,21 +5,35 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
 
-type Handler struct {
-	deps usecase.Deps
-	log  *slog.Logger
+type Options struct {
+	SessionsRead  ports.SessionReadRepository
+	SessionsWrite ports.SessionWriteRepository
+	RefreshStore  ports.RefreshStore
+	Logger        *slog.Logger
 }
 
-func New(deps usecase.Deps) *Handler {
-	return &Handler{deps: deps, log: deps.Logger.With("usecase", "revoke_session")}
+type Handler struct {
+	sessionsRead  ports.SessionReadRepository
+	sessionsWrite ports.SessionWriteRepository
+	refreshStore  ports.RefreshStore
+	log           *slog.Logger
+}
+
+func New(opts Options) *Handler {
+	return &Handler{
+		sessionsRead:  opts.SessionsRead,
+		sessionsWrite: opts.SessionsWrite,
+		refreshStore:  opts.RefreshStore,
+		log:           opts.Logger.With("usecase", "revoke_session"),
+	}
 }
 
 func (h *Handler) Execute(ctx context.Context, sessionID, userID string, now time.Time) error {
-	sess, err := h.deps.SessionsRead.FindByID(ctx, sessionID)
+	sess, err := h.sessionsRead.FindByID(ctx, sessionID)
 	if err != nil {
 		h.log.Error("failed to find session for revocation", "session_id", sessionID, "error", err)
 		return err
@@ -31,11 +45,11 @@ func (h *Handler) Execute(ctx context.Context, sessionID, userID string, now tim
 		h.log.Info("session already revoked", "session_id", sessionID)
 		return nil
 	}
-	if err := h.deps.SessionsWrite.RevokeByID(ctx, sessionID, now); err != nil {
+	if err := h.sessionsWrite.RevokeByID(ctx, sessionID, now); err != nil {
 		h.log.Error("failed to revoke session", "session_id", sessionID, "error", err)
 		return err
 	}
-	if err := h.deps.RefreshStore.Delete(ctx, sess.RefreshJTI); err != nil {
+	if err := h.refreshStore.Delete(ctx, sess.RefreshJTI); err != nil {
 		h.log.Error("failed to delete refresh token mapping", "session_id", sessionID, "error", err)
 		return err
 	}

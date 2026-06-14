@@ -2,54 +2,11 @@ package usecase
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
-
-type Deps struct {
-	UsersRead         ports.UserReadRepository
-	UsersWrite        ports.UserWriteRepository
-	ExternalsRead     ports.ExternalAccountReadRepository
-	ExternalsWrite    ports.ExternalAccountWriteRepository
-	SessionsRead      ports.SessionReadRepository
-	SessionsWrite     ports.SessionWriteRepository
-	Hasher            domain.PasswordHasher
-	Tokens            ports.TokenManager
-	OAuthState        ports.OAuthStateStore
-	RefreshStore      ports.RefreshStore
-	AuthTokens        ports.AuthTokenRepository
-	TOTP              ports.TOTPRepository
-	Providers         map[string]ports.OAuthProvider
-	OAuthStateTTL     time.Duration
-	MailSender        ports.Mailer
-	RateLimiter       ports.RateLimiter
-	IDGen             ports.IDGenerator
-	TokenGen          ports.TokenGenerator
-	TokenHasher       ports.TokenHasher
-	PasswordValidator ports.PasswordValidator
-	TOTPVerifier      ports.TOTPCodeVerifier
-	TOTPSecretGen     ports.TOTPSecretGenerator
-	RecoveryCodeGen   ports.RecoveryCodeGenerator
-	FrontendBaseURL   string
-	VerificationTTL   time.Duration
-	PasswordResetTTL  time.Duration
-	MFAChallengeTTL   time.Duration
-	WorkspacesRead    ports.WorkspaceReadRepository
-	WorkspacesWrite   ports.WorkspaceWriteRepository
-	RolesRead         ports.RoleReadRepository
-	RolesWrite        ports.RoleWriteRepository
-	MembershipsRead   ports.MembershipReadRepository
-	MembershipsWrite  ports.MembershipWriteRepository
-	InvitationsRead   ports.InvitationReadRepository
-	InvitationsWrite  ports.InvitationWriteRepository
-	SettingsWrite     ports.WorkspaceSettingsWriteRepository
-	Logger            *slog.Logger
-	UnitOfWork        ports.UnitOfWork
-	OutboxWriter      ports.OutboxWriter
-}
 
 type SessionContext struct {
 	Session domain.Session

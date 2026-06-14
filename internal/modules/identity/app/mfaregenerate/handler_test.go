@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/mfatotpenable"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -77,16 +77,17 @@ func (s *userWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, tim
 
 func TestExecuteSuccess(t *testing.T) {
 	now := time.Now()
-	h := New(usecase.Deps{
-		TOTP:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
-		TOTPVerifier:    &totpVerifierStub{valid: true},
+	enableHandler := mfatotpenable.New(mfatotpenable.Options{
+		Totp:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
+		TotpVerifier:    &totpVerifierStub{valid: true},
 		RecoveryCodeGen: &recoveryCodeGenStub{code: "RC-123456"},
-		IDGen:           &idGenStub{id: "rc-1"},
+		IdGen:           &idGenStub{id: "rc-1"},
 		TokenHasher:     tokenHasherStub{},
 		UsersWrite:      &userWriteStub{},
 		UnitOfWork:      noopTx{},
 		Logger:          testLogger,
 	})
+	h := New(enableHandler, testLogger)
 	res, err := h.Execute(context.Background(), "u1", "123456", now)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -98,16 +99,17 @@ func TestExecuteSuccess(t *testing.T) {
 
 func TestExecuteInvalidCode(t *testing.T) {
 	now := time.Now()
-	h := New(usecase.Deps{
-		TOTP:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
-		TOTPVerifier:    &totpVerifierStub{valid: false},
+	enableHandler := mfatotpenable.New(mfatotpenable.Options{
+		Totp:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
+		TotpVerifier:    &totpVerifierStub{valid: false},
 		RecoveryCodeGen: &recoveryCodeGenStub{code: "RC-123456"},
-		IDGen:           &idGenStub{id: "rc-1"},
+		IdGen:           &idGenStub{id: "rc-1"},
 		TokenHasher:     tokenHasherStub{},
 		UsersWrite:      &userWriteStub{},
 		UnitOfWork:      noopTx{},
 		Logger:          testLogger,
 	})
+	h := New(enableHandler, testLogger)
 	_, err := h.Execute(context.Background(), "u1", "wrong", now)
 	if !errors.Is(err, domain.ErrMFAInvalidCode) {
 		t.Fatalf("expected ErrMFAInvalidCode, got %v", err)

@@ -3,13 +3,15 @@ package authenticate
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
+
+var testLogger = slog.Default()
 
 type tokenStub struct {
 	claims *ports.AccessClaims
@@ -23,7 +25,7 @@ func (s *tokenStub) ParseAccess(string) (*ports.AccessClaims, error)  { return s
 func (s *tokenStub) ParseRefresh(string) (*ports.AccessClaims, error) { return s.claims, s.err }
 
 func TestExecuteUnauthorizedWhenTokenInvalid(t *testing.T) {
-	h := New(usecase.Deps{Tokens: &tokenStub{err: errors.New("bad token")}})
+	h := New(&tokenStub{err: errors.New("bad token")}, testLogger)
 	_, _, err := h.Execute(context.Background(), "token")
 	if !errors.Is(err, domain.ErrUnauthorized) {
 		t.Fatalf("expected unauthorized, got %v", err)
@@ -31,9 +33,7 @@ func TestExecuteUnauthorizedWhenTokenInvalid(t *testing.T) {
 }
 
 func TestExecuteSuccess(t *testing.T) {
-	h := New(usecase.Deps{
-		Tokens: &tokenStub{claims: &ports.AccessClaims{Subject: "u1", SessionID: "s1", JWTID: "j1", ExpiresAt: time.Now().UTC().Add(1 * time.Hour).Unix()}},
-	})
+	h := New(&tokenStub{claims: &ports.AccessClaims{Subject: "u1", SessionID: "s1", JWTID: "j1", ExpiresAt: time.Now().UTC().Add(1 * time.Hour).Unix()}}, testLogger)
 	sess, user, err := h.Execute(context.Background(), "token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -44,9 +44,7 @@ func TestExecuteSuccess(t *testing.T) {
 }
 
 func TestExecuteUnauthorizedWhenClaimsIncomplete(t *testing.T) {
-	h := New(usecase.Deps{
-		Tokens: &tokenStub{claims: &ports.AccessClaims{Subject: "u1", JWTID: "j1"}},
-	})
+	h := New(&tokenStub{claims: &ports.AccessClaims{Subject: "u1", JWTID: "j1"}}, testLogger)
 	_, _, err := h.Execute(context.Background(), "token")
 	if !errors.Is(err, domain.ErrUnauthorized) {
 		t.Fatalf("expected unauthorized for incomplete claims, got %v", err)

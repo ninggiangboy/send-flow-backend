@@ -8,12 +8,27 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
 
+type Options struct {
+	AuthTokens     *usecase.AuthTokenService
+	UsersRead      ports.UserReadRepository
+	Totp           ports.TOTPRepository
+	TokenHasher    ports.TokenHasher
+	TotpVerifier   ports.TOTPCodeVerifier
+	SessionFactory *usecase.SessionFactory
+	Logger         *slog.Logger
+}
+
 type Handler struct {
-	deps       usecase.Deps
-	newSession usecase.NewSession
-	log        *slog.Logger
+	authTokens     *usecase.AuthTokenService
+	usersRead      ports.UserReadRepository
+	totp           ports.TOTPRepository
+	tokenHasher    ports.TokenHasher
+	totpVerifier   ports.TOTPCodeVerifier
+	sessionFactory *usecase.SessionFactory
+	log            *slog.Logger
 }
 
 type Command struct {
@@ -25,12 +40,20 @@ type Command struct {
 	Now            time.Time
 }
 
-func New(deps usecase.Deps, newSession usecase.NewSession) *Handler {
-	return &Handler{deps: deps, newSession: newSession, log: deps.Logger.With("usecase", "mfa_login")}
+func New(opts Options) *Handler {
+	return &Handler{
+		authTokens:     opts.AuthTokens,
+		usersRead:      opts.UsersRead,
+		totp:           opts.Totp,
+		tokenHasher:    opts.TokenHasher,
+		totpVerifier:   opts.TotpVerifier,
+		sessionFactory: opts.SessionFactory,
+		log:            opts.Logger.With("usecase", "mfa_login"),
+	}
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionContext, error) {
-	record, err := usecase.ConsumeAuthToken(ctx, h.deps, cmd.ChallengeToken, domain.AuthTokenPurposeMFAChallenge, cmd.Now)
+	record, err := h.authTokens.ConsumeToken(ctx, cmd.ChallengeToken, domain.AuthTokenPurposeMFAChallenge, cmd.Now)
 	if err != nil {
 		if errors.Is(err, domain.ErrUnauthorized) || errors.Is(err, domain.ErrNotFound) {
 			h.log.Warn("invalid or expired MFA challenge token")
@@ -39,36 +62,36 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 		h.log.Error("failed to consume MFA challenge token", "error", err)
 		return nil, err
 	}
-	user, err := h.deps.UsersRead.FindByID(ctx, record.UserID)
+	user, err := h.usersRead.FindByID(ctx, record.UserID)
 	if err != nil {
 		h.log.Error("failed to find user for MFA login", "user_id", record.UserID, "error", err)
 		return nil, err
 	}
 	if cmd.RecoveryCode != "" {
-		codes, err := h.deps.TOTP.ListRecoveryCodes(ctx, user.ID)
+		codes, err := h.totp.ListRecoveryCodes(ctx, user.ID)
 		if err != nil {
 			h.log.Error("failed to list recovery codes", "user_id", user.ID, "error", err)
 			return nil, err
 		}
-		rawHash := h.deps.TokenHasher.HashToken(cmd.RecoveryCode)
+		rawHash := h.tokenHasher.HashToken(cmd.RecoveryCode)
 		for _, code := range codes {
 			if code.ConsumedAt == nil && code.CodeHash == rawHash {
-				if err := h.deps.TOTP.ConsumeRecoveryCode(ctx, code.ID, cmd.Now); err != nil {
+				if err := h.totp.ConsumeRecoveryCode(ctx, code.ID, cmd.Now); err != nil {
 					h.log.Error("failed to consume recovery code", "user_id", user.ID, "error", err)
 					return nil, err
 				}
 				h.log.Info("MFA login completed via recovery code", "user_id", user.ID)
-				return h.newSession(ctx, usecase.NewSessionInput{User: *user, Method: "password_mfa", IP: cmd.IP, UA: cmd.UA, Now: cmd.Now})
+				return h.sessionFactory.NewSession(ctx, usecase.NewSessionInput{User: *user, Method: "password_mfa", IP: cmd.IP, UA: cmd.UA, Now: cmd.Now})
 			}
 		}
 		h.log.Warn("invalid MFA recovery code", "user_id", user.ID)
 		return nil, domain.ErrMFAInvalidCode
 	}
-	secret, err := h.deps.TOTP.FindSecretByUser(ctx, user.ID)
-	if err != nil || !h.deps.TOTPVerifier.VerifyTOTPCode(secret.Secret, cmd.Code, cmd.Now) {
+	secret, err := h.totp.FindSecretByUser(ctx, user.ID)
+	if err != nil || !h.totpVerifier.VerifyTOTPCode(secret.Secret, cmd.Code, cmd.Now) {
 		h.log.Warn("invalid MFA TOTP code", "user_id", user.ID)
 		return nil, domain.ErrMFAInvalidCode
 	}
 	h.log.Info("MFA login completed via TOTP", "user_id", user.ID)
-	return h.newSession(ctx, usecase.NewSessionInput{User: *user, Method: "password_mfa", IP: cmd.IP, UA: cmd.UA, Now: cmd.Now})
+	return h.sessionFactory.NewSession(ctx, usecase.NewSessionInput{User: *user, Method: "password_mfa", IP: cmd.IP, UA: cmd.UA, Now: cmd.Now})
 }

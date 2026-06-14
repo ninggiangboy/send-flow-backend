@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -29,10 +28,7 @@ func (s *sessionsReadStub) ListByUser(ctx context.Context, userID string, now ti
 }
 
 func TestExecute_ListFails(t *testing.T) {
-	h := New(usecase.Deps{
-		SessionsRead: &sessionsReadStub{err: errors.New("db error")},
-		Logger:       testLogger,
-	})
+	h := New(&sessionsReadStub{err: errors.New("db error")}, testLogger)
 	sessions, err := h.Execute(context.Background(), "u1", time.Now())
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -43,10 +39,7 @@ func TestExecute_ListFails(t *testing.T) {
 }
 
 func TestExecute_EmptyList(t *testing.T) {
-	h := New(usecase.Deps{
-		SessionsRead: &sessionsReadStub{sessions: []domain.Session{}},
-		Logger:       testLogger,
-	})
+	h := New(&sessionsReadStub{sessions: []domain.Session{}}, testLogger)
 	sessions, err := h.Execute(context.Background(), "u1", time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -61,10 +54,7 @@ func TestExecute_Success(t *testing.T) {
 		{ID: "s1", UserID: "u1"},
 		{ID: "s2", UserID: "u1"},
 	}
-	h := New(usecase.Deps{
-		SessionsRead: &sessionsReadStub{sessions: sessions},
-		Logger:       testLogger,
-	})
+	h := New(&sessionsReadStub{sessions: sessions}, testLogger)
 	result, err := h.Execute(context.Background(), "u1", time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

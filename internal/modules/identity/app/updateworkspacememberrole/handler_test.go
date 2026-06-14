@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -102,7 +101,7 @@ func (s *rolesWriteStub) ReplaceInvitationRoles(ctx context.Context, invitationI
 
 func TestUpdateWorkspaceMemberRoleSuccess(t *testing.T) {
 	now := time.Now().UTC()
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger:     testLogger,
 		UnitOfWork: &noopTx{},
 		MembershipsRead: &membershipsReadStub{
@@ -142,7 +141,7 @@ func TestUpdateWorkspaceMemberRoleSuccess(t *testing.T) {
 }
 
 func TestUpdateWorkspaceMemberRole_UpdaterNotMember(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger:     testLogger,
 		UnitOfWork: &noopTx{},
 		MembershipsRead: &membershipsReadStub{
@@ -159,7 +158,7 @@ func TestUpdateWorkspaceMemberRole_UpdaterNotMember(t *testing.T) {
 
 func TestUpdateWorkspaceMemberRole_UpdaterMembershipReadError(t *testing.T) {
 	expectedErr := errors.New("db error")
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger:     testLogger,
 		UnitOfWork: &noopTx{},
 		MembershipsRead: &membershipsReadStub{
@@ -175,7 +174,7 @@ func TestUpdateWorkspaceMemberRole_UpdaterMembershipReadError(t *testing.T) {
 }
 
 func TestUpdateWorkspaceMemberRole_InsufficientPermissions(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger:     testLogger,
 		UnitOfWork: &noopTx{},
 		MembershipsRead: &membershipsReadStub{
@@ -197,7 +196,7 @@ func TestUpdateWorkspaceMemberRole_InsufficientPermissions(t *testing.T) {
 
 func TestUpdateWorkspaceMemberRole_TargetNotFound(t *testing.T) {
 	expectedErr := errors.New("not found")
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger:     testLogger,
 		UnitOfWork: &noopTx{},
 		MembershipsRead: &membershipsReadStub{
@@ -221,7 +220,7 @@ func TestUpdateWorkspaceMemberRole_TargetNotFound(t *testing.T) {
 }
 
 func TestUpdateWorkspaceMemberRole_TargetWrongWorkspace(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger:     testLogger,
 		UnitOfWork: &noopTx{},
 		MembershipsRead: &membershipsReadStub{
@@ -245,7 +244,7 @@ func TestUpdateWorkspaceMemberRole_TargetWrongWorkspace(t *testing.T) {
 }
 
 func TestUpdateWorkspaceMemberRole_EmptyRoleIDs(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger:     testLogger,
 		UnitOfWork: &noopTx{},
 		MembershipsRead: &membershipsReadStub{
@@ -269,7 +268,7 @@ func TestUpdateWorkspaceMemberRole_EmptyRoleIDs(t *testing.T) {
 }
 
 func TestUpdateWorkspaceMemberRole_RoleNotFound(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger:     testLogger,
 		UnitOfWork: &noopTx{},
 		MembershipsRead: &membershipsReadStub{
@@ -296,7 +295,7 @@ func TestUpdateWorkspaceMemberRole_RoleNotFound(t *testing.T) {
 }
 
 func TestUpdateWorkspaceMemberRole_RoleNotActive(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger:     testLogger,
 		UnitOfWork: &noopTx{},
 		MembershipsRead: &membershipsReadStub{
@@ -323,7 +322,7 @@ func TestUpdateWorkspaceMemberRole_RoleNotActive(t *testing.T) {
 }
 
 func TestUpdateWorkspaceMemberRole_DemoteLastOwner(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger:     testLogger,
 		UnitOfWork: &noopTx{},
 		MembershipsRead: &membershipsReadStub{

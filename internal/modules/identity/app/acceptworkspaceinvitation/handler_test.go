@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -125,7 +124,7 @@ func (s *invitationsWriteStub) UpdateStatus(_ context.Context, _ string, _ domai
 func TestExecuteSuccess(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
-	h := New(usecase.Deps{
+	h := New(Options{
 		InvitationsRead: &invitationsReadStub{invitation: &invitation},
 		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "user@example.com"}},
 		MembershipsRead: &membershipsReadStub{err: domain.ErrMembershipNotFound},
@@ -137,7 +136,7 @@ func TestExecuteSuccess(t *testing.T) {
 		MembershipsWrite: &membershipsWriteStub{},
 		RolesWrite:       &rolesWriteStub{},
 		InvitationsWrite: &invitationsWriteStub{},
-		IDGen:            idGenStub{id: "m1"},
+		IdGen:            idGenStub{id: "m1"},
 		UnitOfWork:       noopTx{},
 		Logger:           testLogger,
 	})
@@ -152,7 +151,7 @@ func TestExecuteSuccess(t *testing.T) {
 }
 
 func TestExecuteInvalidToken(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		InvitationsRead: &invitationsReadStub{err: domain.ErrInvitationNotFound},
 		Logger:          testLogger,
 	})
@@ -166,7 +165,7 @@ func TestExecuteInvalidToken(t *testing.T) {
 func TestExecuteExpiredInvitation(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(-1*time.Hour), now)
-	h := New(usecase.Deps{
+	h := New(Options{
 		InvitationsRead: &invitationsReadStub{invitation: &invitation},
 		Logger:          testLogger,
 	})
@@ -181,7 +180,7 @@ func TestExecuteAlreadyAccepted(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
 	invitation.Status = domain.InvitationStatusAccepted
-	h := New(usecase.Deps{
+	h := New(Options{
 		InvitationsRead: &invitationsReadStub{invitation: &invitation},
 		Logger:          testLogger,
 	})
@@ -195,7 +194,7 @@ func TestExecuteAlreadyAccepted(t *testing.T) {
 func TestExecuteEmailMismatch(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "other@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
-	h := New(usecase.Deps{
+	h := New(Options{
 		InvitationsRead: &invitationsReadStub{invitation: &invitation},
 		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "user@example.com"}},
 		Logger:          testLogger,
@@ -210,7 +209,7 @@ func TestExecuteEmailMismatch(t *testing.T) {
 func TestExecuteAlreadyMember(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
-	h := New(usecase.Deps{
+	h := New(Options{
 		InvitationsRead: &invitationsReadStub{invitation: &invitation},
 		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "user@example.com"}},
 		MembershipsRead: &membershipsReadStub{
@@ -228,7 +227,7 @@ func TestExecuteAlreadyMember(t *testing.T) {
 func TestExecuteInvitationNoRoles(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
-	h := New(usecase.Deps{
+	h := New(Options{
 		InvitationsRead: &invitationsReadStub{invitation: &invitation},
 		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "user@example.com"}},
 		MembershipsRead: &membershipsReadStub{err: domain.ErrMembershipNotFound},
@@ -245,7 +244,7 @@ func TestExecuteInvitationNoRoles(t *testing.T) {
 func TestExecuteIDGenError(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
-	h := New(usecase.Deps{
+	h := New(Options{
 		InvitationsRead: &invitationsReadStub{invitation: &invitation},
 		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "user@example.com"}},
 		MembershipsRead: &membershipsReadStub{err: domain.ErrMembershipNotFound},
@@ -254,7 +253,7 @@ func TestExecuteIDGenError(t *testing.T) {
 				{ID: "r1", Name: "Member", Type: domain.RoleTypeMember, Status: domain.RoleStatusActive},
 			},
 		},
-		IDGen:  idGenStub{err: errors.New("idgen error")},
+		IdGen:  idGenStub{err: errors.New("idgen error")},
 		Logger: testLogger,
 	})
 

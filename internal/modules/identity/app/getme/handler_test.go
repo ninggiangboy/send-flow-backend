@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -24,10 +23,7 @@ func (s *usersReadStub) FindByID(ctx context.Context, userID string) (*domain.Us
 }
 
 func TestExecute_NotFound(t *testing.T) {
-	h := New(usecase.Deps{
-		UsersRead: &usersReadStub{err: domain.ErrNotFound},
-		Logger:    testLogger,
-	})
+	h := New(&usersReadStub{err: domain.ErrNotFound}, testLogger)
 	user, err := h.Execute(context.Background(), "u1")
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -39,10 +35,7 @@ func TestExecute_NotFound(t *testing.T) {
 
 func TestExecute_Success(t *testing.T) {
 	u := &domain.User{ID: "u1", Email: "a@example.com"}
-	h := New(usecase.Deps{
-		UsersRead: &usersReadStub{user: u},
-		Logger:    testLogger,
-	})
+	h := New(&usersReadStub{user: u}, testLogger)
 	user, err := h.Execute(context.Background(), "u1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

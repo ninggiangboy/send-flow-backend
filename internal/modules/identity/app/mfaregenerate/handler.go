@@ -6,17 +6,15 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/mfatotpenable"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 )
 
 type Handler struct {
 	inner *mfatotpenable.Handler
-	deps  usecase.Deps
 	log   *slog.Logger
 }
 
-func New(deps usecase.Deps) *Handler {
-	return &Handler{inner: mfatotpenable.New(deps), deps: deps, log: deps.Logger.With("usecase", "mfa_regenerate")}
+func New(inner *mfatotpenable.Handler, logger *slog.Logger) *Handler {
+	return &Handler{inner: inner, log: logger.With("usecase", "mfa_regenerate")}
 }
 
 func (h *Handler) Execute(ctx context.Context, userID, code string, now time.Time) (*mfatotpenable.Result, error) {

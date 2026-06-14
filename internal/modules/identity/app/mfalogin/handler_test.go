@@ -9,6 +9,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
 
 var testLogger = slog.Default()
@@ -87,20 +88,58 @@ func validToken() *domain.AuthToken {
 	}
 }
 
+type sessIdGenStub struct{}
+
+func (sessIdGenStub) New() (string, error) { return "sess-1", nil }
+
+type mfaTokMgrStub struct{}
+
+func (mfaTokMgrStub) Issue(_, _ string, now time.Time) (ports.TokenPair, string, string, error) {
+	return ports.TokenPair{AccessToken: "at", RefreshToken: "rt", AccessExpiresAt: now.Add(time.Hour), RefreshExpiresAt: now.Add(24 * time.Hour)}, "ajti", "rjti", nil
+}
+func (mfaTokMgrStub) ParseAccess(string) (*ports.AccessClaims, error)  { return nil, nil }
+func (mfaTokMgrStub) ParseRefresh(string) (*ports.AccessClaims, error) { return nil, nil }
+
+type mfaSessWrtStub struct {
+	create func(ctx context.Context, session domain.Session) error
+}
+
+func (s *mfaSessWrtStub) Create(ctx context.Context, session domain.Session) error {
+	return s.create(ctx, session)
+}
+func (mfaSessWrtStub) RevokeByID(context.Context, string, time.Time) error   { return nil }
+func (mfaSessWrtStub) RevokeByUser(context.Context, string, time.Time) error { return nil }
+func (mfaSessWrtStub) RotateTokens(context.Context, string, string, string, time.Time, time.Time) error {
+	return nil
+}
+
+type mfaRfrshStub struct{}
+
+func (mfaRfrshStub) Save(context.Context, string, string, time.Duration) error { return nil }
+func (mfaRfrshStub) Find(context.Context, string) (string, error)              { return "", nil }
+func (mfaRfrshStub) Delete(context.Context, string) error                      { return nil }
+func (mfaRfrshStub) Replace(context.Context, string, string, string, time.Duration) error {
+	return nil
+}
+
 func TestExecuteTOTPSuccess(t *testing.T) {
 	var sessionCalled bool
-	h := New(usecase.Deps{
-		TokenHasher:  tokenHasherStub{},
-		TokenGen:     tokenGenStub{},
-		IDGen:        idGenStub{},
-		AuthTokens:   &authTokensStub{token: validToken()},
-		UsersRead:    &userReadStub{user: &domain.User{ID: "u1", Email: "test@example.com"}},
-		TOTP:         &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
-		TOTPVerifier: &totpVerifierStub{valid: true},
-		Logger:       testLogger,
-	}, func(_ context.Context, in usecase.NewSessionInput) (*usecase.SessionContext, error) {
-		sessionCalled = true
-		return &usecase.SessionContext{User: in.User}, nil
+	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: validToken()}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	sessWrite := &mfaSessWrtStub{
+		create: func(_ context.Context, _ domain.Session) error {
+			sessionCalled = true
+			return nil
+		},
+	}
+	sessionFactory := usecase.NewSessionFactory(&sessIdGenStub{}, mfaTokMgrStub{}, sessWrite, mfaRfrshStub{}, testLogger)
+	h := New(Options{
+		AuthTokens:     authTokenSvc,
+		UsersRead:      &userReadStub{user: &domain.User{ID: "u1", Email: "test@example.com"}},
+		Totp:           &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
+		TokenHasher:    tokenHasherStub{},
+		TotpVerifier:   &totpVerifierStub{valid: true},
+		SessionFactory: sessionFactory,
+		Logger:         testLogger,
 	})
 
 	res, err := h.Execute(context.Background(), Command{
@@ -121,22 +160,26 @@ func TestExecuteTOTPSuccess(t *testing.T) {
 
 func TestExecuteRecoveryCodeSuccess(t *testing.T) {
 	var sessionCalled bool
-	h := New(usecase.Deps{
-		TokenHasher: tokenHasherStub{},
-		TokenGen:    tokenGenStub{},
-		IDGen:       idGenStub{},
-		AuthTokens:  &authTokensStub{token: validToken()},
-		UsersRead:   &userReadStub{user: &domain.User{ID: "u1", Email: "test@example.com"}},
-		TOTP: &totpStub{
+	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: validToken()}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	sessWrite := &mfaSessWrtStub{
+		create: func(_ context.Context, _ domain.Session) error {
+			sessionCalled = true
+			return nil
+		},
+	}
+	sessionFactory := usecase.NewSessionFactory(&sessIdGenStub{}, mfaTokMgrStub{}, sessWrite, mfaRfrshStub{}, testLogger)
+	h := New(Options{
+		AuthTokens: authTokenSvc,
+		UsersRead:  &userReadStub{user: &domain.User{ID: "u1", Email: "test@example.com"}},
+		Totp: &totpStub{
 			codes: []domain.RecoveryCode{
 				{ID: "rc-1", UserID: "u1", CodeHash: "hash", CreatedAt: time.Now()},
 			},
 		},
-		TOTPVerifier: &totpVerifierStub{valid: false},
-		Logger:       testLogger,
-	}, func(_ context.Context, in usecase.NewSessionInput) (*usecase.SessionContext, error) {
-		sessionCalled = true
-		return &usecase.SessionContext{User: in.User}, nil
+		TokenHasher:    tokenHasherStub{},
+		TotpVerifier:   &totpVerifierStub{valid: false},
+		SessionFactory: sessionFactory,
+		Logger:         testLogger,
 	})
 
 	res, err := h.Execute(context.Background(), Command{
@@ -156,15 +199,14 @@ func TestExecuteRecoveryCodeSuccess(t *testing.T) {
 }
 
 func TestExecuteInvalidChallengeToken(t *testing.T) {
-	h := New(usecase.Deps{
-		TokenHasher: tokenHasherStub{},
-		TokenGen:    tokenGenStub{},
-		IDGen:       idGenStub{},
-		AuthTokens:  &authTokensStub{token: nil, err: domain.ErrUnauthorized},
+	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: nil, err: domain.ErrUnauthorized}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
+		AuthTokens:  authTokenSvc,
 		UsersRead:   &userReadStub{},
-		TOTP:        &totpStub{},
+		Totp:        &totpStub{},
+		TokenHasher: tokenHasherStub{},
 		Logger:      testLogger,
-	}, nil)
+	})
 
 	_, err := h.Execute(context.Background(), Command{
 		ChallengeToken: "invalid",
@@ -176,15 +218,14 @@ func TestExecuteInvalidChallengeToken(t *testing.T) {
 }
 
 func TestExecuteChallengeTokenNotFound(t *testing.T) {
-	h := New(usecase.Deps{
-		TokenHasher: tokenHasherStub{},
-		TokenGen:    tokenGenStub{},
-		IDGen:       idGenStub{},
-		AuthTokens:  &authTokensStub{token: nil, err: domain.ErrNotFound},
+	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: nil, err: domain.ErrNotFound}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
+		AuthTokens:  authTokenSvc,
 		UsersRead:   &userReadStub{},
-		TOTP:        &totpStub{},
+		Totp:        &totpStub{},
+		TokenHasher: tokenHasherStub{},
 		Logger:      testLogger,
-	}, nil)
+	})
 
 	_, err := h.Execute(context.Background(), Command{
 		ChallengeToken: "missing",
@@ -197,15 +238,14 @@ func TestExecuteChallengeTokenNotFound(t *testing.T) {
 
 func TestExecuteConsumeAuthTokenErrorPropagated(t *testing.T) {
 	upstreamErr := errors.New("unexpected db error")
-	h := New(usecase.Deps{
-		TokenHasher: tokenHasherStub{},
-		TokenGen:    tokenGenStub{},
-		IDGen:       idGenStub{},
-		AuthTokens:  &authTokensStub{token: nil, err: upstreamErr},
+	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: nil, err: upstreamErr}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
+		AuthTokens:  authTokenSvc,
 		UsersRead:   &userReadStub{},
-		TOTP:        &totpStub{},
+		Totp:        &totpStub{},
+		TokenHasher: tokenHasherStub{},
 		Logger:      testLogger,
-	}, nil)
+	})
 
 	_, err := h.Execute(context.Background(), Command{
 		ChallengeToken: "some-token",
@@ -217,15 +257,14 @@ func TestExecuteConsumeAuthTokenErrorPropagated(t *testing.T) {
 }
 
 func TestExecuteUserNotFoundAfterToken(t *testing.T) {
-	h := New(usecase.Deps{
-		TokenHasher: tokenHasherStub{},
-		TokenGen:    tokenGenStub{},
-		IDGen:       idGenStub{},
-		AuthTokens:  &authTokensStub{token: validToken()},
+	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: validToken()}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
+		AuthTokens:  authTokenSvc,
 		UsersRead:   &userReadStub{err: domain.ErrNotFound},
-		TOTP:        &totpStub{},
+		Totp:        &totpStub{},
+		TokenHasher: tokenHasherStub{},
 		Logger:      testLogger,
-	}, nil)
+	})
 
 	_, err := h.Execute(context.Background(), Command{
 		ChallengeToken: "challenge-valid",
@@ -238,16 +277,15 @@ func TestExecuteUserNotFoundAfterToken(t *testing.T) {
 }
 
 func TestExecuteTOTPCodeInvalid(t *testing.T) {
-	h := New(usecase.Deps{
-		TokenHasher:  tokenHasherStub{},
-		TokenGen:     tokenGenStub{},
-		IDGen:        idGenStub{},
-		AuthTokens:   &authTokensStub{token: validToken()},
+	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: validToken()}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
+		AuthTokens:   authTokenSvc,
 		UsersRead:    &userReadStub{user: &domain.User{ID: "u1"}},
-		TOTP:         &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
-		TOTPVerifier: &totpVerifierStub{valid: false},
+		Totp:         &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
+		TokenHasher:  tokenHasherStub{},
+		TotpVerifier: &totpVerifierStub{valid: false},
 		Logger:       testLogger,
-	}, nil)
+	})
 
 	_, err := h.Execute(context.Background(), Command{
 		ChallengeToken: "challenge-valid",
@@ -260,16 +298,15 @@ func TestExecuteTOTPCodeInvalid(t *testing.T) {
 }
 
 func TestExecuteTOTPSecretNotFound(t *testing.T) {
-	h := New(usecase.Deps{
-		TokenHasher:  tokenHasherStub{},
-		TokenGen:     tokenGenStub{},
-		IDGen:        idGenStub{},
-		AuthTokens:   &authTokensStub{token: validToken()},
+	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: validToken()}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
+		AuthTokens:   authTokenSvc,
 		UsersRead:    &userReadStub{user: &domain.User{ID: "u1"}},
-		TOTP:         &totpStub{findErr: errors.New("not found")},
-		TOTPVerifier: &totpVerifierStub{valid: true},
+		Totp:         &totpStub{findErr: errors.New("not found")},
+		TokenHasher:  tokenHasherStub{},
+		TotpVerifier: &totpVerifierStub{valid: true},
 		Logger:       testLogger,
-	}, nil)
+	})
 
 	_, err := h.Execute(context.Background(), Command{
 		ChallengeToken: "challenge-valid",
@@ -282,20 +319,19 @@ func TestExecuteTOTPSecretNotFound(t *testing.T) {
 }
 
 func TestExecuteRecoveryCodeNoMatch(t *testing.T) {
-	h := New(usecase.Deps{
-		TokenHasher: tokenHasherStub{},
-		TokenGen:    tokenGenStub{},
-		IDGen:       idGenStub{},
-		AuthTokens:  &authTokensStub{token: validToken()},
-		UsersRead:   &userReadStub{user: &domain.User{ID: "u1"}},
-		TOTP: &totpStub{
+	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: validToken()}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
+		AuthTokens: authTokenSvc,
+		UsersRead:  &userReadStub{user: &domain.User{ID: "u1"}},
+		Totp: &totpStub{
 			codes: []domain.RecoveryCode{
 				{ID: "rc-1", UserID: "u1", CodeHash: "different-hash", CreatedAt: time.Now()},
 			},
 		},
-		TOTPVerifier: &totpVerifierStub{},
+		TokenHasher:  tokenHasherStub{},
+		TotpVerifier: &totpVerifierStub{},
 		Logger:       testLogger,
-	}, nil)
+	})
 
 	_, err := h.Execute(context.Background(), Command{
 		ChallengeToken: "challenge-valid",

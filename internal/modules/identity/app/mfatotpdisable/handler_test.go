@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -77,13 +76,13 @@ func (s *userWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, tim
 
 func TestExecuteSuccessWithPassword(t *testing.T) {
 	now := time.Now()
-	h := New(usecase.Deps{
+	h := New(Options{
 		UsersRead: &userReadStub{
 			user: &domain.User{ID: "u1", HashedPassword: "hash"},
 		},
 		Hasher:       &hasherStub{compareErr: nil},
-		TOTP:         &totpStub{},
-		TOTPVerifier: &totpVerifierStub{},
+		Totp:         &totpStub{},
+		TotpVerifier: &totpVerifierStub{},
 		UsersWrite:   &userWriteStub{},
 		UnitOfWork:   noopTx{},
 		Logger:       testLogger,
@@ -96,13 +95,13 @@ func TestExecuteSuccessWithPassword(t *testing.T) {
 
 func TestExecuteSuccessWithCode(t *testing.T) {
 	now := time.Now()
-	h := New(usecase.Deps{
+	h := New(Options{
 		UsersRead: &userReadStub{
 			user: &domain.User{ID: "u1", HashedPassword: ""},
 		},
 		Hasher:       &hasherStub{compareErr: errors.New("no match")},
-		TOTP:         &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
-		TOTPVerifier: &totpVerifierStub{valid: true},
+		Totp:         &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
+		TotpVerifier: &totpVerifierStub{valid: true},
 		UsersWrite:   &userWriteStub{},
 		UnitOfWork:   noopTx{},
 		Logger:       testLogger,
@@ -115,11 +114,11 @@ func TestExecuteSuccessWithCode(t *testing.T) {
 
 func TestExecuteUserNotFound(t *testing.T) {
 	now := time.Now()
-	h := New(usecase.Deps{
+	h := New(Options{
 		UsersRead:    &userReadStub{err: domain.ErrNotFound},
 		Hasher:       &hasherStub{},
-		TOTP:         &totpStub{},
-		TOTPVerifier: &totpVerifierStub{},
+		Totp:         &totpStub{},
+		TotpVerifier: &totpVerifierStub{},
 		UsersWrite:   &userWriteStub{},
 		UnitOfWork:   noopTx{},
 		Logger:       testLogger,
@@ -132,13 +131,13 @@ func TestExecuteUserNotFound(t *testing.T) {
 
 func TestExecuteAuthorizationFails(t *testing.T) {
 	now := time.Now()
-	h := New(usecase.Deps{
+	h := New(Options{
 		UsersRead: &userReadStub{
 			user: &domain.User{ID: "u1", HashedPassword: "hash"},
 		},
 		Hasher:       &hasherStub{compareErr: errors.New("wrong password")},
-		TOTP:         &totpStub{findErr: errors.New("not found")},
-		TOTPVerifier: &totpVerifierStub{valid: false},
+		Totp:         &totpStub{findErr: errors.New("not found")},
+		TotpVerifier: &totpVerifierStub{valid: false},
 		UsersWrite:   &userWriteStub{},
 		UnitOfWork:   noopTx{},
 		Logger:       testLogger,
@@ -152,13 +151,13 @@ func TestExecuteAuthorizationFails(t *testing.T) {
 func TestExecuteTxFails(t *testing.T) {
 	upstreamErr := errors.New("db error")
 	now := time.Now()
-	h := New(usecase.Deps{
+	h := New(Options{
 		UsersRead: &userReadStub{
 			user: &domain.User{ID: "u1", HashedPassword: "hash"},
 		},
 		Hasher:       &hasherStub{compareErr: nil},
-		TOTP:         &totpStub{},
-		TOTPVerifier: &totpVerifierStub{},
+		Totp:         &totpStub{},
+		TotpVerifier: &totpVerifierStub{},
 		UsersWrite:   &userWriteStub{err: upstreamErr},
 		UnitOfWork:   noopTx{},
 		Logger:       testLogger,

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -66,7 +65,7 @@ func (s *settingsWriteStub) Upsert(_ context.Context, _ domain.WorkspaceSettings
 }
 
 func TestExecuteEmptyName(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger:     testLogger,
 		UnitOfWork: noopTx{},
 	})
@@ -79,8 +78,8 @@ func TestExecuteEmptyName(t *testing.T) {
 
 func TestExecuteSuccess(t *testing.T) {
 	now := time.Now().UTC()
-	h := New(usecase.Deps{
-		IDGen:            idGenStub{id: "id1"},
+	h := New(Options{
+		IdGen:            idGenStub{id: "id1"},
 		WorkspacesWrite:  &workspacesWriteStub{},
 		MembershipsWrite: &membershipsWriteStub{},
 		RolesWrite:       &rolesWriteStub{},
@@ -106,8 +105,8 @@ type idGenErrStub struct{}
 func (idGenErrStub) New() (string, error) { return "", errors.New("idgen error") }
 
 func TestExecuteIDGenError(t *testing.T) {
-	h := New(usecase.Deps{
-		IDGen:      idGenErrStub{},
+	h := New(Options{
+		IdGen:      idGenErrStub{},
 		Logger:     testLogger,
 		UnitOfWork: noopTx{},
 	})
@@ -119,8 +118,8 @@ func TestExecuteIDGenError(t *testing.T) {
 }
 
 func TestExecuteWorkspaceNameConflict(t *testing.T) {
-	h := New(usecase.Deps{
-		IDGen:            idGenStub{id: "id1"},
+	h := New(Options{
+		IdGen:            idGenStub{id: "id1"},
 		WorkspacesWrite:  &workspacesWriteStub{err: domain.ErrWorkspaceNameConflict},
 		MembershipsWrite: &membershipsWriteStub{},
 		RolesWrite:       &rolesWriteStub{},

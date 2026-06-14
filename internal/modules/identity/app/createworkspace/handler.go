@@ -7,10 +7,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
+
+type Options struct {
+	IdGen            ports.IDGenerator
+	WorkspacesWrite  ports.WorkspaceWriteRepository
+	MembershipsWrite ports.MembershipWriteRepository
+	RolesWrite       ports.RoleWriteRepository
+	SettingsWrite    ports.WorkspaceSettingsWriteRepository
+	UnitOfWork       ports.UnitOfWork
+	Logger           *slog.Logger
+}
 
 type Command struct {
 	Name   string
@@ -19,12 +29,25 @@ type Command struct {
 }
 
 type Handler struct {
-	deps usecase.Deps
-	log  *slog.Logger
+	idGen            ports.IDGenerator
+	workspacesWrite  ports.WorkspaceWriteRepository
+	membershipsWrite ports.MembershipWriteRepository
+	rolesWrite       ports.RoleWriteRepository
+	settingsWrite    ports.WorkspaceSettingsWriteRepository
+	unitOfWork       ports.UnitOfWork
+	log              *slog.Logger
 }
 
-func New(deps usecase.Deps) *Handler {
-	return &Handler{deps: deps, log: deps.Logger.With("usecase", "create_workspace")}
+func New(opts Options) *Handler {
+	return &Handler{
+		idGen:            opts.IdGen,
+		workspacesWrite:  opts.WorkspacesWrite,
+		membershipsWrite: opts.MembershipsWrite,
+		rolesWrite:       opts.RolesWrite,
+		settingsWrite:    opts.SettingsWrite,
+		unitOfWork:       opts.UnitOfWork,
+		log:              opts.Logger.With("usecase", "create_workspace"),
+	}
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Workspace, error) {
@@ -32,7 +55,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Workspace, 
 	if name == "" {
 		return nil, domain.ErrInvalidWorkspaceName
 	}
-	wsID, err := h.deps.IDGen.New()
+	wsID, err := h.idGen.New()
 	if err != nil {
 		h.log.Error("failed to generate workspace ID", "error", err)
 		return nil, err
@@ -42,7 +65,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Workspace, 
 		h.log.Error("failed to create workspace domain object", "error", err)
 		return nil, err
 	}
-	membershipID, err := h.deps.IDGen.New()
+	membershipID, err := h.idGen.New()
 	if err != nil {
 		h.log.Error("failed to generate membership ID", "error", err)
 		return nil, err
@@ -51,7 +74,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Workspace, 
 	defaultRoles := domain.DefaultRoleDefinitions(cmd.Now)
 	var ownerRoleID string
 	for i := range defaultRoles {
-		roleID, err := h.deps.IDGen.New()
+		roleID, err := h.idGen.New()
 		if err != nil {
 			h.log.Error("failed to generate role ID", "error", err)
 			return nil, err
@@ -67,18 +90,18 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Workspace, 
 		return nil, domain.ErrRoleNotFound
 	}
 	createAll := func(ctx context.Context) error {
-		if err := h.deps.WorkspacesWrite.Create(ctx, ws); err != nil {
+		if err := h.workspacesWrite.Create(ctx, ws); err != nil {
 			return err
 		}
-		if err := h.deps.MembershipsWrite.Create(ctx, membership); err != nil {
+		if err := h.membershipsWrite.Create(ctx, membership); err != nil {
 			return err
 		}
 		for _, role := range defaultRoles {
-			if err := h.deps.RolesWrite.Create(ctx, role); err != nil {
+			if err := h.rolesWrite.Create(ctx, role); err != nil {
 				return err
 			}
 		}
-		if err := h.deps.RolesWrite.ReplaceMembershipRoles(ctx, membership.ID, []string{ownerRoleID}, cmd.Now); err != nil {
+		if err := h.rolesWrite.ReplaceMembershipRoles(ctx, membership.ID, []string{ownerRoleID}, cmd.Now); err != nil {
 			return err
 		}
 		defaultSettings := domain.WorkspaceSettings{
@@ -89,9 +112,9 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Workspace, 
 			UpdatedAt:       cmd.Now.UTC(),
 			FeatureControls: make(domain.FeatureControls),
 		}
-		return h.deps.SettingsWrite.CreateDefault(ctx, defaultSettings)
+		return h.settingsWrite.CreateDefault(ctx, defaultSettings)
 	}
-	if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, createAll); err != nil {
+	if err := transaction.RunInTx(ctx, h.unitOfWork, createAll); err != nil {
 		if errors.Is(err, domain.ErrWorkspaceNameConflict) {
 			h.log.Warn("workspace creation failed: duplicate name", "name", name)
 			return nil, domain.ErrWorkspaceNameConflict

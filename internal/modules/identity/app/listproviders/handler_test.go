@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
@@ -28,9 +27,7 @@ func (p *providerStub) Exchange(_ context.Context, code, redirectURI, codeVerifi
 }
 
 func TestListProvidersEmpty(t *testing.T) {
-	h := New(usecase.Deps{
-		Providers: map[string]ports.OAuthProvider{},
-	})
+	h := New(map[string]ports.OAuthProvider{})
 	result := h.Execute()
 	if len(result) != 0 {
 		t.Fatalf("expected empty result, got %d items", len(result))
@@ -38,11 +35,9 @@ func TestListProvidersEmpty(t *testing.T) {
 }
 
 func TestListProviders(t *testing.T) {
-	h := New(usecase.Deps{
-		Providers: map[string]ports.OAuthProvider{
-			"google": &providerStub{name: "google", providerTyp: "oauth2", displayName: "Google", enabled: true},
-			"github": &providerStub{name: "github", providerTyp: "oauth2", displayName: "GitHub", enabled: false},
-		},
+	h := New(map[string]ports.OAuthProvider{
+		"google": &providerStub{name: "google", providerTyp: "oauth2", displayName: "Google", enabled: true},
+		"github": &providerStub{name: "github", providerTyp: "oauth2", displayName: "GitHub", enabled: false},
 	})
 	result := h.Execute()
 	if len(result) != 2 {

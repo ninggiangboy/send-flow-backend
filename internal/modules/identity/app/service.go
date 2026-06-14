@@ -99,13 +99,16 @@ type Options struct {
 }
 
 type Service struct {
-	commands      CommandBus
-	queries       QueryBus
-	deps          usecase.Deps
-	settingsRead  ports.WorkspaceSettingsReadRepository
-	settingsWrite ports.WorkspaceSettingsWriteRepository
-	auditRecorder AuditRecorder
-	logger        *slog.Logger
+	commands        CommandBus
+	queries         QueryBus
+	settingsRead    ports.WorkspaceSettingsReadRepository
+	settingsWrite   ports.WorkspaceSettingsWriteRepository
+	membershipsRead ports.MembershipReadRepository
+	rolesRead       ports.RoleReadRepository
+	rolesWrite      ports.RoleWriteRepository
+	idGen           ports.IDGenerator
+	auditRecorder   AuditRecorder
+	logger          *slog.Logger
 }
 
 type SessionContext = usecase.SessionContext
@@ -123,86 +126,197 @@ func NewService(opts Options) *Service {
 	for _, p := range opts.Providers {
 		providerMap[p.Name()] = p
 	}
-	deps := usecase.Deps{
+
+	authTokenSvc := usecase.NewAuthTokenService(opts.AuthTokens, opts.TokenGen, opts.IDGen, opts.TokenHasher)
+	notifSvc := usecase.NewNotificationService(opts.MailSender, opts.FrontendBaseURL)
+	sessionFactory := usecase.NewSessionFactory(opts.IDGen, opts.Tokens, opts.SessionsWrite, opts.RefreshStore, opts.Logger)
+
+	signupH := signup.New(signup.Options{
 		UsersRead:         opts.UsersRead,
 		UsersWrite:        opts.UsersWrite,
-		ExternalsRead:     opts.ExternalsRead,
-		ExternalsWrite:    opts.ExternalsWrite,
-		SessionsRead:      opts.SessionsRead,
-		SessionsWrite:     opts.SessionsWrite,
 		Hasher:            opts.Hasher,
-		Tokens:            opts.Tokens,
-		OAuthState:        opts.OAuthState,
-		RefreshStore:      opts.RefreshStore,
-		AuthTokens:        opts.AuthTokens,
-		TOTP:              opts.TOTP,
-		Providers:         providerMap,
-		OAuthStateTTL:     opts.OAuthStateTTL,
-		MailSender:        opts.MailSender,
-		RateLimiter:       opts.RateLimiter,
-		IDGen:             opts.IDGen,
-		TokenGen:          opts.TokenGen,
-		TokenHasher:       opts.TokenHasher,
 		PasswordValidator: opts.PasswordValidator,
-		TOTPVerifier:      opts.TOTPVerifier,
-		TOTPSecretGen:     opts.TOTPSecretGen,
-		RecoveryCodeGen:   opts.RecoveryCodeGen,
-		FrontendBaseURL:   opts.FrontendBaseURL,
-		VerificationTTL:   opts.VerificationTTL,
-		PasswordResetTTL:  opts.PasswordResetTTL,
-		MFAChallengeTTL:   opts.MFAChallengeTTL,
-		WorkspacesRead:    opts.WorkspacesRead,
-		WorkspacesWrite:   opts.WorkspacesWrite,
-		RolesRead:         opts.RolesRead,
-		RolesWrite:        opts.RolesWrite,
-		MembershipsRead:   opts.MembershipsRead,
-		MembershipsWrite:  opts.MembershipsWrite,
-		InvitationsRead:   opts.InvitationsRead,
-		InvitationsWrite:  opts.InvitationsWrite,
-		SettingsWrite:     opts.SettingsWrite,
-		Logger:            opts.Logger,
-		UnitOfWork:        opts.UnitOfWork,
+		IdGen:             opts.IDGen,
 		OutboxWriter:      opts.OutboxWriter,
-	}
-	newSession := usecase.BuildNewSession(deps)
-	signupH := signup.New(deps, newSession)
-	loginH := login.New(deps, newSession)
-	listProviderH := listproviders.New(deps)
-	oauthStartH := oauthstart.New(deps)
-	oauthExchangeH := oauthexchange.New(deps, newSession)
-	getMeH := getme.New(deps)
-	listSessionsH := listsessions.New(deps)
-	revokeH := revokesession.New(deps)
-	authnH := authenticate.New(deps)
-	refreshH := refresh.New(deps)
-	reqVerifyH := requestemailverification.New(deps)
-	verifyH := verifyemail.New(deps)
-	forgotH := forgotpassword.New(deps)
-	resetH := resetpassword.New(deps)
-	mfaLoginH := mfalogin.New(deps, newSession)
-	mfaSetupH := mfatotpsetup.New(deps)
-	mfaEnableH := mfatotpenable.New(deps)
-	mfaDisableH := mfatotpdisable.New(deps)
-	mfaRegenH := mfaregenerate.New(deps)
-	createWSH := createworkspace.New(deps)
-	inviteMemberH := inviteworkspacemember.New(deps)
-	acceptInviteH := acceptworkspaceinvitation.New(deps)
-	removeMemberH := removeworkspacemember.New(deps)
-	updateRoleH := updateworkspacememberrole.New(deps)
-	listWSH := listworkspaces.New(deps)
-	getWSH := getworkspace.New(deps)
-	listWSMembersH := listworkspacemembers.New(deps)
-	getWSAccessH := getworkspaceaccess.New(deps)
-	listWSInvitesH := listworkspaceinvitations.New(deps)
+		UnitOfWork:        opts.UnitOfWork,
+		AuthTokens:        authTokenSvc,
+		Notifications:     notifSvc,
+		SessionFactory:    sessionFactory,
+		VerificationTTL:   opts.VerificationTTL,
+		Logger:            opts.Logger,
+	})
+	loginH := login.New(login.Options{
+		UsersRead:       opts.UsersRead,
+		Hasher:          opts.Hasher,
+		AuthTokens:      authTokenSvc,
+		SessionFactory:  sessionFactory,
+		MfaChallengeTTL: opts.MFAChallengeTTL,
+		Logger:          opts.Logger,
+	})
+	listProviderH := listproviders.New(providerMap)
+	oauthStartH := oauthstart.New(oauthstart.Options{
+		Providers:     providerMap,
+		IdGen:         opts.IDGen,
+		OauthState:    opts.OAuthState,
+		OauthStateTTL: opts.OAuthStateTTL,
+		Logger:        opts.Logger,
+	})
+	oauthExchangeH := oauthexchange.New(oauthexchange.Options{
+		Providers:      providerMap,
+		OauthState:     opts.OAuthState,
+		ExternalsRead:  opts.ExternalsRead,
+		ExternalsWrite: opts.ExternalsWrite,
+		UsersRead:      opts.UsersRead,
+		UsersWrite:     opts.UsersWrite,
+		IdGen:          opts.IDGen,
+		UnitOfWork:     opts.UnitOfWork,
+		SessionFactory: sessionFactory,
+		Logger:         opts.Logger,
+	})
+	getMeH := getme.New(opts.UsersRead, opts.Logger)
+	listSessionsH := listsessions.New(opts.SessionsRead, opts.Logger)
+	revokeH := revokesession.New(revokesession.Options{
+		SessionsRead:  opts.SessionsRead,
+		SessionsWrite: opts.SessionsWrite,
+		RefreshStore:  opts.RefreshStore,
+		Logger:        opts.Logger,
+	})
+	authnH := authenticate.New(opts.Tokens, opts.Logger)
+	refreshH := refresh.New(refresh.Options{
+		Tokens:        opts.Tokens,
+		RefreshStore:  opts.RefreshStore,
+		SessionsRead:  opts.SessionsRead,
+		SessionsWrite: opts.SessionsWrite,
+		UsersRead:     opts.UsersRead,
+		Logger:        opts.Logger,
+	})
+	reqVerifyH := requestemailverification.New(requestemailverification.Options{
+		UsersRead:       opts.UsersRead,
+		AuthTokens:      authTokenSvc,
+		Notifications:   notifSvc,
+		VerificationTTL: opts.VerificationTTL,
+		Logger:          opts.Logger,
+	})
+	verifyH := verifyemail.New(verifyemail.Options{
+		AuthTokens: authTokenSvc,
+		UsersWrite: opts.UsersWrite,
+		Logger:     opts.Logger,
+	})
+	forgotH := forgotpassword.New(forgotpassword.Options{
+		UsersRead:        opts.UsersRead,
+		AuthTokens:       authTokenSvc,
+		Notifications:    notifSvc,
+		PasswordResetTTL: opts.PasswordResetTTL,
+		Logger:           opts.Logger,
+	})
+	resetH := resetpassword.New(resetpassword.Options{
+		PasswordValidator: opts.PasswordValidator,
+		AuthTokens:        authTokenSvc,
+		Hasher:            opts.Hasher,
+		UsersWrite:        opts.UsersWrite,
+		SessionsWrite:     opts.SessionsWrite,
+		AuthTokensRepo:    opts.AuthTokens,
+		Logger:            opts.Logger,
+	})
+	mfaLoginH := mfalogin.New(mfalogin.Options{
+		AuthTokens:     authTokenSvc,
+		UsersRead:      opts.UsersRead,
+		Totp:           opts.TOTP,
+		TokenHasher:    opts.TokenHasher,
+		TotpVerifier:   opts.TOTPVerifier,
+		SessionFactory: sessionFactory,
+		Logger:         opts.Logger,
+	})
+	mfaSetupH := mfatotpsetup.New(mfatotpsetup.Options{
+		UsersRead:     opts.UsersRead,
+		TotpSecretGen: opts.TOTPSecretGen,
+		Totp:          opts.TOTP,
+		Logger:        opts.Logger,
+	})
+	mfaEnableH := mfatotpenable.New(mfatotpenable.Options{
+		Totp:            opts.TOTP,
+		TotpVerifier:    opts.TOTPVerifier,
+		RecoveryCodeGen: opts.RecoveryCodeGen,
+		IdGen:           opts.IDGen,
+		TokenHasher:     opts.TokenHasher,
+		UsersWrite:      opts.UsersWrite,
+		UnitOfWork:      opts.UnitOfWork,
+		Logger:          opts.Logger,
+	})
+	mfaDisableH := mfatotpdisable.New(mfatotpdisable.Options{
+		UsersRead:    opts.UsersRead,
+		Hasher:       opts.Hasher,
+		Totp:         opts.TOTP,
+		TotpVerifier: opts.TOTPVerifier,
+		UsersWrite:   opts.UsersWrite,
+		UnitOfWork:   opts.UnitOfWork,
+		Logger:       opts.Logger,
+	})
+	mfaRegenH := mfaregenerate.New(mfaEnableH, opts.Logger)
+	createWSH := createworkspace.New(createworkspace.Options{
+		IdGen:            opts.IDGen,
+		WorkspacesWrite:  opts.WorkspacesWrite,
+		MembershipsWrite: opts.MembershipsWrite,
+		RolesWrite:       opts.RolesWrite,
+		SettingsWrite:    opts.SettingsWrite,
+		UnitOfWork:       opts.UnitOfWork,
+		Logger:           opts.Logger,
+	})
+	inviteMemberH := inviteworkspacemember.New(inviteworkspacemember.Options{
+		MembershipsRead:  opts.MembershipsRead,
+		MembershipsWrite: opts.MembershipsWrite,
+		RolesRead:        opts.RolesRead,
+		RolesWrite:       opts.RolesWrite,
+		UsersRead:        opts.UsersRead,
+		IdGen:            opts.IDGen,
+		InvitationsWrite: opts.InvitationsWrite,
+		OutboxWriter:     opts.OutboxWriter,
+		UnitOfWork:       opts.UnitOfWork,
+		Logger:           opts.Logger,
+	})
+	acceptInviteH := acceptworkspaceinvitation.New(acceptworkspaceinvitation.Options{
+		InvitationsRead:  opts.InvitationsRead,
+		InvitationsWrite: opts.InvitationsWrite,
+		UsersRead:        opts.UsersRead,
+		MembershipsRead:  opts.MembershipsRead,
+		MembershipsWrite: opts.MembershipsWrite,
+		RolesRead:        opts.RolesRead,
+		RolesWrite:       opts.RolesWrite,
+		IdGen:            opts.IDGen,
+		UnitOfWork:       opts.UnitOfWork,
+		Logger:           opts.Logger,
+	})
+	removeMemberH := removeworkspacemember.New(removeworkspacemember.Options{
+		MembershipsRead:  opts.MembershipsRead,
+		MembershipsWrite: opts.MembershipsWrite,
+		RolesRead:        opts.RolesRead,
+		Logger:           opts.Logger,
+	})
+	updateRoleH := updateworkspacememberrole.New(updateworkspacememberrole.Options{
+		MembershipsRead:  opts.MembershipsRead,
+		MembershipsWrite: opts.MembershipsWrite,
+		RolesRead:        opts.RolesRead,
+		RolesWrite:       opts.RolesWrite,
+		UnitOfWork:       opts.UnitOfWork,
+		Logger:           opts.Logger,
+	})
+	listWSH := listworkspaces.New(opts.WorkspacesRead, opts.Logger)
+	getWSH := getworkspace.New(opts.WorkspacesRead, opts.MembershipsRead, opts.Logger)
+	listWSMembersH := listworkspacemembers.New(opts.MembershipsRead, opts.Logger)
+	getWSAccessH := getworkspaceaccess.New(opts.MembershipsRead, opts.Logger)
+	listWSInvitesH := listworkspaceinvitations.New(opts.MembershipsRead, opts.InvitationsRead, opts.Logger)
 
 	return &Service{
-		commands:      newCommandBus(deps.Logger, signupH, loginH, oauthStartH, oauthExchangeH, revokeH, refreshH, reqVerifyH, verifyH, forgotH, resetH, mfaLoginH, mfaSetupH, mfaEnableH, mfaDisableH, mfaRegenH, createWSH, inviteMemberH, acceptInviteH, removeMemberH, updateRoleH),
-		queries:       newQueryBus(deps.Logger, listProviderH, getMeH, listSessionsH, authnH, listWSH, getWSH, listWSMembersH, getWSAccessH, listWSInvitesH),
-		deps:          deps,
-		settingsRead:  opts.SettingsRead,
-		settingsWrite: opts.SettingsWrite,
-		auditRecorder: opts.AuditRecorder,
-		logger:        opts.Logger.With("usecase", "identity"),
+		commands:        newCommandBus(opts.Logger, signupH, loginH, oauthStartH, oauthExchangeH, revokeH, refreshH, reqVerifyH, verifyH, forgotH, resetH, mfaLoginH, mfaSetupH, mfaEnableH, mfaDisableH, mfaRegenH, createWSH, inviteMemberH, acceptInviteH, removeMemberH, updateRoleH),
+		queries:         newQueryBus(opts.Logger, listProviderH, getMeH, listSessionsH, authnH, listWSH, getWSH, listWSMembersH, getWSAccessH, listWSInvitesH),
+		settingsRead:    opts.SettingsRead,
+		settingsWrite:   opts.SettingsWrite,
+		membershipsRead: opts.MembershipsRead,
+		rolesRead:       opts.RolesRead,
+		rolesWrite:      opts.RolesWrite,
+		idGen:           opts.IDGen,
+		auditRecorder:   opts.AuditRecorder,
+		logger:          opts.Logger.With("usecase", "identity"),
 	}
 }
 

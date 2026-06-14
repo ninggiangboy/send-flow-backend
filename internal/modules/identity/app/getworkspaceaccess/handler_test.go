@@ -3,11 +3,13 @@ package getworkspaceaccess
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
+
+var testLogger = slog.Default()
 
 type membershipsReadStub struct {
 	membership *domain.Membership
@@ -29,9 +31,7 @@ func (s *membershipsReadStub) CountByWorkspaceAndRole(_ context.Context, _ strin
 
 func TestExecuteSuccess(t *testing.T) {
 	m := &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "u1", Role: domain.MembershipRoleAdmin}
-	h := New(usecase.Deps{
-		MembershipsRead: &membershipsReadStub{membership: m},
-	})
+	h := New(&membershipsReadStub{membership: m}, testLogger)
 
 	result, err := h.Execute(context.Background(), "ws1", "u1")
 	if err != nil {
@@ -43,9 +43,7 @@ func TestExecuteSuccess(t *testing.T) {
 }
 
 func TestExecuteNonMember(t *testing.T) {
-	h := New(usecase.Deps{
-		MembershipsRead: &membershipsReadStub{err: domain.ErrMembershipNotFound},
-	})
+	h := New(&membershipsReadStub{err: domain.ErrMembershipNotFound}, testLogger)
 
 	_, err := h.Execute(context.Background(), "ws1", "u1")
 	if !errors.Is(err, domain.ErrWorkspaceAccessDenied) {
@@ -54,9 +52,7 @@ func TestExecuteNonMember(t *testing.T) {
 }
 
 func TestExecuteReadError(t *testing.T) {
-	h := New(usecase.Deps{
-		MembershipsRead: &membershipsReadStub{err: errors.New("db error")},
-	})
+	h := New(&membershipsReadStub{err: errors.New("db error")}, testLogger)
 
 	_, err := h.Execute(context.Background(), "ws1", "u1")
 	if err == nil || err.Error() != "db error" {

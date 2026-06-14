@@ -63,7 +63,7 @@ func (s *mailerStub) Send(ctx context.Context, to []string, subject, text, html 
 }
 
 func TestExecute_UserNotFound(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		UsersRead: &usersReadStub{err: domain.ErrNotFound},
 		Logger:    testLogger,
 	})
@@ -75,7 +75,7 @@ func TestExecute_UserNotFound(t *testing.T) {
 
 func TestExecute_AlreadyVerified(t *testing.T) {
 	now := time.Now()
-	h := New(usecase.Deps{
+	h := New(Options{
 		UsersRead: &usersReadStub{user: &domain.User{ID: "u1", EmailVerifiedAt: &now}},
 		Logger:    testLogger,
 	})
@@ -86,12 +86,10 @@ func TestExecute_AlreadyVerified(t *testing.T) {
 }
 
 func TestExecute_TokenCreationFails(t *testing.T) {
-	h := New(usecase.Deps{
+	authTokenSvc := usecase.NewAuthTokenService(&authTokenRepoStub{createErr: errors.New("token err")}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
 		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "a@example.com"}},
-		AuthTokens:      &authTokenRepoStub{createErr: errors.New("token err")},
-		TokenHasher:     tokenHasherStub{},
-		IDGen:           idGenStub{},
-		TokenGen:        tokenGenStub{},
+		AuthTokens:      authTokenSvc,
 		VerificationTTL: time.Minute,
 		Logger:          testLogger,
 	})
@@ -102,14 +100,13 @@ func TestExecute_TokenCreationFails(t *testing.T) {
 }
 
 func TestExecute_SendEmailFails(t *testing.T) {
-	h := New(usecase.Deps{
+	authTokenSvc := usecase.NewAuthTokenService(&authTokenRepoStub{}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	notifSvc := usecase.NewNotificationService(&mailerStub{err: errors.New("send error")}, "")
+	h := New(Options{
 		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "a@example.com"}},
-		AuthTokens:      &authTokenRepoStub{},
-		TokenHasher:     tokenHasherStub{},
-		IDGen:           idGenStub{},
-		TokenGen:        tokenGenStub{},
+		AuthTokens:      authTokenSvc,
+		Notifications:   notifSvc,
 		VerificationTTL: time.Minute,
-		MailSender:      &mailerStub{err: errors.New("send error")},
 		Logger:          testLogger,
 	})
 	err := h.Execute(context.Background(), "u1", time.Now())
@@ -119,14 +116,13 @@ func TestExecute_SendEmailFails(t *testing.T) {
 }
 
 func TestExecute_Success(t *testing.T) {
-	h := New(usecase.Deps{
+	authTokenSvc := usecase.NewAuthTokenService(&authTokenRepoStub{}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	notifSvc := usecase.NewNotificationService(&mailerStub{}, "")
+	h := New(Options{
 		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "a@example.com"}},
-		AuthTokens:      &authTokenRepoStub{},
-		TokenHasher:     tokenHasherStub{},
-		IDGen:           idGenStub{},
-		TokenGen:        tokenGenStub{},
+		AuthTokens:      authTokenSvc,
+		Notifications:   notifSvc,
 		VerificationTTL: time.Minute,
-		MailSender:      &mailerStub{},
 		Logger:          testLogger,
 	})
 	err := h.Execute(context.Background(), "u1", time.Now())

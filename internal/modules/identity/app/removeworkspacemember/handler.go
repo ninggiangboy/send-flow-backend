@@ -6,9 +6,16 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
+
+type Options struct {
+	MembershipsRead  ports.MembershipReadRepository
+	MembershipsWrite ports.MembershipWriteRepository
+	RolesRead        ports.RoleReadRepository
+	Logger           *slog.Logger
+}
 
 type Command struct {
 	WorkspaceID  string
@@ -18,16 +25,23 @@ type Command struct {
 }
 
 type Handler struct {
-	deps usecase.Deps
-	log  *slog.Logger
+	membershipsRead  ports.MembershipReadRepository
+	membershipsWrite ports.MembershipWriteRepository
+	rolesRead        ports.RoleReadRepository
+	log              *slog.Logger
 }
 
-func New(deps usecase.Deps) *Handler {
-	return &Handler{deps: deps, log: deps.Logger.With("usecase", "remove_workspace_member")}
+func New(opts Options) *Handler {
+	return &Handler{
+		membershipsRead:  opts.MembershipsRead,
+		membershipsWrite: opts.MembershipsWrite,
+		rolesRead:        opts.RolesRead,
+		log:              opts.Logger.With("usecase", "remove_workspace_member"),
+	}
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) error {
-	removerMembership, err := h.deps.MembershipsRead.FindByWorkspaceAndUser(ctx, cmd.WorkspaceID, cmd.RemoverID)
+	removerMembership, err := h.membershipsRead.FindByWorkspaceAndUser(ctx, cmd.WorkspaceID, cmd.RemoverID)
 	if err != nil {
 		if errors.Is(err, domain.ErrMembershipNotFound) {
 			h.log.Warn("member removal denied: remover is not a member", "workspace_id", cmd.WorkspaceID, "remover_id", cmd.RemoverID)
@@ -36,7 +50,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		h.log.Error("failed to find remover membership", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
 	}
-	removerRoles, err := h.deps.RolesRead.ListByMembership(ctx, removerMembership.ID)
+	removerRoles, err := h.rolesRead.ListByMembership(ctx, removerMembership.ID)
 	if err != nil {
 		h.log.Error("failed to list remover roles", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
@@ -45,7 +59,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		h.log.Warn("member removal denied: insufficient permissions", "workspace_id", cmd.WorkspaceID, "remover_id", cmd.RemoverID)
 		return domain.ErrMembershipManageDenied
 	}
-	targetMembership, err := h.deps.MembershipsRead.FindByID(ctx, cmd.MembershipID)
+	targetMembership, err := h.membershipsRead.FindByID(ctx, cmd.MembershipID)
 	if err != nil {
 		h.log.Error("failed to find target membership", "workspace_id", cmd.WorkspaceID, "membership_id", cmd.MembershipID, "error", err)
 		return err
@@ -58,18 +72,18 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		h.log.Warn("self-removal attempted", "workspace_id", cmd.WorkspaceID, "remover_id", cmd.RemoverID)
 		return domain.ErrMembershipManageDenied
 	}
-	targetRoles, err := h.deps.RolesRead.ListByMembership(ctx, targetMembership.ID)
+	targetRoles, err := h.rolesRead.ListByMembership(ctx, targetMembership.ID)
 	if err != nil {
 		h.log.Error("failed to list target roles", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
 	}
 	if domain.LegacyMembershipRole(targetRoles) == domain.MembershipRoleOwner {
-		ownerRole, err := h.deps.RolesRead.FindByType(ctx, cmd.WorkspaceID, domain.RoleTypeOwner)
+		ownerRole, err := h.rolesRead.FindByType(ctx, cmd.WorkspaceID, domain.RoleTypeOwner)
 		if err != nil {
 			h.log.Error("failed to find owner role", "workspace_id", cmd.WorkspaceID, "error", err)
 			return err
 		}
-		count, err := h.deps.RolesRead.CountMembershipsByRole(ctx, cmd.WorkspaceID, ownerRole.ID)
+		count, err := h.rolesRead.CountMembershipsByRole(ctx, cmd.WorkspaceID, ownerRole.ID)
 		if err != nil {
 			h.log.Error("failed to count owner memberships", "workspace_id", cmd.WorkspaceID, "error", err)
 			return err
@@ -80,5 +94,5 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		}
 	}
 	h.log.Info("workspace member removed", "workspace_id", cmd.WorkspaceID, "membership_id", cmd.MembershipID)
-	return h.deps.MembershipsWrite.DeleteByID(ctx, cmd.MembershipID)
+	return h.membershipsWrite.DeleteByID(ctx, cmd.MembershipID)
 }

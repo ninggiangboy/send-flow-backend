@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -78,7 +77,7 @@ func (s *membershipsWriteStub) UpdateStatus(ctx context.Context, membershipID st
 
 func TestRemoveWorkspaceMemberSuccess(t *testing.T) {
 	now := time.Now().UTC()
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		MembershipsRead: &membershipsReadStub{
 			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
@@ -108,7 +107,7 @@ func TestRemoveWorkspaceMemberSuccess(t *testing.T) {
 }
 
 func TestRemoveWorkspaceMember_RemoverNotMember(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		MembershipsRead: &membershipsReadStub{
 			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
@@ -124,7 +123,7 @@ func TestRemoveWorkspaceMember_RemoverNotMember(t *testing.T) {
 
 func TestRemoveWorkspaceMember_RemoverMembershipReadError(t *testing.T) {
 	expectedErr := errors.New("db error")
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		MembershipsRead: &membershipsReadStub{
 			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
@@ -140,7 +139,7 @@ func TestRemoveWorkspaceMember_RemoverMembershipReadError(t *testing.T) {
 
 func TestRemoveWorkspaceMember_RemoverRolesReadError(t *testing.T) {
 	expectedErr := errors.New("roles error")
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		MembershipsRead: &membershipsReadStub{
 			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
@@ -160,7 +159,7 @@ func TestRemoveWorkspaceMember_RemoverRolesReadError(t *testing.T) {
 }
 
 func TestRemoveWorkspaceMember_InsufficientPermissions(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		MembershipsRead: &membershipsReadStub{
 			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
@@ -181,7 +180,7 @@ func TestRemoveWorkspaceMember_InsufficientPermissions(t *testing.T) {
 
 func TestRemoveWorkspaceMember_TargetNotFound(t *testing.T) {
 	expectedErr := errors.New("not found")
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		MembershipsRead: &membershipsReadStub{
 			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
@@ -204,7 +203,7 @@ func TestRemoveWorkspaceMember_TargetNotFound(t *testing.T) {
 }
 
 func TestRemoveWorkspaceMember_TargetWrongWorkspace(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		MembershipsRead: &membershipsReadStub{
 			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
@@ -227,7 +226,7 @@ func TestRemoveWorkspaceMember_TargetWrongWorkspace(t *testing.T) {
 }
 
 func TestRemoveWorkspaceMember_SelfRemoval(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		MembershipsRead: &membershipsReadStub{
 			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
@@ -250,7 +249,7 @@ func TestRemoveWorkspaceMember_SelfRemoval(t *testing.T) {
 }
 
 func TestRemoveWorkspaceMember_LastOwner(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		MembershipsRead: &membershipsReadStub{
 			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {

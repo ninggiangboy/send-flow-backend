@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -109,7 +108,7 @@ func (s *rolesWriteStub) ReplaceInvitationRoles(_ context.Context, _ string, _ [
 
 func TestExecuteSuccess(t *testing.T) {
 	now := time.Now().UTC()
-	h := New(usecase.Deps{
+	h := New(Options{
 		MembershipsRead: &membershipsReadStub{
 			membership: &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "inviter1"},
 		},
@@ -128,7 +127,7 @@ func TestExecuteSuccess(t *testing.T) {
 		},
 		InvitationsWrite: &invitationsWriteStub{},
 		RolesWrite:       &rolesWriteStub{},
-		IDGen:            idGenStub{id: "id1"},
+		IdGen:            idGenStub{id: "id1"},
 		UnitOfWork:       noopTx{},
 		Logger:           testLogger,
 	})
@@ -149,7 +148,7 @@ func TestExecuteSuccess(t *testing.T) {
 }
 
 func TestExecuteInviterNotMember(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		MembershipsRead: &membershipsReadStub{err: domain.ErrMembershipNotFound},
 		Logger:          testLogger,
 	})
@@ -167,7 +166,7 @@ func TestExecuteInviterNotMember(t *testing.T) {
 }
 
 func TestExecuteInviterLacksPermission(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		MembershipsRead: &membershipsReadStub{
 			membership: &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "inviter1"},
 		},
@@ -192,7 +191,7 @@ func TestExecuteInviterLacksPermission(t *testing.T) {
 }
 
 func TestExecuteNoRoles(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		MembershipsRead: &membershipsReadStub{
 			membership: &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "inviter1"},
 		},
@@ -217,7 +216,7 @@ func TestExecuteNoRoles(t *testing.T) {
 }
 
 func TestExecuteInvalidRoleIDs(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		MembershipsRead: &membershipsReadStub{
 			membership: &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "inviter1"},
 		},
@@ -243,7 +242,7 @@ func TestExecuteInvalidRoleIDs(t *testing.T) {
 }
 
 func TestExecuteRoleInactive(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		MembershipsRead: &membershipsReadStub{
 			membership: &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "inviter1"},
 		},
@@ -271,7 +270,7 @@ func TestExecuteRoleInactive(t *testing.T) {
 }
 
 func TestExecuteEmptyEmail(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		MembershipsRead: &membershipsReadStub{
 			membership: &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "inviter1"},
 		},
@@ -299,7 +298,7 @@ func TestExecuteEmptyEmail(t *testing.T) {
 }
 
 func TestExecuteUserAlreadyMember(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		MembershipsRead: &membershipsReadStub{
 			membership: &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "inviter1"},
 		},

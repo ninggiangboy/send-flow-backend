@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -50,10 +49,10 @@ type totpSecretGenStub struct {
 func (s *totpSecretGenStub) GenerateTOTPSecret() (string, error) { return s.secret, s.err }
 
 func TestExecuteSuccess(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		UsersRead:     &userReadStub{user: &domain.User{ID: "u1", Email: "test@example.com"}},
-		TOTP:          &totpStub{},
-		TOTPSecretGen: &totpSecretGenStub{secret: "JBSWY3DPEHPK3PXP"},
+		Totp:          &totpStub{},
+		TotpSecretGen: &totpSecretGenStub{secret: "JBSWY3DPEHPK3PXP"},
 		Logger:        testLogger,
 	})
 	res, err := h.Execute(context.Background(), "u1", time.Now())
@@ -69,10 +68,10 @@ func TestExecuteSuccess(t *testing.T) {
 }
 
 func TestExecuteUserNotFound(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		UsersRead:     &userReadStub{err: domain.ErrNotFound},
-		TOTP:          &totpStub{},
-		TOTPSecretGen: &totpSecretGenStub{secret: "JBSWY3DPEHPK3PXP"},
+		Totp:          &totpStub{},
+		TotpSecretGen: &totpSecretGenStub{secret: "JBSWY3DPEHPK3PXP"},
 		Logger:        testLogger,
 	})
 	_, err := h.Execute(context.Background(), "u1", time.Now())
@@ -83,10 +82,10 @@ func TestExecuteUserNotFound(t *testing.T) {
 
 func TestExecuteGenerateSecretFails(t *testing.T) {
 	upstreamErr := errors.New("rng failure")
-	h := New(usecase.Deps{
+	h := New(Options{
 		UsersRead:     &userReadStub{user: &domain.User{ID: "u1"}},
-		TOTP:          &totpStub{},
-		TOTPSecretGen: &totpSecretGenStub{err: upstreamErr},
+		Totp:          &totpStub{},
+		TotpSecretGen: &totpSecretGenStub{err: upstreamErr},
 		Logger:        testLogger,
 	})
 	_, err := h.Execute(context.Background(), "u1", time.Now())
@@ -97,10 +96,10 @@ func TestExecuteGenerateSecretFails(t *testing.T) {
 
 func TestExecuteUpsertSecretFails(t *testing.T) {
 	upstreamErr := errors.New("db error")
-	h := New(usecase.Deps{
+	h := New(Options{
 		UsersRead:     &userReadStub{user: &domain.User{ID: "u1"}},
-		TOTP:          &totpStub{upsertErr: upstreamErr},
-		TOTPSecretGen: &totpSecretGenStub{secret: "JBSWY3DPEHPK3PXP"},
+		Totp:          &totpStub{upsertErr: upstreamErr},
+		TotpSecretGen: &totpSecretGenStub{secret: "JBSWY3DPEHPK3PXP"},
 		Logger:        testLogger,
 	})
 	_, err := h.Execute(context.Background(), "u1", time.Now())

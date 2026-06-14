@@ -6,10 +6,19 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
+
+type Options struct {
+	MembershipsRead  ports.MembershipReadRepository
+	MembershipsWrite ports.MembershipWriteRepository
+	RolesRead        ports.RoleReadRepository
+	RolesWrite       ports.RoleWriteRepository
+	UnitOfWork       ports.UnitOfWork
+	Logger           *slog.Logger
+}
 
 type Command struct {
 	WorkspaceID  string
@@ -20,16 +29,27 @@ type Command struct {
 }
 
 type Handler struct {
-	deps usecase.Deps
-	log  *slog.Logger
+	membershipsRead  ports.MembershipReadRepository
+	membershipsWrite ports.MembershipWriteRepository
+	rolesRead        ports.RoleReadRepository
+	rolesWrite       ports.RoleWriteRepository
+	unitOfWork       ports.UnitOfWork
+	log              *slog.Logger
 }
 
-func New(deps usecase.Deps) *Handler {
-	return &Handler{deps: deps, log: deps.Logger.With("usecase", "update_workspace_member_role")}
+func New(opts Options) *Handler {
+	return &Handler{
+		membershipsRead:  opts.MembershipsRead,
+		membershipsWrite: opts.MembershipsWrite,
+		rolesRead:        opts.RolesRead,
+		rolesWrite:       opts.RolesWrite,
+		unitOfWork:       opts.UnitOfWork,
+		log:              opts.Logger.With("usecase", "update_workspace_member_role"),
+	}
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) error {
-	updaterMembership, err := h.deps.MembershipsRead.FindByWorkspaceAndUser(ctx, cmd.WorkspaceID, cmd.UpdaterID)
+	updaterMembership, err := h.membershipsRead.FindByWorkspaceAndUser(ctx, cmd.WorkspaceID, cmd.UpdaterID)
 	if err != nil {
 		if errors.Is(err, domain.ErrMembershipNotFound) {
 			h.log.Warn("role update denied: updater is not a member", "workspace_id", cmd.WorkspaceID, "updater_id", cmd.UpdaterID)
@@ -38,7 +58,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		h.log.Error("failed to find updater membership", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
 	}
-	updaterRoles, err := h.deps.RolesRead.ListByMembership(ctx, updaterMembership.ID)
+	updaterRoles, err := h.rolesRead.ListByMembership(ctx, updaterMembership.ID)
 	if err != nil {
 		h.log.Error("failed to list updater roles", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
@@ -47,7 +67,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		h.log.Warn("role update denied: insufficient permissions", "workspace_id", cmd.WorkspaceID, "updater_id", cmd.UpdaterID)
 		return domain.ErrMembershipManageDenied
 	}
-	targetMembership, err := h.deps.MembershipsRead.FindByID(ctx, cmd.MembershipID)
+	targetMembership, err := h.membershipsRead.FindByID(ctx, cmd.MembershipID)
 	if err != nil {
 		h.log.Error("failed to find target membership", "workspace_id", cmd.WorkspaceID, "membership_id", cmd.MembershipID, "error", err)
 		return err
@@ -59,7 +79,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 	if len(cmd.RoleIDs) == 0 {
 		return domain.ErrInvalidRole
 	}
-	roles, err := h.deps.RolesRead.FindByIDs(ctx, cmd.WorkspaceID, cmd.RoleIDs)
+	roles, err := h.rolesRead.FindByIDs(ctx, cmd.WorkspaceID, cmd.RoleIDs)
 	if err != nil {
 		h.log.Error("failed to find roles", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
@@ -72,18 +92,18 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 			return domain.ErrInvalidRole
 		}
 	}
-	targetRoles, err := h.deps.RolesRead.ListByMembership(ctx, targetMembership.ID)
+	targetRoles, err := h.rolesRead.ListByMembership(ctx, targetMembership.ID)
 	if err != nil {
 		h.log.Error("failed to list target roles", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
 	}
 	if domain.LegacyMembershipRole(targetRoles) == domain.MembershipRoleOwner && domain.LegacyMembershipRole(roles) != domain.MembershipRoleOwner {
-		ownerRole, err := h.deps.RolesRead.FindByType(ctx, cmd.WorkspaceID, domain.RoleTypeOwner)
+		ownerRole, err := h.rolesRead.FindByType(ctx, cmd.WorkspaceID, domain.RoleTypeOwner)
 		if err != nil {
 			h.log.Error("failed to find owner role", "workspace_id", cmd.WorkspaceID, "error", err)
 			return err
 		}
-		count, err := h.deps.RolesRead.CountMembershipsByRole(ctx, cmd.WorkspaceID, ownerRole.ID)
+		count, err := h.rolesRead.CountMembershipsByRole(ctx, cmd.WorkspaceID, ownerRole.ID)
 		if err != nil {
 			h.log.Error("failed to count owner memberships", "workspace_id", cmd.WorkspaceID, "error", err)
 			return err
@@ -95,15 +115,15 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 	}
 	legacyRole := domain.LegacyMembershipRole(roles)
 	updateAll := func(ctx context.Context) error {
-		if err := h.deps.RolesWrite.ReplaceMembershipRoles(ctx, cmd.MembershipID, domain.RoleIDs(roles), cmd.Now); err != nil {
+		if err := h.rolesWrite.ReplaceMembershipRoles(ctx, cmd.MembershipID, domain.RoleIDs(roles), cmd.Now); err != nil {
 			return err
 		}
-		return h.deps.MembershipsWrite.UpdateRole(ctx, cmd.MembershipID, legacyRole, cmd.Now)
+		return h.membershipsWrite.UpdateRole(ctx, cmd.MembershipID, legacyRole, cmd.Now)
 	}
-	if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, updateAll); err != nil {
-		h.log.Error("failed to update member role", "workspace_id", cmd.WorkspaceID, "membership_id", cmd.MembershipID, "error", err)
+	if err := transaction.RunInTx(ctx, h.unitOfWork, updateAll); err != nil {
+		h.log.Error("failed to update member role", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
 	}
-	h.log.Info("member role updated", "workspace_id", cmd.WorkspaceID, "membership_id", cmd.MembershipID)
+	h.log.Info("workspace member role updated", "workspace_id", cmd.WorkspaceID, "membership_id", cmd.MembershipID)
 	return nil
 }

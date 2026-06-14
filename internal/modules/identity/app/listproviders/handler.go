@@ -1,15 +1,27 @@
 package listproviders
 
-import "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
+import (
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
+)
 
-type Handler struct{ deps usecase.Deps }
+type Handler struct {
+	providers map[string]ports.OAuthProvider
+}
 
-func New(deps usecase.Deps) *Handler { return &Handler{deps: deps} }
+func New(providers map[string]ports.OAuthProvider) *Handler {
+	return &Handler{providers: providers}
+}
 
 func (h *Handler) Execute() []usecase.Provider {
-	out := make([]usecase.Provider, 0, len(h.deps.Providers))
-	for _, p := range h.deps.Providers {
-		out = append(out, usecase.Provider{Provider: p.Name(), Type: p.Type(), DisplayName: p.DisplayName(), Enabled: p.Enabled()})
+	out := make([]usecase.Provider, 0, len(h.providers))
+	for _, p := range h.providers {
+		out = append(out, usecase.Provider{
+			Provider:    p.Name(),
+			Type:        p.Type(),
+			DisplayName: p.DisplayName(),
+			Enabled:     p.Enabled(),
+		})
 	}
 	return out
 }

@@ -12,6 +12,40 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
 
+type noopTx struct{}
+
+func (noopTx) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
+
+type oauthIdGenStub struct{}
+
+func (oauthIdGenStub) New() (string, error) { return "id1", nil }
+
+type oauthTokMgrStub struct{}
+
+func (oauthTokMgrStub) Issue(_, _ string, now time.Time) (ports.TokenPair, string, string, error) {
+	return ports.TokenPair{AccessToken: "at", RefreshToken: "rt", AccessExpiresAt: now.Add(time.Hour), RefreshExpiresAt: now.Add(24 * time.Hour)}, "ajti", "rjti", nil
+}
+func (oauthTokMgrStub) ParseAccess(string) (*ports.AccessClaims, error)  { return nil, nil }
+func (oauthTokMgrStub) ParseRefresh(string) (*ports.AccessClaims, error) { return nil, nil }
+
+type oauthSessWrtStub struct{}
+
+func (oauthSessWrtStub) Create(context.Context, domain.Session) error          { return nil }
+func (oauthSessWrtStub) RevokeByID(context.Context, string, time.Time) error   { return nil }
+func (oauthSessWrtStub) RevokeByUser(context.Context, string, time.Time) error { return nil }
+func (oauthSessWrtStub) RotateTokens(context.Context, string, string, string, time.Time, time.Time) error {
+	return nil
+}
+
+type oauthRfrshStub struct{}
+
+func (oauthRfrshStub) Save(context.Context, string, string, time.Duration) error { return nil }
+func (oauthRfrshStub) Find(context.Context, string) (string, error)              { return "", nil }
+func (oauthRfrshStub) Delete(context.Context, string) error                      { return nil }
+func (oauthRfrshStub) Replace(context.Context, string, string, string, time.Duration) error {
+	return nil
+}
+
 var testLogger = slog.Default()
 
 type providerStub struct {
@@ -79,12 +113,10 @@ func (s *userWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, tim
 }
 
 func TestExecuteInvalidState(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Providers:  map[string]ports.OAuthProvider{"google": &providerStub{}},
-		OAuthState: &oauthStateStoreStub{state: nil},
+		OauthState: &oauthStateStoreStub{state: nil},
 		Logger:     testLogger,
-	}, func(context.Context, usecase.NewSessionInput) (*usecase.SessionContext, error) {
-		return nil, nil
 	})
 	_, _, err := h.Execute(context.Background(), Command{Provider: "google", State: "s1", RedirectURI: "http://localhost/cb"})
 	if !errors.Is(err, domain.ErrInvalidOAuthState) {
@@ -93,18 +125,20 @@ func TestExecuteInvalidState(t *testing.T) {
 }
 
 func TestExecuteSuccessWithExistingAccount(t *testing.T) {
-	h := New(usecase.Deps{
+	sessionFactory := usecase.NewSessionFactory(oauthIdGenStub{}, oauthTokMgrStub{}, oauthSessWrtStub{}, oauthRfrshStub{}, testLogger)
+	h := New(Options{
 		Providers: map[string]ports.OAuthProvider{
 			"google": &providerStub{identity: &domain.OAuthIdentity{ProviderUserID: "pid-1", Email: "a@example.com"}},
 		},
-		OAuthState:     &oauthStateStoreStub{state: &ports.OAuthState{Provider: "google", RedirectURI: "http://localhost/cb", CodeVerifier: "v"}},
+		OauthState:     &oauthStateStoreStub{state: &ports.OAuthState{Provider: "google", RedirectURI: "http://localhost/cb", CodeVerifier: "v"}},
 		ExternalsRead:  &externalReadStub{acc: &domain.ExternalAuthAccount{ID: "acc1", UserID: "u1"}},
 		ExternalsWrite: &externalWriteStub{},
 		UsersRead:      &userReadStub{user: &domain.User{ID: "u1", Email: "a@example.com"}},
 		UsersWrite:     &userWriteStub{},
+		IdGen:          oauthIdGenStub{},
+		UnitOfWork:     noopTx{},
+		SessionFactory: sessionFactory,
 		Logger:         testLogger,
-	}, func(_ context.Context, in usecase.NewSessionInput) (*usecase.SessionContext, error) {
-		return &usecase.SessionContext{User: in.User}, nil
 	})
 
 	out, identity, err := h.Execute(context.Background(), Command{

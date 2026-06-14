@@ -76,16 +76,14 @@ func (s *tokenManagerStub) ParseRefresh(string) (*ports.AccessClaims, error) { r
 
 func TestBuildNewSessionSuccess(t *testing.T) {
 	now := time.Now().UTC()
-	deps := Deps{
-		IDGen:         &idGenStub{id: "session-1"},
-		Tokens:        &tokenManagerStub{pair: ports.TokenPair{AccessToken: "a", RefreshToken: "r", AccessExpiresAt: now.Add(10 * time.Minute), RefreshExpiresAt: now.Add(20 * time.Minute)}},
-		SessionsWrite: &sessionWriteRepoStub{},
-		RefreshStore:  &refreshStoreStub{},
-		Logger:        testLogger,
-	}
-
-	newSession := BuildNewSession(deps)
-	out, err := newSession(context.Background(), NewSessionInput{
+	sf := NewSessionFactory(
+		&idGenStub{id: "session-1"},
+		&tokenManagerStub{pair: ports.TokenPair{AccessToken: "a", RefreshToken: "r", AccessExpiresAt: now.Add(10 * time.Minute), RefreshExpiresAt: now.Add(20 * time.Minute)}},
+		&sessionWriteRepoStub{},
+		&refreshStoreStub{},
+		testLogger,
+	)
+	out, err := sf.NewSession(context.Background(), NewSessionInput{
 		User:   domain.User{ID: "u1", Email: "a@example.com"},
 		Method: "password",
 		IP:     "127.0.0.1",
@@ -101,14 +99,14 @@ func TestBuildNewSessionSuccess(t *testing.T) {
 }
 
 func TestBuildNewSessionFailsWhenTokenIssueFails(t *testing.T) {
-	deps := Deps{
-		IDGen:         &idGenStub{id: "session-1"},
-		Tokens:        &tokenManagerStub{pair: ports.TokenPair{}, err: errors.New("issue error")},
-		SessionsWrite: &sessionWriteRepoStub{},
-		RefreshStore:  &refreshStoreStub{},
-		Logger:        testLogger,
-	}
-	_, err := BuildNewSession(deps)(context.Background(), NewSessionInput{User: domain.User{ID: "u1"}, Now: time.Now().UTC()})
+	sf := NewSessionFactory(
+		&idGenStub{id: "session-1"},
+		&tokenManagerStub{pair: ports.TokenPair{}, err: errors.New("issue error")},
+		&sessionWriteRepoStub{},
+		&refreshStoreStub{},
+		testLogger,
+	)
+	_, err := sf.NewSession(context.Background(), NewSessionInput{User: domain.User{ID: "u1"}, Now: time.Now().UTC()})
 	if err == nil {
 		t.Fatal("expected error")
 	}

@@ -33,6 +33,14 @@ type tokenHasherStub struct{}
 
 func (tokenHasherStub) HashToken(token string) string { return "hashed-" + token }
 
+type tokenGenStub struct{}
+
+func (tokenGenStub) RandomToken(n int) (string, error) { return "token", nil }
+
+type idGenStub struct{}
+
+func (idGenStub) New() (string, error) { return "id", nil }
+
 type userWriteStub struct {
 	markEmailVerifiedErr error
 }
@@ -49,11 +57,11 @@ func (s *userWriteStub) SetMFAEnabledAt(ctx context.Context, userID string, enab
 }
 
 func TestExecute_InvalidToken(t *testing.T) {
-	h := New(usecase.Deps{
-		AuthTokens:  &authTokenRepoStub{err: domain.ErrNotFound},
-		TokenHasher: tokenHasherStub{},
-		UsersWrite:  &userWriteStub{},
-		Logger:      testLogger,
+	authTokenSvc := usecase.NewAuthTokenService(&authTokenRepoStub{err: domain.ErrNotFound}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
+	h := New(Options{
+		AuthTokens: authTokenSvc,
+		UsersWrite: &userWriteStub{},
+		Logger:     testLogger,
 	})
 	err := h.Execute(context.Background(), "token", time.Now())
 	if !errors.Is(err, domain.ErrVerificationToken) {
@@ -62,16 +70,19 @@ func TestExecute_InvalidToken(t *testing.T) {
 }
 
 func TestExecute_ExpiredToken(t *testing.T) {
-	h := New(usecase.Deps{
-		AuthTokens: &authTokenRepoStub{
+	authTokenSvc := usecase.NewAuthTokenService(
+		&authTokenRepoStub{
 			token: &domain.AuthToken{
 				ID:        "t1",
 				ExpiresAt: time.Now().Add(-1 * time.Hour),
 			},
 		},
-		TokenHasher: tokenHasherStub{},
-		UsersWrite:  &userWriteStub{},
-		Logger:      testLogger,
+		tokenGenStub{}, idGenStub{}, tokenHasherStub{},
+	)
+	h := New(Options{
+		AuthTokens: authTokenSvc,
+		UsersWrite: &userWriteStub{},
+		Logger:     testLogger,
 	})
 	err := h.Execute(context.Background(), "token", time.Now())
 	if !errors.Is(err, domain.ErrVerificationToken) {
@@ -80,17 +91,20 @@ func TestExecute_ExpiredToken(t *testing.T) {
 }
 
 func TestExecute_MarkEmailVerifiedFails(t *testing.T) {
-	h := New(usecase.Deps{
-		AuthTokens: &authTokenRepoStub{
+	authTokenSvc := usecase.NewAuthTokenService(
+		&authTokenRepoStub{
 			token: &domain.AuthToken{
 				ID:        "t1",
 				UserID:    "u1",
 				ExpiresAt: time.Now().Add(1 * time.Hour),
 			},
 		},
-		TokenHasher: tokenHasherStub{},
-		UsersWrite:  &userWriteStub{markEmailVerifiedErr: errors.New("db error")},
-		Logger:      testLogger,
+		tokenGenStub{}, idGenStub{}, tokenHasherStub{},
+	)
+	h := New(Options{
+		AuthTokens: authTokenSvc,
+		UsersWrite: &userWriteStub{markEmailVerifiedErr: errors.New("db error")},
+		Logger:     testLogger,
 	})
 	err := h.Execute(context.Background(), "token", time.Now())
 	if err == nil {
@@ -99,17 +113,20 @@ func TestExecute_MarkEmailVerifiedFails(t *testing.T) {
 }
 
 func TestExecute_Success(t *testing.T) {
-	h := New(usecase.Deps{
-		AuthTokens: &authTokenRepoStub{
+	authTokenSvc := usecase.NewAuthTokenService(
+		&authTokenRepoStub{
 			token: &domain.AuthToken{
 				ID:        "t1",
 				UserID:    "u1",
 				ExpiresAt: time.Now().Add(1 * time.Hour),
 			},
 		},
-		TokenHasher: tokenHasherStub{},
-		UsersWrite:  &userWriteStub{},
-		Logger:      testLogger,
+		tokenGenStub{}, idGenStub{}, tokenHasherStub{},
+	)
+	h := New(Options{
+		AuthTokens: authTokenSvc,
+		UsersWrite: &userWriteStub{},
+		Logger:     testLogger,
 	})
 	err := h.Execute(context.Background(), "token", time.Now())
 	if err != nil {

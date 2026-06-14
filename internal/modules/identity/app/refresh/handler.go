@@ -11,9 +11,22 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
 
+type Options struct {
+	Tokens        ports.TokenManager
+	RefreshStore  ports.RefreshStore
+	SessionsRead  ports.SessionReadRepository
+	SessionsWrite ports.SessionWriteRepository
+	UsersRead     ports.UserReadRepository
+	Logger        *slog.Logger
+}
+
 type Handler struct {
-	deps usecase.Deps
-	log  *slog.Logger
+	tokens        ports.TokenManager
+	refreshStore  ports.RefreshStore
+	sessionsRead  ports.SessionReadRepository
+	sessionsWrite ports.SessionWriteRepository
+	usersRead     ports.UserReadRepository
+	log           *slog.Logger
 }
 
 type Command struct {
@@ -21,17 +34,24 @@ type Command struct {
 	Now          time.Time
 }
 
-func New(deps usecase.Deps) *Handler {
-	return &Handler{deps: deps, log: deps.Logger.With("usecase", "refresh")}
+func New(opts Options) *Handler {
+	return &Handler{
+		tokens:        opts.Tokens,
+		refreshStore:  opts.RefreshStore,
+		sessionsRead:  opts.SessionsRead,
+		sessionsWrite: opts.SessionsWrite,
+		usersRead:     opts.UsersRead,
+		log:           opts.Logger.With("usecase", "refresh"),
+	}
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionContext, error) {
-	claims, err := h.deps.Tokens.ParseRefresh(cmd.RefreshToken)
+	claims, err := h.tokens.ParseRefresh(cmd.RefreshToken)
 	if err != nil {
 		h.log.Warn("invalid refresh token: parse failed")
 		return nil, domain.ErrUnauthorized
 	}
-	sessionID, err := h.deps.RefreshStore.Find(ctx, claims.JWTID)
+	sessionID, err := h.refreshStore.Find(ctx, claims.JWTID)
 	if err != nil {
 		if errors.Is(err, ports.ErrCacheMiss) {
 			h.log.Warn("invalid refresh token: JTI not found or already rotated", "session_id", claims.SessionID)
@@ -44,26 +64,26 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 		h.log.Warn("invalid refresh token: session ID mismatch", "session_id", claims.SessionID)
 		return nil, domain.ErrUnauthorized
 	}
-	sess, err := h.deps.SessionsRead.FindByID(ctx, claims.SessionID)
+	sess, err := h.sessionsRead.FindByID(ctx, claims.SessionID)
 	if err != nil || !sess.IsActive(cmd.Now) || sess.RefreshJTI != claims.JWTID {
 		h.log.Warn("invalid refresh token: session inactive or JTI mismatch", "session_id", claims.SessionID)
 		return nil, domain.ErrUnauthorized
 	}
-	user, err := h.deps.UsersRead.FindByID(ctx, sess.UserID)
+	user, err := h.usersRead.FindByID(ctx, sess.UserID)
 	if err != nil {
 		h.log.Warn("invalid refresh token: user not found", "user_id", sess.UserID)
 		return nil, domain.ErrUnauthorized
 	}
-	tokens, accessJTI, refreshJTI, err := h.deps.Tokens.Issue(user.ID, sess.ID, cmd.Now)
+	tokens, accessJTI, refreshJTI, err := h.tokens.Issue(user.ID, sess.ID, cmd.Now)
 	if err != nil {
 		h.log.Error("failed to issue tokens during refresh", "user_id", user.ID, "session_id", sess.ID, "error", err)
 		return nil, err
 	}
-	if err := h.deps.SessionsWrite.RotateTokens(ctx, sess.ID, accessJTI, refreshJTI, tokens.RefreshExpiresAt, cmd.Now); err != nil {
+	if err := h.sessionsWrite.RotateTokens(ctx, sess.ID, accessJTI, refreshJTI, tokens.RefreshExpiresAt, cmd.Now); err != nil {
 		h.log.Error("failed to rotate session tokens", "session_id", sess.ID, "error", err)
 		return nil, err
 	}
-	if err := h.deps.RefreshStore.Replace(ctx, sess.RefreshJTI, refreshJTI, sess.ID, time.Until(tokens.RefreshExpiresAt)); err != nil {
+	if err := h.refreshStore.Replace(ctx, sess.RefreshJTI, refreshJTI, sess.ID, time.Until(tokens.RefreshExpiresAt)); err != nil {
 		h.log.Error("failed to replace refresh token mapping", "session_id", sess.ID, "error", err)
 		return nil, err
 	}

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
@@ -96,7 +95,7 @@ func TestRefreshSuccess(t *testing.T) {
 		RefreshJTI: "old-refresh-jti",
 		ExpiresAt:  now.Add(24 * time.Hour),
 	}
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
 			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
@@ -147,7 +146,7 @@ func TestRefreshSuccess(t *testing.T) {
 }
 
 func TestRefresh_InvalidToken(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
 			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
@@ -162,7 +161,7 @@ func TestRefresh_InvalidToken(t *testing.T) {
 }
 
 func TestRefresh_JTINotFound(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
 			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
@@ -183,7 +182,7 @@ func TestRefresh_JTINotFound(t *testing.T) {
 
 func TestRefresh_RefreshStoreError(t *testing.T) {
 	expectedErr := errors.New("cache error")
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
 			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
@@ -203,7 +202,7 @@ func TestRefresh_RefreshStoreError(t *testing.T) {
 }
 
 func TestRefresh_SessionMismatch(t *testing.T) {
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
 			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
@@ -224,7 +223,7 @@ func TestRefresh_SessionMismatch(t *testing.T) {
 
 func TestRefresh_SessionInactive(t *testing.T) {
 	now := time.Now().UTC()
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
 			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
@@ -253,7 +252,7 @@ func TestRefresh_SessionInactive(t *testing.T) {
 
 func TestRefresh_SessionExpired(t *testing.T) {
 	now := time.Now().UTC()
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
 			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
@@ -283,7 +282,7 @@ func TestRefresh_SessionExpired(t *testing.T) {
 
 func TestRefresh_SessionJTIMismatch(t *testing.T) {
 	now := time.Now().UTC()
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
 			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
@@ -312,7 +311,7 @@ func TestRefresh_SessionJTIMismatch(t *testing.T) {
 
 func TestRefresh_UserNotFound(t *testing.T) {
 	now := time.Now().UTC()
-	h := New(usecase.Deps{
+	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
 			parseRefresh: func(_ string) (*ports.AccessClaims, error) {

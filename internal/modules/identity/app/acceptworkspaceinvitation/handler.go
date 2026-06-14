@@ -7,10 +7,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
+
+type Options struct {
+	InvitationsRead  ports.InvitationReadRepository
+	InvitationsWrite ports.InvitationWriteRepository
+	UsersRead        ports.UserReadRepository
+	MembershipsRead  ports.MembershipReadRepository
+	MembershipsWrite ports.MembershipWriteRepository
+	RolesRead        ports.RoleReadRepository
+	RolesWrite       ports.RoleWriteRepository
+	IdGen            ports.IDGenerator
+	UnitOfWork       ports.UnitOfWork
+	Logger           *slog.Logger
+}
 
 type Command struct {
 	Token  string
@@ -19,16 +32,35 @@ type Command struct {
 }
 
 type Handler struct {
-	deps usecase.Deps
-	log  *slog.Logger
+	invitationsRead  ports.InvitationReadRepository
+	invitationsWrite ports.InvitationWriteRepository
+	usersRead        ports.UserReadRepository
+	membershipsRead  ports.MembershipReadRepository
+	membershipsWrite ports.MembershipWriteRepository
+	rolesRead        ports.RoleReadRepository
+	rolesWrite       ports.RoleWriteRepository
+	idGen            ports.IDGenerator
+	unitOfWork       ports.UnitOfWork
+	log              *slog.Logger
 }
 
-func New(deps usecase.Deps) *Handler {
-	return &Handler{deps: deps, log: deps.Logger.With("usecase", "accept_workspace_invitation")}
+func New(opts Options) *Handler {
+	return &Handler{
+		invitationsRead:  opts.InvitationsRead,
+		invitationsWrite: opts.InvitationsWrite,
+		usersRead:        opts.UsersRead,
+		membershipsRead:  opts.MembershipsRead,
+		membershipsWrite: opts.MembershipsWrite,
+		rolesRead:        opts.RolesRead,
+		rolesWrite:       opts.RolesWrite,
+		idGen:            opts.IdGen,
+		unitOfWork:       opts.UnitOfWork,
+		log:              opts.Logger.With("usecase", "accept_workspace_invitation"),
+	}
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership, error) {
-	invitation, err := h.deps.InvitationsRead.FindByToken(ctx, cmd.Token)
+	invitation, err := h.invitationsRead.FindByToken(ctx, cmd.Token)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvitationNotFound) {
 			h.log.Warn("invitation not found or invalid token")
@@ -45,7 +77,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership,
 		h.log.Warn("invitation already accepted", "workspace_id", invitation.WorkspaceID)
 		return nil, domain.ErrInvitationAccepted
 	}
-	user, err := h.deps.UsersRead.FindByID(ctx, cmd.UserID)
+	user, err := h.usersRead.FindByID(ctx, cmd.UserID)
 	if err != nil {
 		h.log.Error("failed to find user for invitation acceptance", "user_id", cmd.UserID, "error", err)
 		return nil, err
@@ -54,7 +86,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership,
 		h.log.Warn("invitation email mismatch", "workspace_id", invitation.WorkspaceID, "user_id", cmd.UserID)
 		return nil, domain.ErrWorkspaceAccessDenied
 	}
-	existing, err := h.deps.MembershipsRead.FindByWorkspaceAndUser(ctx, invitation.WorkspaceID, cmd.UserID)
+	existing, err := h.membershipsRead.FindByWorkspaceAndUser(ctx, invitation.WorkspaceID, cmd.UserID)
 	if err == nil && existing != nil {
 		h.log.Warn("user is already a member of workspace", "workspace_id", invitation.WorkspaceID, "user_id", cmd.UserID)
 		return nil, domain.ErrInvitationAccepted
@@ -63,7 +95,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership,
 		h.log.Error("failed to check existing membership", "workspace_id", invitation.WorkspaceID, "error", err)
 		return nil, err
 	}
-	invitationRoles, err := h.deps.RolesRead.ListByInvitation(ctx, invitation.ID)
+	invitationRoles, err := h.rolesRead.ListByInvitation(ctx, invitation.ID)
 	if err != nil {
 		h.log.Error("failed to list invitation roles", "workspace_id", invitation.WorkspaceID, "error", err)
 		return nil, err
@@ -71,7 +103,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership,
 	if len(invitationRoles) == 0 {
 		return nil, domain.ErrInvalidRole
 	}
-	membershipID, err := h.deps.IDGen.New()
+	membershipID, err := h.idGen.New()
 	if err != nil {
 		h.log.Error("failed to generate membership ID", "error", err)
 		return nil, err
@@ -79,15 +111,15 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership,
 	membership := domain.NewMembership(membershipID, invitation.WorkspaceID, cmd.UserID, domain.LegacyMembershipRole(invitationRoles), cmd.Now)
 	roleIDs := domain.RoleIDs(invitationRoles)
 	persistAcceptance := func(ctx context.Context) error {
-		if err := h.deps.MembershipsWrite.Create(ctx, membership); err != nil {
+		if err := h.membershipsWrite.Create(ctx, membership); err != nil {
 			return err
 		}
-		if err := h.deps.RolesWrite.ReplaceMembershipRoles(ctx, membership.ID, roleIDs, cmd.Now); err != nil {
+		if err := h.rolesWrite.ReplaceMembershipRoles(ctx, membership.ID, roleIDs, cmd.Now); err != nil {
 			return err
 		}
-		return h.deps.InvitationsWrite.UpdateStatus(ctx, invitation.ID, domain.InvitationStatusAccepted, cmd.Now)
+		return h.invitationsWrite.UpdateStatus(ctx, invitation.ID, domain.InvitationStatusAccepted, cmd.Now)
 	}
-	if err := transaction.RunInTx(ctx, h.deps.UnitOfWork, persistAcceptance); err != nil {
+	if err := transaction.RunInTx(ctx, h.unitOfWork, persistAcceptance); err != nil {
 		h.log.Error("failed to accept invitation", "workspace_id", invitation.WorkspaceID, "error", err)
 		return nil, err
 	}

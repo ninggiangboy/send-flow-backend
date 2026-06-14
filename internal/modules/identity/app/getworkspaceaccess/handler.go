@@ -3,20 +3,23 @@ package getworkspaceaccess
 import (
 	"context"
 	"errors"
+	"log/slog"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
 
-// Handler returns the requesting user's membership for a workspace, including role and
-// permission information. Non-members receive ErrWorkspaceAccessDenied.
-type Handler struct{ deps usecase.Deps }
+type Handler struct {
+	membershipsRead ports.MembershipReadRepository
+	log             *slog.Logger
+}
 
-func New(deps usecase.Deps) *Handler { return &Handler{deps: deps} }
+func New(membershipsRead ports.MembershipReadRepository, logger *slog.Logger) *Handler {
+	return &Handler{membershipsRead: membershipsRead, log: logger.With("usecase", "get_workspace_access")}
+}
 
-// Execute returns the enriched membership (with permissions) for the user in the workspace.
 func (h *Handler) Execute(ctx context.Context, workspaceID, userID string) (*domain.Membership, error) {
-	membership, err := h.deps.MembershipsRead.FindByWorkspaceAndUser(ctx, workspaceID, userID)
+	membership, err := h.membershipsRead.FindByWorkspaceAndUser(ctx, workspaceID, userID)
 	if err != nil {
 		if errors.Is(err, domain.ErrMembershipNotFound) {
 			return nil, domain.ErrWorkspaceAccessDenied

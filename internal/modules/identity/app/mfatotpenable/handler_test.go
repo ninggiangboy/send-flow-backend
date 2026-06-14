@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -77,11 +76,11 @@ func (s *userWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, tim
 
 func TestExecuteSuccess(t *testing.T) {
 	now := time.Now()
-	h := New(usecase.Deps{
-		TOTP:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
-		TOTPVerifier:    &totpVerifierStub{valid: true},
+	h := New(Options{
+		Totp:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
+		TotpVerifier:    &totpVerifierStub{valid: true},
 		RecoveryCodeGen: &recoveryCodeGenStub{code: "RC-123456"},
-		IDGen:           &idGenStub{id: "rc-1"},
+		IdGen:           &idGenStub{id: "rc-1"},
 		TokenHasher:     tokenHasherStub{},
 		UsersWrite:      &userWriteStub{},
 		UnitOfWork:      noopTx{},
@@ -98,11 +97,11 @@ func TestExecuteSuccess(t *testing.T) {
 
 func TestExecuteFindSecretFails(t *testing.T) {
 	now := time.Now()
-	h := New(usecase.Deps{
-		TOTP:            &totpStub{findErr: errors.New("not found")},
-		TOTPVerifier:    &totpVerifierStub{valid: true},
+	h := New(Options{
+		Totp:            &totpStub{findErr: errors.New("not found")},
+		TotpVerifier:    &totpVerifierStub{valid: true},
 		RecoveryCodeGen: &recoveryCodeGenStub{code: "RC-123456"},
-		IDGen:           &idGenStub{id: "rc-1"},
+		IdGen:           &idGenStub{id: "rc-1"},
 		TokenHasher:     tokenHasherStub{},
 		UsersWrite:      &userWriteStub{},
 		UnitOfWork:      noopTx{},
@@ -116,11 +115,11 @@ func TestExecuteFindSecretFails(t *testing.T) {
 
 func TestExecuteVerifyCodeFails(t *testing.T) {
 	now := time.Now()
-	h := New(usecase.Deps{
-		TOTP:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
-		TOTPVerifier:    &totpVerifierStub{valid: false},
+	h := New(Options{
+		Totp:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
+		TotpVerifier:    &totpVerifierStub{valid: false},
 		RecoveryCodeGen: &recoveryCodeGenStub{code: "RC-123456"},
-		IDGen:           &idGenStub{id: "rc-1"},
+		IdGen:           &idGenStub{id: "rc-1"},
 		TokenHasher:     tokenHasherStub{},
 		UsersWrite:      &userWriteStub{},
 		UnitOfWork:      noopTx{},
@@ -135,11 +134,11 @@ func TestExecuteVerifyCodeFails(t *testing.T) {
 func TestExecuteRecoveryCodeGenFails(t *testing.T) {
 	upstreamErr := errors.New("rng failure")
 	now := time.Now()
-	h := New(usecase.Deps{
-		TOTP:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
-		TOTPVerifier:    &totpVerifierStub{valid: true},
+	h := New(Options{
+		Totp:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
+		TotpVerifier:    &totpVerifierStub{valid: true},
 		RecoveryCodeGen: &recoveryCodeGenStub{err: upstreamErr},
-		IDGen:           &idGenStub{id: "rc-1"},
+		IdGen:           &idGenStub{id: "rc-1"},
 		TokenHasher:     tokenHasherStub{},
 		UsersWrite:      &userWriteStub{},
 		UnitOfWork:      noopTx{},
@@ -154,11 +153,11 @@ func TestExecuteRecoveryCodeGenFails(t *testing.T) {
 func TestExecuteIDGenFails(t *testing.T) {
 	upstreamErr := errors.New("id gen failure")
 	now := time.Now()
-	h := New(usecase.Deps{
-		TOTP:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
-		TOTPVerifier:    &totpVerifierStub{valid: true},
+	h := New(Options{
+		Totp:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
+		TotpVerifier:    &totpVerifierStub{valid: true},
 		RecoveryCodeGen: &recoveryCodeGenStub{code: "RC-123456"},
-		IDGen:           &idGenStub{err: upstreamErr},
+		IdGen:           &idGenStub{err: upstreamErr},
 		TokenHasher:     tokenHasherStub{},
 		UsersWrite:      &userWriteStub{},
 		UnitOfWork:      noopTx{},
@@ -173,11 +172,11 @@ func TestExecuteIDGenFails(t *testing.T) {
 func TestExecuteReplaceRecoveryCodesFails(t *testing.T) {
 	upstreamErr := errors.New("db error")
 	now := time.Now()
-	h := New(usecase.Deps{
-		TOTP:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}, replaceErr: upstreamErr},
-		TOTPVerifier:    &totpVerifierStub{valid: true},
+	h := New(Options{
+		Totp:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}, replaceErr: upstreamErr},
+		TotpVerifier:    &totpVerifierStub{valid: true},
 		RecoveryCodeGen: &recoveryCodeGenStub{code: "RC-123456"},
-		IDGen:           &idGenStub{id: "rc-1"},
+		IdGen:           &idGenStub{id: "rc-1"},
 		TokenHasher:     tokenHasherStub{},
 		UsersWrite:      &userWriteStub{},
 		UnitOfWork:      noopTx{},
@@ -192,11 +191,11 @@ func TestExecuteReplaceRecoveryCodesFails(t *testing.T) {
 func TestExecuteSetMFAEnabledAtFails(t *testing.T) {
 	upstreamErr := errors.New("db error")
 	now := time.Now()
-	h := New(usecase.Deps{
-		TOTP:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
-		TOTPVerifier:    &totpVerifierStub{valid: true},
+	h := New(Options{
+		Totp:            &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
+		TotpVerifier:    &totpVerifierStub{valid: true},
 		RecoveryCodeGen: &recoveryCodeGenStub{code: "RC-123456"},
-		IDGen:           &idGenStub{id: "rc-1"},
+		IdGen:           &idGenStub{id: "rc-1"},
 		TokenHasher:     tokenHasherStub{},
 		UsersWrite:      &userWriteStub{err: upstreamErr},
 		UnitOfWork:      noopTx{},

@@ -3,11 +3,13 @@ package getworkspace
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
+
+var testLogger = slog.Default()
 
 type membershipsReadStub struct {
 	membership *domain.Membership
@@ -40,14 +42,11 @@ func (s *workspacesReadStub) ListByUser(_ context.Context, _ string) ([]domain.W
 }
 
 func TestExecuteSuccess(t *testing.T) {
-	h := New(usecase.Deps{
-		MembershipsRead: &membershipsReadStub{
-			membership: &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "u1"},
-		},
-		WorkspacesRead: &workspacesReadStub{
-			workspace: &domain.Workspace{ID: "ws1", Name: "My Workspace"},
-		},
-	})
+	h := New(
+		&workspacesReadStub{workspace: &domain.Workspace{ID: "ws1", Name: "My Workspace"}},
+		&membershipsReadStub{membership: &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "u1"}},
+		testLogger,
+	)
 
 	ws, err := h.Execute(context.Background(), "ws1", "u1")
 	if err != nil {
@@ -59,11 +58,7 @@ func TestExecuteSuccess(t *testing.T) {
 }
 
 func TestExecuteNonMember(t *testing.T) {
-	h := New(usecase.Deps{
-		MembershipsRead: &membershipsReadStub{
-			err: domain.ErrMembershipNotFound,
-		},
-	})
+	h := New(nil, &membershipsReadStub{err: domain.ErrMembershipNotFound}, testLogger)
 
 	_, err := h.Execute(context.Background(), "ws1", "u1")
 	if !errors.Is(err, domain.ErrWorkspaceAccessDenied) {
@@ -72,11 +67,7 @@ func TestExecuteNonMember(t *testing.T) {
 }
 
 func TestExecuteMembershipReadError(t *testing.T) {
-	h := New(usecase.Deps{
-		MembershipsRead: &membershipsReadStub{
-			err: errors.New("db error"),
-		},
-	})
+	h := New(nil, &membershipsReadStub{err: errors.New("db error")}, testLogger)
 
 	_, err := h.Execute(context.Background(), "ws1", "u1")
 	if err == nil || err.Error() != "db error" {

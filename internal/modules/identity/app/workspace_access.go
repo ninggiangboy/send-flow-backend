@@ -106,7 +106,7 @@ func (s *Service) AssignWorkspaceMemberRoles(ctx context.Context, workspaceID, m
 	if err := s.UpdateWorkspaceMemberRole(ctx, workspaceID, membershipID, roleIDs, updaterID, now); err != nil {
 		return nil, err
 	}
-	membership, err := s.deps.MembershipsRead.FindByID(ctx, membershipID)
+	membership, err := s.membershipsRead.FindByID(ctx, membershipID)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (s *Service) ListWorkspaceRoles(ctx context.Context, workspaceID, userID st
 	if _, err := s.requireWorkspacePermission(ctx, workspaceID, userID, domain.PermissionWorkspaceManageRoles); err != nil {
 		return nil, err
 	}
-	return s.deps.RolesRead.ListByWorkspace(ctx, workspaceID)
+	return s.rolesRead.ListByWorkspace(ctx, workspaceID)
 }
 
 // ListPermissions returns the global permission registry. Any authenticated user may call this;
@@ -149,7 +149,7 @@ func (s *Service) CreateWorkspaceRole(ctx context.Context, workspaceID, actorID,
 	if err != nil {
 		return nil, err
 	}
-	roleID, err := s.deps.IDGen.New()
+	roleID, err := s.idGen.New()
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func (s *Service) CreateWorkspaceRole(ctx context.Context, workspaceID, actorID,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	if err := s.deps.RolesWrite.Create(ctx, *role); err != nil {
+	if err := s.rolesWrite.Create(ctx, *role); err != nil {
 		if errors.Is(err, domain.ErrRoleNameConflict) {
 			return nil, domain.ErrRoleNameConflict
 		}
@@ -181,7 +181,7 @@ func (s *Service) UpdateWorkspaceRole(ctx context.Context, workspaceID, roleID, 
 	if _, err := s.requireWorkspacePermission(ctx, workspaceID, actorID, domain.PermissionWorkspaceManageRoles); err != nil {
 		return nil, err
 	}
-	role, err := s.deps.RolesRead.FindByID(ctx, workspaceID, roleID)
+	role, err := s.rolesRead.FindByID(ctx, workspaceID, roleID)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,7 @@ func (s *Service) UpdateWorkspaceRole(ctx context.Context, workspaceID, roleID, 
 	}
 	role.Version++
 	role.UpdatedAt = now
-	if err := s.deps.RolesWrite.Update(ctx, *role); err != nil {
+	if err := s.rolesWrite.Update(ctx, *role); err != nil {
 		if errors.Is(err, domain.ErrRoleNameConflict) {
 			return nil, domain.ErrRoleNameConflict
 		}
@@ -246,7 +246,7 @@ func (s *Service) requireWorkspacePermission(ctx context.Context, workspaceID, u
 // enrichedMembershipForUser loads a membership and attaches role IDs, role names, and the
 // computed effective permissions. Returns ErrMembershipNotFound if the user is not a member.
 func (s *Service) enrichedMembershipForUser(ctx context.Context, workspaceID, userID string) (*domain.Membership, error) {
-	membership, err := s.deps.MembershipsRead.FindByWorkspaceAndUser(ctx, workspaceID, userID)
+	membership, err := s.membershipsRead.FindByWorkspaceAndUser(ctx, workspaceID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +262,7 @@ func (s *Service) enrichedMembershipForUser(ctx context.Context, workspaceID, us
 // enrichMembership loads the roles for a membership and populates RoleIDs, RoleNames,
 // EffectivePermissions, and the legacy Role field (derived from roles if missing).
 func (s *Service) enrichMembership(ctx context.Context, membership *domain.Membership) error {
-	roles, err := s.deps.RolesRead.ListByMembership(ctx, membership.ID)
+	roles, err := s.rolesRead.ListByMembership(ctx, membership.ID)
 	if err != nil {
 		return err
 	}
@@ -278,7 +278,7 @@ func (s *Service) enrichMembership(ctx context.Context, membership *domain.Membe
 // enrichInvitation loads the roles for an invitation and populates RoleIDs and the legacy
 // Role field (derived from roles if missing).
 func (s *Service) enrichInvitation(ctx context.Context, invitation *domain.Invitation) error {
-	roles, err := s.deps.RolesRead.ListByInvitation(ctx, invitation.ID)
+	roles, err := s.rolesRead.ListByInvitation(ctx, invitation.ID)
 	if err != nil {
 		return err
 	}

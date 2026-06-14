@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -32,16 +31,14 @@ func (s *membershipsReadStub) CountByWorkspaceAndRole(ctx context.Context, works
 
 func TestListWorkspaceMembersSuccess(t *testing.T) {
 	members := []domain.Membership{{ID: "mem-1", WorkspaceID: "ws-1", UserID: "u1"}}
-	h := New(usecase.Deps{
-		MembershipsRead: &membershipsReadStub{
-			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
-				return &domain.Membership{ID: "mem-1", WorkspaceID: "ws-1", UserID: "u1"}, nil
-			},
-			listByWorkspace: func(_ context.Context, _ string) ([]domain.Membership, error) {
-				return members, nil
-			},
+	h := New(&membershipsReadStub{
+		findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
+			return &domain.Membership{ID: "mem-1", WorkspaceID: "ws-1", UserID: "u1"}, nil
 		},
-	})
+		listByWorkspace: func(_ context.Context, _ string) ([]domain.Membership, error) {
+			return members, nil
+		},
+	}, testLogger)
 	result, err := h.Execute(context.Background(), "ws-1", "u1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -52,13 +49,11 @@ func TestListWorkspaceMembersSuccess(t *testing.T) {
 }
 
 func TestListWorkspaceMembers_NotMember(t *testing.T) {
-	h := New(usecase.Deps{
-		MembershipsRead: &membershipsReadStub{
-			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
-				return nil, domain.ErrMembershipNotFound
-			},
+	h := New(&membershipsReadStub{
+		findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
+			return nil, domain.ErrMembershipNotFound
 		},
-	})
+	}, testLogger)
 	_, err := h.Execute(context.Background(), "ws-1", "u1")
 	if !errors.Is(err, domain.ErrWorkspaceAccessDenied) {
 		t.Fatalf("expected ErrWorkspaceAccessDenied, got: %v", err)
@@ -67,13 +62,11 @@ func TestListWorkspaceMembers_NotMember(t *testing.T) {
 
 func TestListWorkspaceMembers_FindError(t *testing.T) {
 	expectedErr := errors.New("db error")
-	h := New(usecase.Deps{
-		MembershipsRead: &membershipsReadStub{
-			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
-				return nil, expectedErr
-			},
+	h := New(&membershipsReadStub{
+		findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
+			return nil, expectedErr
 		},
-	})
+	}, testLogger)
 	_, err := h.Execute(context.Background(), "ws-1", "u1")
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected %v, got: %v", expectedErr, err)
@@ -82,16 +75,14 @@ func TestListWorkspaceMembers_FindError(t *testing.T) {
 
 func TestListWorkspaceMembers_ListError(t *testing.T) {
 	expectedErr := errors.New("list error")
-	h := New(usecase.Deps{
-		MembershipsRead: &membershipsReadStub{
-			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
-				return &domain.Membership{ID: "mem-1"}, nil
-			},
-			listByWorkspace: func(_ context.Context, _ string) ([]domain.Membership, error) {
-				return nil, expectedErr
-			},
+	h := New(&membershipsReadStub{
+		findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
+			return &domain.Membership{ID: "mem-1"}, nil
 		},
-	})
+		listByWorkspace: func(_ context.Context, _ string) ([]domain.Membership, error) {
+			return nil, expectedErr
+		},
+	}, testLogger)
 	_, err := h.Execute(context.Background(), "ws-1", "u1")
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected %v, got: %v", expectedErr, err)

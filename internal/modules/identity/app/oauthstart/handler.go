@@ -10,9 +10,20 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
 
+type Options struct {
+	Providers     map[string]ports.OAuthProvider
+	IdGen         ports.IDGenerator
+	OauthState    ports.OAuthStateStore
+	OauthStateTTL time.Duration
+	Logger        *slog.Logger
+}
+
 type Handler struct {
-	deps usecase.Deps
-	log  *slog.Logger
+	providers     map[string]ports.OAuthProvider
+	idGen         ports.IDGenerator
+	oauthState    ports.OAuthStateStore
+	oauthStateTTL time.Duration
+	log           *slog.Logger
 }
 
 type Command struct {
@@ -24,12 +35,18 @@ type Command struct {
 	Now           time.Time
 }
 
-func New(deps usecase.Deps) *Handler {
-	return &Handler{deps: deps, log: deps.Logger.With("usecase", "oauth_start")}
+func New(opts Options) *Handler {
+	return &Handler{
+		providers:     opts.Providers,
+		idGen:         opts.IdGen,
+		oauthState:    opts.OauthState,
+		oauthStateTTL: opts.OauthStateTTL,
+		log:           opts.Logger.With("usecase", "oauth_start"),
+	}
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.OAuthStartResult, error) {
-	p, ok := h.deps.Providers[cmd.Provider]
+	p, ok := h.providers[cmd.Provider]
 	if !ok {
 		h.log.Warn("unknown OAuth provider requested", "provider", cmd.Provider)
 		return nil, domain.ErrNotFound
@@ -38,12 +55,12 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.OAuthStart
 		h.log.Warn("disabled OAuth provider requested", "provider", cmd.Provider)
 		return nil, domain.ErrProviderDisabled
 	}
-	state, err := h.deps.IDGen.New()
+	state, err := h.idGen.New()
 	if err != nil {
 		h.log.Error("failed to generate OAuth state", "provider", cmd.Provider, "error", err)
 		return nil, err
 	}
-	if err := h.deps.OAuthState.Save(ctx, state, ports.OAuthState{Provider: cmd.Provider, RedirectURI: cmd.RedirectURI, Intent: cmd.Intent, CodeVerifier: cmd.CodeVerifier, CreatedAt: cmd.Now}, h.deps.OAuthStateTTL); err != nil {
+	if err := h.oauthState.Save(ctx, state, ports.OAuthState{Provider: cmd.Provider, RedirectURI: cmd.RedirectURI, Intent: cmd.Intent, CodeVerifier: cmd.CodeVerifier, CreatedAt: cmd.Now}, h.oauthStateTTL); err != nil {
 		h.log.Error("failed to save OAuth state", "provider", cmd.Provider, "error", err)
 		return nil, err
 	}

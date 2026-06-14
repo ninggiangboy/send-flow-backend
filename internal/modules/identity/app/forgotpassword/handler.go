@@ -8,15 +8,33 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
 
-type Handler struct {
-	deps usecase.Deps
-	log  *slog.Logger
+type Options struct {
+	UsersRead        ports.UserReadRepository
+	AuthTokens       *usecase.AuthTokenService
+	Notifications    *usecase.NotificationService
+	PasswordResetTTL time.Duration
+	Logger           *slog.Logger
 }
 
-func New(deps usecase.Deps) *Handler {
-	return &Handler{deps: deps, log: deps.Logger.With("usecase", "forgot_password")}
+type Handler struct {
+	usersRead        ports.UserReadRepository
+	authTokens       *usecase.AuthTokenService
+	notifications    *usecase.NotificationService
+	passwordResetTTL time.Duration
+	log              *slog.Logger
+}
+
+func New(opts Options) *Handler {
+	return &Handler{
+		usersRead:        opts.UsersRead,
+		authTokens:       opts.AuthTokens,
+		notifications:    opts.Notifications,
+		passwordResetTTL: opts.PasswordResetTTL,
+		log:              opts.Logger.With("usecase", "forgot_password"),
+	}
 }
 
 func (h *Handler) Execute(ctx context.Context, email string, now time.Time) error {
@@ -25,7 +43,7 @@ func (h *Handler) Execute(ctx context.Context, email string, now time.Time) erro
 		h.log.Info("password reset requested with invalid email format")
 		return nil
 	}
-	user, err := h.deps.UsersRead.FindByEmail(ctx, parsed.String())
+	user, err := h.usersRead.FindByEmail(ctx, parsed.String())
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			h.log.Debug("password reset requested")
@@ -34,12 +52,12 @@ func (h *Handler) Execute(ctx context.Context, email string, now time.Time) erro
 		h.log.Error("failed to lookup user for password reset", "error", err)
 		return err
 	}
-	token, err := usecase.CreatePasswordResetToken(ctx, h.deps, user.ID, now)
+	token, err := h.authTokens.CreateToken(ctx, user.ID, domain.AuthTokenPurposePasswordReset, h.passwordResetTTL, now)
 	if err != nil || token == "" {
 		h.log.Error("failed to create password reset token", "user_id", user.ID, "error", err)
 		return err
 	}
-	if err := usecase.SendPasswordResetEmail(ctx, h.deps, user.Email, usecase.BuildPasswordResetLink(h.deps, token)); err != nil {
+	if err := h.notifications.SendPasswordResetEmail(ctx, user.Email, h.notifications.BuildPasswordResetLink(token)); err != nil {
 		h.log.Error("failed to send password reset email", "user_id", user.ID, "error", err)
 		return err
 	}
