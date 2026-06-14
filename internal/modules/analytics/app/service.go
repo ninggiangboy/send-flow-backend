@@ -2,13 +2,18 @@ package app
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
-	analyticscontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/contracts"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/anomalies"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/campaign"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/dashboard"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/deliverability"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/forensics"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/ingestion"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/operationsanalytics"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/sync"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/usage"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
 )
@@ -110,25 +115,15 @@ type Options struct {
 }
 
 type Service struct {
-	factRepo                ports.EventFactRepository
-	factBatchRepo           ports.FactBatchRepository
-	syncStateRepo           ports.SyncStateRepository
-	clickHouseBatchWriter   ports.ClickHouseBatchWriter
-	projectionRead          ports.ProjectionReadRepository
-	projectionWrite         ports.ProjectionWriteRepository
-	campaignQueryRepo       ports.CampaignQueryRepository
-	deliverabilityQueryRepo ports.DeliverabilityQueryRepository
-	forensicQueryRepo       ports.ForensicQueryRepository
-	operationsQueryRepo     ports.OperationsQueryRepository
-	usageQueryRepo          ports.UsageQueryRepository
-	anomalySignalWriteRepo  ports.AnomalySignalWriteRepository
-	operationsEventWriter   ports.OperationsEventWriter
-	txManager               ports.TransactionManager
-	outboxWriter            ports.OutboxWriter
-	accessChecker           ports.WorkspaceAccessChecker
-	idGen                   func() (string, error)
-	clock                   func() time.Time
-	log                     *slog.Logger
+	ingestionH           *ingestion.Handler
+	syncH                *sync.Handler
+	dashboardH           *dashboard.Handler
+	campaignH            *campaign.Handler
+	deliverabilityH      *deliverability.Handler
+	forensicsH           *forensics.Handler
+	operationsAnalyticsH *operationsanalytics.Handler
+	usageH               *usage.Handler
+	anomaliesH           *anomalies.Handler
 }
 
 func NewService(opts Options) *Service {
@@ -139,183 +134,84 @@ func NewService(opts Options) *Service {
 		opts.Logger = slog.Default()
 	}
 	return &Service{
-		factRepo:                opts.FactRepo,
-		factBatchRepo:           opts.FactBatchRepo,
-		syncStateRepo:           opts.SyncStateRepo,
-		clickHouseBatchWriter:   opts.ClickHouseBatchWriter,
-		projectionRead:          opts.ProjectionRead,
-		projectionWrite:         opts.ProjectionWrite,
-		campaignQueryRepo:       opts.CampaignQueryRepo,
-		deliverabilityQueryRepo: opts.DeliverabilityQueryRepo,
-		forensicQueryRepo:       opts.ForensicQueryRepo,
-		operationsQueryRepo:     opts.OperationsQueryRepo,
-		usageQueryRepo:          opts.UsageQueryRepo,
-		anomalySignalWriteRepo:  opts.AnomalySignalWriteRepo,
-		operationsEventWriter:   opts.OperationsEventWriter,
-		txManager:               opts.TxManager,
-		outboxWriter:            opts.OutboxWriter,
-		accessChecker:           opts.AccessChecker,
-		idGen:                   opts.IDGen,
-		clock:                   opts.Clock,
-		log:                     opts.Logger.With("service", "analytics"),
+		ingestionH: ingestion.New(ingestion.Options{
+			FactRepo:              opts.FactRepo,
+			ProjectionWrite:       opts.ProjectionWrite,
+			TxManager:             opts.TxManager,
+			OutboxWriter:          opts.OutboxWriter,
+			IDGen:                 opts.IDGen,
+			Clock:                 opts.Clock,
+			AccessChecker:         opts.AccessChecker,
+			OperationsEventWriter: opts.OperationsEventWriter,
+			Logger:                opts.Logger,
+		}),
+		syncH: sync.New(sync.Options{
+			FactBatchRepo:         opts.FactBatchRepo,
+			SyncStateRepo:         opts.SyncStateRepo,
+			ClickHouseBatchWriter: opts.ClickHouseBatchWriter,
+			Clock:                 opts.Clock,
+			Logger:                opts.Logger,
+		}),
+		dashboardH: dashboard.New(dashboard.Options{
+			ProjectionRead: opts.ProjectionRead,
+			AccessChecker:  opts.AccessChecker,
+			Logger:         opts.Logger,
+		}),
+		campaignH: campaign.New(campaign.Options{
+			ProjectionRead:    opts.ProjectionRead,
+			CampaignQueryRepo: opts.CampaignQueryRepo,
+			AccessChecker:     opts.AccessChecker,
+			Logger:            opts.Logger,
+		}),
+		deliverabilityH: deliverability.New(deliverability.Options{
+			ProjectionRead:          opts.ProjectionRead,
+			DeliverabilityQueryRepo: opts.DeliverabilityQueryRepo,
+			AccessChecker:           opts.AccessChecker,
+			Logger:                  opts.Logger,
+		}),
+		forensicsH: forensics.New(forensics.Options{
+			ForensicQueryRepo: opts.ForensicQueryRepo,
+			AccessChecker:     opts.AccessChecker,
+			Logger:            opts.Logger,
+		}),
+		operationsAnalyticsH: operationsanalytics.New(operationsanalytics.Options{
+			OperationsQueryRepo: opts.OperationsQueryRepo,
+			AccessChecker:       opts.AccessChecker,
+			Logger:              opts.Logger,
+		}),
+		usageH: usage.New(usage.Options{
+			UsageQueryRepo: opts.UsageQueryRepo,
+			AccessChecker:  opts.AccessChecker,
+			Logger:         opts.Logger,
+		}),
+		anomaliesH: anomalies.New(anomalies.Options{
+			UsageQueryRepo:         opts.UsageQueryRepo,
+			AnomalySignalWriteRepo: opts.AnomalySignalWriteRepo,
+			AccessChecker:          opts.AccessChecker,
+			Logger:                 opts.Logger,
+			Clock:                  opts.Clock,
+		}),
 	}
 }
 
+// ── Facade methods ──
+
 func (s *Service) IngestEmailEventFact(ctx context.Context, input IngestEmailEventFactInput) error {
-	input.WorkspaceID = domain.NormalizeString(input.WorkspaceID)
-	input.CampaignID = domain.NormalizeString(input.CampaignID)
-	input.Provider = domain.NormalizeString(input.Provider)
-	input.RecipientDomain = domain.NormalizeString(input.RecipientDomain)
-
-	if err := domain.ValidateFact(input.WorkspaceID, input.SourceEventID, input.CanonicalType, input.OccurredAt, input.ReceivedAt); err != nil {
-		return err
-	}
-
-	var fact domain.EmailEventFact
-
-	txErr := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
-		existing, err := s.factRepo.FindBySourceEventID(txCtx, input.SourceEventID)
-		if err != nil && !errors.Is(err, domain.ErrAnalyticsProjectionNotFound) {
-			s.log.Error("failed to check existing fact",
-				"source_event_id", input.SourceEventID,
-				"workspace_id", input.WorkspaceID,
-				"error", err,
-			)
-			return err
-		}
-		if existing != nil {
-			s.log.Debug("duplicate analytics event, skipping",
-				"source_event_id", input.SourceEventID,
-				"workspace_id", input.WorkspaceID,
-				"event_type", input.CanonicalType,
-			)
-			return nil
-		}
-
-		factID, err := s.idGen()
-		if err != nil {
-			return err
-		}
-		now := s.clock()
-
-		fact = domain.EmailEventFact{
-			ID:                factID,
-			SourceEventID:     input.SourceEventID,
-			SourceEventType:   input.SourceEventType,
-			WorkspaceID:       input.WorkspaceID,
-			CampaignID:        input.CampaignID,
-			MessageID:         input.MessageID,
-			Provider:          input.Provider,
-			ProviderMessageID: input.ProviderMessageID,
-			ProviderEventID:   input.ProviderEventID,
-			EventType:         input.CanonicalType,
-			RecipientDomain:   input.RecipientDomain,
-			OccurredAt:        input.OccurredAt,
-			ReceivedAt:        input.ReceivedAt,
-			Metadata:          input.Metadata,
-			CreatedAt:         now,
-		}
-
-		if err := s.factRepo.Create(txCtx, fact); err != nil {
-			if err == domain.ErrAnalyticsEventDuplicate {
-				s.log.Debug("duplicate analytics event (race), skipping",
-					"source_event_id", input.SourceEventID,
-				)
-				return nil
-			}
-			s.log.Error("failed to create analytics fact",
-				"source_event_id", input.SourceEventID,
-				"workspace_id", input.WorkspaceID,
-				"error", err,
-			)
-			return err
-		}
-
-		if err := s.projectionWrite.IncrementWorkspaceOverview(txCtx, input.WorkspaceID, input.CanonicalType, input.OccurredAt); err != nil {
-			s.log.Error("failed to increment workspace overview",
-				"workspace_id", input.WorkspaceID,
-				"event_type", input.CanonicalType,
-				"error", err,
-			)
-			return err
-		}
-
-		if input.CampaignID != "" {
-			if err := s.projectionWrite.IncrementCampaignSummary(txCtx, input.WorkspaceID, input.CampaignID, input.CanonicalType, input.OccurredAt); err != nil {
-				s.log.Error("failed to increment campaign summary",
-					"workspace_id", input.WorkspaceID,
-					"campaign_id", input.CampaignID,
-					"event_type", input.CanonicalType,
-					"error", err,
-				)
-				return err
-			}
-		}
-
-		if input.Provider != "" || input.RecipientDomain != "" {
-			prov := input.Provider
-			dom := input.RecipientDomain
-			if err := s.projectionWrite.IncrementDeliverability(txCtx, input.WorkspaceID, prov, dom, input.CanonicalType, input.OccurredAt); err != nil {
-				s.log.Error("failed to increment deliverability projection",
-					"workspace_id", input.WorkspaceID,
-					"provider", prov,
-					"recipient_domain", dom,
-					"event_type", input.CanonicalType,
-					"error", err,
-				)
-				return err
-			}
-		}
-
-		if s.outboxWriter != nil {
-			payload, err := json.Marshal(analyticscontracts.ProjectionUpdatedPayload{
-				WorkspaceID:    input.WorkspaceID,
-				ProjectionType: "workspace_overview",
-				ProjectionID:   input.WorkspaceID,
-				EventType:      input.CanonicalType,
-				LastEventAt:    input.OccurredAt.Format(time.RFC3339),
-				LastUpdatedAt:  now.Format(time.RFC3339),
-			})
-			if err != nil {
-				return err
-			}
-			eventID, err := s.idGen()
-			if err != nil {
-				return err
-			}
-			if err := s.outboxWriter.Save(txCtx, ports.OutboxEvent{
-				ID:            eventID,
-				AggregateType: "analytics",
-				AggregateID:   input.WorkspaceID,
-				EventType:     analyticscontracts.EventProjectionUpdatedV1,
-				Payload:       payload,
-				WorkspaceID:   input.WorkspaceID,
-				OccurredAt:    now,
-			}); err != nil {
-				s.log.Error("failed to write outbox event",
-					"workspace_id", input.WorkspaceID,
-					"error", err,
-				)
-				return err
-			}
-		}
-
-		s.log.Info("analytics event fact recorded",
-			"fact_id", factID,
-			"source_event_id", input.SourceEventID,
-			"workspace_id", input.WorkspaceID,
-			"campaign_id", input.CampaignID,
-			"message_id", input.MessageID,
-			"event_type", input.CanonicalType,
-		)
-
-		return nil
+	return s.ingestionH.ExecuteIngestEmailEventFact(ctx, ingestion.IngestFactCommand{
+		SourceEventID:     input.SourceEventID,
+		SourceEventType:   input.SourceEventType,
+		WorkspaceID:       input.WorkspaceID,
+		CampaignID:        input.CampaignID,
+		MessageID:         input.MessageID,
+		Provider:          input.Provider,
+		ProviderMessageID: input.ProviderMessageID,
+		ProviderEventID:   input.ProviderEventID,
+		CanonicalType:     input.CanonicalType,
+		RecipientDomain:   input.RecipientDomain,
+		OccurredAt:        input.OccurredAt,
+		ReceivedAt:        input.ReceivedAt,
+		Metadata:          input.Metadata,
 	})
-	if txErr != nil {
-		return txErr
-	}
-
-	return nil
 }
 
 type IngestOperationsEventInput struct {
@@ -332,123 +228,10 @@ type IngestOperationsEventInput struct {
 	OccurredAt      time.Time
 }
 
-type SyncFactsToClickHouseInput struct {
-	StreamName string
-	BatchSize  int
-}
-
-type SyncFactsToClickHouseResult struct {
-	SyncedCount int
-	LastFactID  string
-	LagSeconds  int64
-}
-
-func (s *Service) SyncFactsToClickHouse(ctx context.Context, input SyncFactsToClickHouseInput) (*SyncFactsToClickHouseResult, error) {
-	if s.syncStateRepo == nil || s.factBatchRepo == nil || s.clickHouseBatchWriter == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	cursor, err := s.syncStateRepo.GetSyncCursor(ctx, input.StreamName)
-	if err != nil {
-		s.log.Error("failed to get sync cursor",
-			"stream_name", input.StreamName,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	batchSize := input.BatchSize
-	if batchSize <= 0 {
-		batchSize = 1000
-	}
-
-	facts, err := s.factBatchRepo.ListFactsAfterCursor(ctx, cursor.LastCreatedAt, cursor.LastFactID, batchSize)
-	if err != nil {
-		s.log.Error("failed to list facts after cursor",
-			"stream_name", input.StreamName,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	if len(facts) == 0 {
-		return &SyncFactsToClickHouseResult{}, nil
-	}
-
-	if err := s.clickHouseBatchWriter.CreateBatch(ctx, facts); err != nil {
-		s.log.Error("failed to write batch to clickhouse",
-			"stream_name", input.StreamName,
-			"batch_size", len(facts),
-			"error", err,
-		)
-		return nil, err
-	}
-
-	last := facts[len(facts)-1]
-	now := s.clock()
-
-	lagSeconds := int64(0)
-	if cursor.LastSyncedAt != nil {
-		lagSeconds = int64(now.Sub(*cursor.LastSyncedAt).Seconds())
-	}
-
-	cursor.LastCreatedAt = &last.CreatedAt
-	cursor.LastFactID = last.ID
-	cursor.LastSyncedAt = &now
-
-	if err := s.syncStateRepo.UpdateSyncCursor(ctx, cursor); err != nil {
-		s.log.Error("failed to update sync cursor",
-			"stream_name", input.StreamName,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return &SyncFactsToClickHouseResult{
-		SyncedCount: len(facts),
-		LastFactID:  last.ID,
-		LagSeconds:  lagSeconds,
-	}, nil
-}
-
-type SyncCursorStatus struct {
-	StreamName   string     `json:"stream_name"`
-	LastSyncedAt *time.Time `json:"last_synced_at"`
-	LastFactID   string     `json:"last_fact_id"`
-	LagSeconds   int64      `json:"lag_seconds"`
-}
-
-func (s *Service) GetSyncCursorStatus(ctx context.Context, streamName string) (*SyncCursorStatus, error) {
-	if s.syncStateRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-	cursor, err := s.syncStateRepo.GetSyncCursor(ctx, streamName)
-	if err != nil {
-		return nil, err
-	}
-	lagSeconds := int64(0)
-	if cursor.LastSyncedAt != nil {
-		lagSeconds = int64(s.clock().Sub(*cursor.LastSyncedAt).Seconds())
-	}
-	return &SyncCursorStatus{
-		StreamName:   cursor.StreamName,
-		LastSyncedAt: cursor.LastSyncedAt,
-		LastFactID:   cursor.LastFactID,
-		LagSeconds:   lagSeconds,
-	}, nil
-}
-
 func (s *Service) IngestOperationsEvent(ctx context.Context, input IngestOperationsEventInput) error {
-	if s.operationsEventWriter == nil {
-		return nil
-	}
-	sourceEventID := input.SourceEventID
-	if sourceEventID == "" {
-		sourceEventID = input.Source + "_" + input.OperationType + "_" + input.OccurredAt.Format(time.RFC3339Nano)
-	}
-	return s.operationsEventWriter.Create(ctx, ports.OperationsEvent{
-		SourceEventID:   sourceEventID,
+	return s.ingestionH.ExecuteIngestOperationsEvent(ctx, ingestion.IngestOpsCommand{
 		Source:          input.Source,
+		SourceEventID:   input.SourceEventID,
 		SourceEventType: input.SourceEventType,
 		OperationType:   input.OperationType,
 		Status:          input.Status,
@@ -461,240 +244,122 @@ func (s *Service) IngestOperationsEvent(ctx context.Context, input IngestOperati
 	})
 }
 
-func (s *Service) GetDashboardOverview(ctx context.Context, input GetDashboardOverviewInput) (*domain.DashboardOverview, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
+type SyncFactsToClickHouseInput struct {
+	StreamName string
+	BatchSize  int
+}
 
-	overview, err := s.projectionRead.GetWorkspaceOverview(ctx, input.WorkspaceID)
+type SyncFactsToClickHouseResult struct {
+	SyncedCount int
+	LastFactID  string
+	LagSeconds  int64
+}
+
+func (s *Service) SyncFactsToClickHouse(ctx context.Context, input SyncFactsToClickHouseInput) (*SyncFactsToClickHouseResult, error) {
+	result, err := s.syncH.ExecuteSyncFactsToClickHouse(ctx, sync.SyncCommand{
+		StreamName: input.StreamName,
+		BatchSize:  input.BatchSize,
+	})
 	if err != nil {
-		if err == domain.ErrAnalyticsProjectionNotFound {
-			return &domain.DashboardOverview{
-				Status:      "pending",
-				WorkspaceID: input.WorkspaceID,
-			}, nil
-		}
-		s.log.Error("failed to get workspace overview",
-			"workspace_id", input.WorkspaceID,
-			"error", err,
-		)
 		return nil, err
 	}
-
-	return &domain.DashboardOverview{
-		Status:              "ready",
-		WorkspaceID:         overview.WorkspaceID,
-		QueuedCount:         overview.QueuedCount,
-		AcceptedCount:       overview.AcceptedCount,
-		DeliveredCount:      overview.DeliveredCount,
-		BouncedCount:        overview.BouncedCount,
-		ComplainedCount:     overview.ComplainedCount,
-		OpenedCount:         overview.OpenedCount,
-		ClickedCount:        overview.ClickedCount,
-		UnsubscribedCount:   overview.UnsubscribedCount,
-		RetryScheduledCount: overview.RetryScheduledCount,
-		LastEventAt:         overview.LastEventAt,
-		LastUpdatedAt:       overview.LastUpdatedAt,
+	return &SyncFactsToClickHouseResult{
+		SyncedCount: result.SyncedCount,
+		LastFactID:  result.LastFactID,
+		LagSeconds:  result.LagSeconds,
 	}, nil
+}
+
+type SyncCursorStatus struct {
+	StreamName   string     `json:"stream_name"`
+	LastSyncedAt *time.Time `json:"last_synced_at"`
+	LastFactID   string     `json:"last_fact_id"`
+	LagSeconds   int64      `json:"lag_seconds"`
+}
+
+func (s *Service) GetSyncCursorStatus(ctx context.Context, streamName string) (*SyncCursorStatus, error) {
+	result, err := s.syncH.ExecuteGetSyncCursorStatus(ctx, sync.CursorQuery{StreamName: streamName})
+	if err != nil {
+		return nil, err
+	}
+	return &SyncCursorStatus{
+		StreamName:   result.StreamName,
+		LastSyncedAt: result.LastSyncedAt,
+		LastFactID:   result.LastFactID,
+		LagSeconds:   result.LagSeconds,
+	}, nil
+}
+
+func (s *Service) GetDashboardOverview(ctx context.Context, input GetDashboardOverviewInput) (*domain.DashboardOverview, error) {
+	return s.dashboardH.ExecuteGetDashboardOverview(ctx, dashboard.DashboardQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+	})
 }
 
 func (s *Service) GetCampaignAnalytics(ctx context.Context, input GetCampaignAnalyticsInput) (*domain.CampaignAnalytics, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	summary, err := s.projectionRead.GetCampaignSummary(ctx, input.WorkspaceID, input.CampaignID)
-	if err != nil {
-		if err == domain.ErrAnalyticsProjectionNotFound {
-			return &domain.CampaignAnalytics{
-				Status:      "pending",
-				WorkspaceID: input.WorkspaceID,
-				CampaignID:  input.CampaignID,
-			}, nil
-		}
-		s.log.Error("failed to get campaign summary",
-			"workspace_id", input.WorkspaceID,
-			"campaign_id", input.CampaignID,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	delivered := summary.DeliveredCount
-	accepted := summary.AcceptedCount
-
-	return &domain.CampaignAnalytics{
-		Status:              "ready",
-		WorkspaceID:         summary.WorkspaceID,
-		CampaignID:          summary.CampaignID,
-		QueuedCount:         summary.QueuedCount,
-		AcceptedCount:       summary.AcceptedCount,
-		DeliveredCount:      summary.DeliveredCount,
-		BouncedCount:        summary.BouncedCount,
-		ComplainedCount:     summary.ComplainedCount,
-		OpenedCount:         summary.OpenedCount,
-		ClickedCount:        summary.ClickedCount,
-		UnsubscribedCount:   summary.UnsubscribedCount,
-		RetryScheduledCount: summary.RetryScheduledCount,
-		DeliveryRate:        domain.ComputeRate(delivered, accepted),
-		BounceRate:          domain.ComputeRate(summary.BouncedCount, delivered),
-		ComplaintRate:       domain.ComputeRate(summary.ComplainedCount, delivered),
-		OpenRate:            domain.ComputeRate(summary.OpenedCount, delivered),
-		ClickRate:           domain.ComputeRate(summary.ClickedCount, delivered),
-		UnsubscribeRate:     domain.ComputeRate(summary.UnsubscribedCount, delivered),
-		LastEventAt:         summary.LastEventAt,
-		LastUpdatedAt:       summary.LastUpdatedAt,
-	}, nil
+	return s.campaignH.ExecuteCampaignAnalytics(ctx, campaign.CampaignAnalyticsQuery{
+		WorkspaceID: input.WorkspaceID,
+		CampaignID:  input.CampaignID,
+		UserID:      input.UserID,
+	})
 }
 
 func (s *Service) GetDeliverability(ctx context.Context, input GetDeliverabilityInput) (*domain.DeliverabilityResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	filter := domain.DeliverabilityFilter{
-		Provider:        domain.NormalizeString(input.Provider),
-		RecipientDomain: domain.NormalizeString(input.RecipientDomain),
-	}
-
-	projections, err := s.projectionRead.ListDeliverability(ctx, input.WorkspaceID, filter)
-	if err != nil {
-		s.log.Error("failed to list deliverability projections",
-			"workspace_id", input.WorkspaceID,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	if len(projections) == 0 {
-		return &domain.DeliverabilityResult{
-			Status: "pending",
-			Items:  nil,
-		}, nil
-	}
-
-	rows := make([]domain.DeliverabilityRow, 0, len(projections))
-	for _, p := range projections {
-		rows = append(rows, domain.DeliverabilityRow{
-			Provider:        p.Provider,
-			RecipientDomain: p.RecipientDomain,
-			DeliveredCount:  p.DeliveredCount,
-			BouncedCount:    p.BouncedCount,
-			ComplainedCount: p.ComplainedCount,
-			OpenedCount:     p.OpenedCount,
-			ClickedCount:    p.ClickedCount,
-			BounceRate:      domain.ComputeRate(p.BouncedCount, p.DeliveredCount),
-			ComplaintRate:   domain.ComputeRate(p.ComplainedCount, p.DeliveredCount),
-			LastEventAt:     p.LastEventAt,
-			LastUpdatedAt:   p.LastUpdatedAt,
-		})
-	}
-
-	return &domain.DeliverabilityResult{
-		Status: "ready",
-		Items:  rows,
-	}, nil
+	return s.deliverabilityH.ExecuteGetDeliverability(ctx, deliverability.DeliverabilityQuery{
+		WorkspaceID:     input.WorkspaceID,
+		Provider:        input.Provider,
+		RecipientDomain: input.RecipientDomain,
+		UserID:          input.UserID,
+	})
 }
 
 func (s *Service) GetCampaignFunnel(ctx context.Context, input GetCampaignFunnelInput) (*domain.CampaignFunnel, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	if s.campaignQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	funnel, err := s.campaignQueryRepo.GetCampaignFunnel(ctx, input.WorkspaceID, input.CampaignID, input.From, input.To)
-	if err != nil {
-		s.log.Error("failed to get campaign funnel",
-			"workspace_id", input.WorkspaceID,
-			"campaign_id", input.CampaignID,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return funnel, nil
+	return s.campaignH.ExecuteCampaignFunnel(ctx, campaign.CampaignFunnelQuery{
+		WorkspaceID: input.WorkspaceID,
+		CampaignID:  input.CampaignID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+	})
 }
 
 func (s *Service) GetCampaignTimeSeries(ctx context.Context, input GetCampaignTimeSeriesInput) (*domain.CampaignTimeSeriesResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	if s.campaignQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	if err := domain.ValidateInterval(input.Interval); err != nil {
-		return nil, err
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-	if input.EventType != "" && !domain.KnownEventTypes[input.EventType] {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	ts, err := s.campaignQueryRepo.GetCampaignTimeSeries(ctx, input.WorkspaceID, input.CampaignID, input.From, input.To, input.Interval, input.EventType)
-	if err != nil {
-		s.log.Error("failed to get campaign time series",
-			"workspace_id", input.WorkspaceID,
-			"campaign_id", input.CampaignID,
-			"interval", input.Interval,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return ts, nil
+	return s.campaignH.ExecuteCampaignTimeSeries(ctx, campaign.CampaignTimeSeriesQuery{
+		WorkspaceID: input.WorkspaceID,
+		CampaignID:  input.CampaignID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		Interval:    input.Interval,
+		EventType:   input.EventType,
+	})
 }
 
 func (s *Service) GetCampaignBreakdown(ctx context.Context, input GetCampaignBreakdownInput) (*domain.CampaignBreakdownResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
+	return s.campaignH.ExecuteCampaignBreakdown(ctx, campaign.CampaignBreakdownQuery{
+		WorkspaceID: input.WorkspaceID,
+		CampaignID:  input.CampaignID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		GroupBy:     input.GroupBy,
+	})
+}
 
-	if s.campaignQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	if err := domain.ValidateGroupBy(input.GroupBy); err != nil {
-		return nil, err
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	bd, err := s.campaignQueryRepo.GetCampaignBreakdown(ctx, input.WorkspaceID, input.CampaignID, input.From, input.To, input.GroupBy)
-	if err != nil {
-		s.log.Error("failed to get campaign breakdown",
-			"workspace_id", input.WorkspaceID,
-			"campaign_id", input.CampaignID,
-			"group_by", input.GroupBy,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return bd, nil
+func (s *Service) GetCampaignEvents(ctx context.Context, input GetCampaignEventsInput) (*domain.CampaignEventsResult, error) {
+	return s.campaignH.ExecuteCampaignEvents(ctx, campaign.CampaignEventsQuery{
+		WorkspaceID: input.WorkspaceID,
+		CampaignID:  input.CampaignID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		EventType:   input.EventType,
+		Provider:    input.Provider,
+		Domain:      input.Domain,
+		Limit:       input.Limit,
+		Cursor:      input.Cursor,
+	})
 }
 
 type GetDeliverabilityTimeSeriesInput struct {
@@ -707,6 +372,18 @@ type GetDeliverabilityTimeSeriesInput struct {
 	Interval    string
 }
 
+func (s *Service) GetDeliverabilityTimeSeries(ctx context.Context, input GetDeliverabilityTimeSeriesInput) (*domain.DeliverabilityTimeSeriesResult, error) {
+	return s.deliverabilityH.ExecuteGetDeliverabilityTimeSeries(ctx, deliverability.TimeSeriesQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		Provider:    input.Provider,
+		Domain:      input.Domain,
+		Interval:    input.Interval,
+	})
+}
+
 type GetDeliverabilityBreakdownInput struct {
 	WorkspaceID string
 	UserID      string
@@ -715,6 +392,18 @@ type GetDeliverabilityBreakdownInput struct {
 	GroupBy     string
 	Provider    string
 	Domain      string
+}
+
+func (s *Service) GetDeliverabilityBreakdown(ctx context.Context, input GetDeliverabilityBreakdownInput) (*domain.DeliverabilityBreakdownResult, error) {
+	return s.deliverabilityH.ExecuteGetDeliverabilityBreakdown(ctx, deliverability.BreakdownQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		Provider:    input.Provider,
+		Domain:      input.Domain,
+		GroupBy:     input.GroupBy,
+	})
 }
 
 type GetDeliverabilityLatencyInput struct {
@@ -726,6 +415,17 @@ type GetDeliverabilityLatencyInput struct {
 	Domain      string
 }
 
+func (s *Service) GetDeliverabilityLatency(ctx context.Context, input GetDeliverabilityLatencyInput) (*domain.DeliverabilityLatencyResult, error) {
+	return s.deliverabilityH.ExecuteGetDeliverabilityLatency(ctx, deliverability.LatencyQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		Provider:    input.Provider,
+		Domain:      input.Domain,
+	})
+}
+
 type GetDeliverabilityIncidentsInput struct {
 	WorkspaceID string
 	UserID      string
@@ -735,179 +435,15 @@ type GetDeliverabilityIncidentsInput struct {
 	Domain      string
 }
 
-func (s *Service) GetDeliverabilityTimeSeries(ctx context.Context, input GetDeliverabilityTimeSeriesInput) (*domain.DeliverabilityTimeSeriesResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	if s.deliverabilityQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	if input.Interval == "" {
-		input.Interval = "day"
-	}
-	if err := domain.ValidateInterval(input.Interval); err != nil {
-		return nil, err
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.deliverabilityQueryRepo.GetDeliverabilityTimeSeries(ctx, input.WorkspaceID, input.From, input.To, input.Provider, input.Domain, input.Interval)
-	if err != nil {
-		s.log.Error("failed to get deliverability time series",
-			"workspace_id", input.WorkspaceID,
-			"provider", input.Provider,
-			"domain", input.Domain,
-			"interval", input.Interval,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return result, nil
-}
-
-func (s *Service) GetDeliverabilityBreakdown(ctx context.Context, input GetDeliverabilityBreakdownInput) (*domain.DeliverabilityBreakdownResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	if s.deliverabilityQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	if input.GroupBy == "" {
-		input.GroupBy = "provider"
-	}
-	if err := domain.ValidateGroupBy(input.GroupBy); err != nil {
-		return nil, err
-	}
-	if input.GroupBy == "event_type" {
-		return nil, fmt.Errorf("%w: group_by must be provider or recipient_domain for deliverability", domain.ErrAnalyticsQueryInvalid)
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.deliverabilityQueryRepo.GetDeliverabilityBreakdown(ctx, input.WorkspaceID, input.From, input.To, input.GroupBy, input.Provider, input.Domain)
-	if err != nil {
-		s.log.Error("failed to get deliverability breakdown",
-			"workspace_id", input.WorkspaceID,
-			"group_by", input.GroupBy,
-			"provider", input.Provider,
-			"domain", input.Domain,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return result, nil
-}
-
-func (s *Service) GetDeliverabilityLatency(ctx context.Context, input GetDeliverabilityLatencyInput) (*domain.DeliverabilityLatencyResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	if s.deliverabilityQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.deliverabilityQueryRepo.GetDeliverabilityLatency(ctx, input.WorkspaceID, input.From, input.To, input.Provider, input.Domain)
-	if err != nil {
-		s.log.Error("failed to get deliverability latency",
-			"workspace_id", input.WorkspaceID,
-			"provider", input.Provider,
-			"domain", input.Domain,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return result, nil
-}
-
 func (s *Service) GetDeliverabilityIncidents(ctx context.Context, input GetDeliverabilityIncidentsInput) (*domain.DeliverabilityIncidentResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	if s.deliverabilityQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.deliverabilityQueryRepo.GetDeliverabilityIncidents(ctx, input.WorkspaceID, input.From, input.To, input.Provider, input.Domain)
-	if err != nil {
-		s.log.Error("failed to get deliverability incidents",
-			"workspace_id", input.WorkspaceID,
-			"provider", input.Provider,
-			"domain", input.Domain,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return result, nil
-}
-
-func (s *Service) GetCampaignEvents(ctx context.Context, input GetCampaignEventsInput) (*domain.CampaignEventsResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	if s.campaignQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	filter := domain.CampaignQueryFilter{
+	return s.deliverabilityH.ExecuteGetDeliverabilityIncidents(ctx, deliverability.IncidentsQuery{
 		WorkspaceID: input.WorkspaceID,
-		CampaignID:  input.CampaignID,
+		UserID:      input.UserID,
 		From:        input.From,
 		To:          input.To,
-		EventType:   input.EventType,
 		Provider:    input.Provider,
 		Domain:      input.Domain,
-		Limit:       input.Limit,
-		Cursor:      input.Cursor,
-	}
-	if filter.Limit <= 0 {
-		filter.Limit = 50
-	}
-	if err := filter.Validate(); err != nil {
-		return nil, err
-	}
-
-	events, err := s.campaignQueryRepo.GetCampaignEvents(ctx, filter)
-	if err != nil {
-		s.log.Error("failed to get campaign events",
-			"workspace_id", input.WorkspaceID,
-			"campaign_id", input.CampaignID,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return events, nil
+	})
 }
 
 type SearchEventsInput struct {
@@ -924,16 +460,48 @@ type SearchEventsInput struct {
 	Cursor      string
 }
 
+func (s *Service) SearchEvents(ctx context.Context, input SearchEventsInput) (*domain.ForensicEventsResult, error) {
+	return s.forensicsH.ExecuteSearchEvents(ctx, forensics.SearchQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		EventType:   input.EventType,
+		Provider:    input.Provider,
+		Domain:      input.Domain,
+		CampaignID:  input.CampaignID,
+		MessageID:   input.MessageID,
+		Limit:       input.Limit,
+		Cursor:      input.Cursor,
+	})
+}
+
 type GetMessageTimelineInput struct {
 	WorkspaceID string
 	UserID      string
 	MessageID   string
 }
 
+func (s *Service) GetMessageTimeline(ctx context.Context, input GetMessageTimelineInput) (*domain.MessageTimelineResult, error) {
+	return s.forensicsH.ExecuteGetMessageTimeline(ctx, forensics.MessageTimelineQuery{
+		WorkspaceID: input.WorkspaceID,
+		MessageID:   input.MessageID,
+		UserID:      input.UserID,
+	})
+}
+
 type GetProviderEventTraceInput struct {
 	WorkspaceID     string
 	UserID          string
 	ProviderEventID string
+}
+
+func (s *Service) GetProviderEventTrace(ctx context.Context, input GetProviderEventTraceInput) (*domain.ProviderEventTrace, error) {
+	return s.forensicsH.ExecuteGetProviderEventTrace(ctx, forensics.ProviderEventTraceQuery{
+		WorkspaceID:     input.WorkspaceID,
+		ProviderEventID: input.ProviderEventID,
+		UserID:          input.UserID,
+	})
 }
 
 type GetCampaignIncidentTimelineInput struct {
@@ -944,123 +512,14 @@ type GetCampaignIncidentTimelineInput struct {
 	To          time.Time
 }
 
-func (s *Service) SearchEvents(ctx context.Context, input SearchEventsInput) (*domain.ForensicEventsResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	if s.forensicQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	filter := domain.ForensicQueryFilter{
+func (s *Service) GetCampaignIncidentTimeline(ctx context.Context, input GetCampaignIncidentTimelineInput) (*domain.CampaignIncidentTimelineResult, error) {
+	return s.forensicsH.ExecuteGetCampaignIncidentTimeline(ctx, forensics.IncidentTimelineQuery{
 		WorkspaceID: input.WorkspaceID,
+		CampaignID:  input.CampaignID,
+		UserID:      input.UserID,
 		From:        input.From,
 		To:          input.To,
-		EventType:   input.EventType,
-		Provider:    input.Provider,
-		Domain:      input.Domain,
-		CampaignID:  input.CampaignID,
-		MessageID:   input.MessageID,
-		Limit:       input.Limit,
-		Cursor:      input.Cursor,
-	}
-	if filter.Limit <= 0 {
-		filter.Limit = 50
-	}
-
-	if err := filter.Validate(); err != nil {
-		return nil, err
-	}
-
-	result, err := s.forensicQueryRepo.SearchEvents(ctx, filter)
-	if err != nil {
-		s.log.Error("failed to search forensic events",
-			"workspace_id", input.WorkspaceID,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return result, nil
-}
-
-func (s *Service) GetMessageTimeline(ctx context.Context, input GetMessageTimelineInput) (*domain.MessageTimelineResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	if s.forensicQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	result, err := s.forensicQueryRepo.GetMessageTimeline(ctx, input.WorkspaceID, input.MessageID)
-	if err != nil {
-		s.log.Error("failed to get message timeline",
-			"workspace_id", input.WorkspaceID,
-			"message_id", input.MessageID,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return result, nil
-}
-
-func (s *Service) GetProviderEventTrace(ctx context.Context, input GetProviderEventTraceInput) (*domain.ProviderEventTrace, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	if s.forensicQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	result, err := s.forensicQueryRepo.GetProviderEventTrace(ctx, input.WorkspaceID, input.ProviderEventID)
-	if err != nil {
-		s.log.Error("failed to get provider event trace",
-			"workspace_id", input.WorkspaceID,
-			"provider_event_id", input.ProviderEventID,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return result, nil
-}
-
-func (s *Service) GetCampaignIncidentTimeline(ctx context.Context, input GetCampaignIncidentTimelineInput) (*domain.CampaignIncidentTimelineResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	if s.forensicQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.forensicQueryRepo.GetCampaignIncidentTimeline(ctx, input.WorkspaceID, input.CampaignID, input.From, input.To)
-	if err != nil {
-		s.log.Error("failed to get campaign incident timeline",
-			"workspace_id", input.WorkspaceID,
-			"campaign_id", input.CampaignID,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	return result, nil
+	})
 }
 
 type GetOutboxLagInput struct {
@@ -1071,6 +530,16 @@ type GetOutboxLagInput struct {
 	Source      string
 }
 
+func (s *Service) GetOutboxLag(ctx context.Context, input GetOutboxLagInput) (*domain.OutboxLagResult, error) {
+	return s.operationsAnalyticsH.ExecuteGetOutboxLag(ctx, operationsanalytics.OutboxLagQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		Source:      input.Source,
+	})
+}
+
 type GetConsumerFailuresInput struct {
 	WorkspaceID string
 	UserID      string
@@ -1079,12 +548,32 @@ type GetConsumerFailuresInput struct {
 	Source      string
 }
 
+func (s *Service) GetConsumerFailures(ctx context.Context, input GetConsumerFailuresInput) (*domain.ConsumerFailureResult, error) {
+	return s.operationsAnalyticsH.ExecuteGetConsumerFailures(ctx, operationsanalytics.ConsumerFailuresQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		Source:      input.Source,
+	})
+}
+
 type GetDLQVolumeInput struct {
 	WorkspaceID string
 	UserID      string
 	From        time.Time
 	To          time.Time
 	Source      string
+}
+
+func (s *Service) GetDLQVolume(ctx context.Context, input GetDLQVolumeInput) (*domain.DLQResult, error) {
+	return s.operationsAnalyticsH.ExecuteGetDLQVolume(ctx, operationsanalytics.DLQVolumeQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		Source:      input.Source,
+	})
 }
 
 type GetWebhookDeliveryTimeSeriesInput struct {
@@ -1096,6 +585,17 @@ type GetWebhookDeliveryTimeSeriesInput struct {
 	Interval    string
 }
 
+func (s *Service) GetWebhookDeliveryTimeSeries(ctx context.Context, input GetWebhookDeliveryTimeSeriesInput) (*domain.WebhookDeliveryTimeSeriesResult, error) {
+	return s.operationsAnalyticsH.ExecuteGetWebhookDeliveryTimeSeries(ctx, operationsanalytics.WebhookDeliveryTimeSeriesQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		Status:      input.Status,
+		Interval:    input.Interval,
+	})
+}
+
 type GetWebhookReliabilityInput struct {
 	WorkspaceID string
 	UserID      string
@@ -1104,139 +604,15 @@ type GetWebhookReliabilityInput struct {
 	Target      string
 }
 
-func (s *Service) GetOutboxLag(ctx context.Context, input GetOutboxLagInput) (*domain.OutboxLagResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-	if s.operationsQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.operationsQueryRepo.GetOutboxLag(ctx, input.WorkspaceID, input.From, input.To, input.Source)
-	if err != nil {
-		s.log.Error("failed to get outbox lag",
-			"workspace_id", input.WorkspaceID,
-			"source", input.Source,
-			"error", err,
-		)
-		return nil, err
-	}
-	return result, nil
-}
-
-func (s *Service) GetConsumerFailures(ctx context.Context, input GetConsumerFailuresInput) (*domain.ConsumerFailureResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-	if s.operationsQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.operationsQueryRepo.GetConsumerFailures(ctx, input.WorkspaceID, input.From, input.To, input.Source)
-	if err != nil {
-		s.log.Error("failed to get consumer failures",
-			"workspace_id", input.WorkspaceID,
-			"source", input.Source,
-			"error", err,
-		)
-		return nil, err
-	}
-	return result, nil
-}
-
-func (s *Service) GetDLQVolume(ctx context.Context, input GetDLQVolumeInput) (*domain.DLQResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-	if s.operationsQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.operationsQueryRepo.GetDLQVolume(ctx, input.WorkspaceID, input.From, input.To, input.Source)
-	if err != nil {
-		s.log.Error("failed to get dlq volume",
-			"workspace_id", input.WorkspaceID,
-			"source", input.Source,
-			"error", err,
-		)
-		return nil, err
-	}
-	return result, nil
-}
-
-func (s *Service) GetWebhookDeliveryTimeSeries(ctx context.Context, input GetWebhookDeliveryTimeSeriesInput) (*domain.WebhookDeliveryTimeSeriesResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-	if s.operationsQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-	if input.Interval == "" {
-		input.Interval = "day"
-	}
-	if err := domain.ValidateInterval(input.Interval); err != nil {
-		return nil, err
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.operationsQueryRepo.GetWebhookDeliveryTimeSeries(ctx, input.WorkspaceID, input.From, input.To, input.Status, input.Interval)
-	if err != nil {
-		s.log.Error("failed to get webhook delivery time series",
-			"workspace_id", input.WorkspaceID,
-			"status", input.Status,
-			"interval", input.Interval,
-			"error", err,
-		)
-		return nil, err
-	}
-	return result, nil
-}
-
 func (s *Service) GetWebhookReliability(ctx context.Context, input GetWebhookReliabilityInput) (*domain.WebhookReliabilityResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-	if s.operationsQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.operationsQueryRepo.GetWebhookReliability(ctx, input.WorkspaceID, input.From, input.To, input.Target)
-	if err != nil {
-		s.log.Error("failed to get webhook reliability",
-			"workspace_id", input.WorkspaceID,
-			"target", input.Target,
-			"error", err,
-		)
-		return nil, err
-	}
-	return result, nil
+	return s.operationsAnalyticsH.ExecuteGetWebhookReliability(ctx, operationsanalytics.WebhookReliabilityQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		Target:      input.Target,
+	})
 }
-
-// ── Phase 6: Product Usage, Risk, Forecasting, and Anomalies ──
 
 type GetUsageTimeSeriesInput struct {
 	WorkspaceID string
@@ -1246,11 +622,30 @@ type GetUsageTimeSeriesInput struct {
 	Interval    string
 }
 
+func (s *Service) GetUsageTimeSeries(ctx context.Context, input GetUsageTimeSeriesInput) (*domain.UsageTimeSeriesResult, error) {
+	return s.usageH.ExecuteGetUsageTimeSeries(ctx, usage.UsageTimeSeriesQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+		Interval:    input.Interval,
+	})
+}
+
 type GetUsageFeaturesInput struct {
 	WorkspaceID string
 	UserID      string
 	From        time.Time
 	To          time.Time
+}
+
+func (s *Service) GetUsageFeatures(ctx context.Context, input GetUsageFeaturesInput) (*domain.UsageFeaturesResult, error) {
+	return s.usageH.ExecuteGetUsageFeatures(ctx, usage.UsageFeaturesQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+	})
 }
 
 type GetRiskSignalsInput struct {
@@ -1260,11 +655,29 @@ type GetRiskSignalsInput struct {
 	To          time.Time
 }
 
+func (s *Service) GetRiskSignals(ctx context.Context, input GetRiskSignalsInput) (*domain.RiskSignalsResult, error) {
+	return s.usageH.ExecuteGetRiskSignals(ctx, usage.RiskSignalsQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+	})
+}
+
 type GetSendVolumeForecastInput struct {
 	WorkspaceID string
 	UserID      string
 	From        time.Time
 	To          time.Time
+}
+
+func (s *Service) GetSendVolumeForecast(ctx context.Context, input GetSendVolumeForecastInput) (*domain.SendVolumeForecastResult, error) {
+	return s.usageH.ExecuteGetSendVolumeForecast(ctx, usage.SendVolumeForecastQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+	})
 }
 
 type GetAnomaliesInput struct {
@@ -1274,186 +687,15 @@ type GetAnomaliesInput struct {
 	To          time.Time
 }
 
-func (s *Service) GetUsageTimeSeries(ctx context.Context, input GetUsageTimeSeriesInput) (*domain.UsageTimeSeriesResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-	if s.usageQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-
-	if input.Interval == "" {
-		input.Interval = "day"
-	}
-	if err := domain.ValidateInterval(input.Interval); err != nil {
-		return nil, err
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.usageQueryRepo.GetUsageTimeSeries(ctx, input.WorkspaceID, input.From, input.To, input.Interval)
-	if err != nil {
-		s.log.Error("failed to get usage time series",
-			"workspace_id", input.WorkspaceID,
-			"interval", input.Interval,
-			"error", err,
-		)
-		return nil, err
-	}
-	return result, nil
-}
-
-func (s *Service) GetUsageFeatures(ctx context.Context, input GetUsageFeaturesInput) (*domain.UsageFeaturesResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-	if s.usageQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.usageQueryRepo.GetUsageFeatures(ctx, input.WorkspaceID, input.From, input.To)
-	if err != nil {
-		s.log.Error("failed to get usage features",
-			"workspace_id", input.WorkspaceID,
-			"error", err,
-		)
-		return nil, err
-	}
-	return result, nil
-}
-
-func (s *Service) GetRiskSignals(ctx context.Context, input GetRiskSignalsInput) (*domain.RiskSignalsResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-	if s.usageQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.usageQueryRepo.GetRiskSignals(ctx, input.WorkspaceID, input.From, input.To)
-	if err != nil {
-		s.log.Error("failed to get risk signals",
-			"workspace_id", input.WorkspaceID,
-			"error", err,
-		)
-		return nil, err
-	}
-	return result, nil
-}
-
-func (s *Service) GetSendVolumeForecast(ctx context.Context, input GetSendVolumeForecastInput) (*domain.SendVolumeForecastResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-	if s.usageQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.usageQueryRepo.GetSendVolumeForecast(ctx, input.WorkspaceID, input.From, input.To)
-	if err != nil {
-		s.log.Error("failed to get send volume forecast",
-			"workspace_id", input.WorkspaceID,
-			"error", err,
-		)
-		return nil, err
-	}
-	return result, nil
-}
-
 func (s *Service) GetAnomalies(ctx context.Context, input GetAnomaliesInput) (*domain.AnomaliesResult, error) {
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "analytics.read"); err != nil {
-			return nil, err
-		}
-	}
-	if s.usageQueryRepo == nil {
-		return nil, domain.ErrAnalyticsStoreUnavailable
-	}
-	if err := domain.ValidateTimeRange(input.From, input.To); err != nil {
-		return nil, err
-	}
-
-	result, err := s.usageQueryRepo.GetAnomalies(ctx, input.WorkspaceID, input.From, input.To)
-	if err != nil {
-		s.log.Error("failed to get anomalies",
-			"workspace_id", input.WorkspaceID,
-			"error", err,
-		)
-		return nil, err
-	}
-	return result, nil
+	return s.anomaliesH.ExecuteGetAnomalies(ctx, anomalies.AnomaliesQuery{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		From:        input.From,
+		To:          input.To,
+	})
 }
 
 func (s *Service) DetectAnomaliesAllWorkspaces(ctx context.Context) error {
-	log := s.log.With("usecase", "detect_anomalies_all_workspaces")
-
-	if s.usageQueryRepo == nil {
-		log.Warn("usage query repo not available, skipping anomaly detection")
-		return nil
-	}
-	if s.anomalySignalWriteRepo == nil {
-		log.Warn("anomaly signal write repo not available, skipping anomaly detection")
-		return nil
-	}
-
-	now := s.clock()
-	since := now.Add(-30 * 24 * time.Hour)
-
-	workspaces, err := s.usageQueryRepo.ListDistinctWorkspaces(ctx, since)
-	if err != nil {
-		log.Error("failed to list workspaces", "error", err)
-		return err
-	}
-
-	if len(workspaces) == 0 {
-		log.Info("no workspaces with recent activity, skipping detection")
-		return nil
-	}
-
-	log.Info("detecting anomalies across workspaces", "workspace_count", len(workspaces))
-
-	detectFrom := now.Add(-7 * 24 * time.Hour)
-	detectTo := now
-
-	for _, ws := range workspaces {
-		wsLog := log.With("workspace_id", ws)
-
-		result, err := s.usageQueryRepo.GetAnomalies(ctx, ws, detectFrom, detectTo)
-		if err != nil {
-			wsLog.Error("failed to detect anomalies", "error", err)
-			continue
-		}
-
-		if len(result.Anomalies) == 0 {
-			wsLog.Debug("no anomalies detected")
-			continue
-		}
-
-		if err := s.anomalySignalWriteRepo.SaveAnomalySignals(ctx, ws, result.Anomalies); err != nil {
-			wsLog.Error("failed to persist anomaly signals", "error", err)
-			continue
-		}
-
-		wsLog.Info("anomalies detected and persisted", "count", len(result.Anomalies))
-	}
-
-	return nil
+	return s.anomaliesH.ExecuteDetectAnomaliesAllWorkspaces(ctx)
 }

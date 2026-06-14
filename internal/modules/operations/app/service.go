@@ -3,14 +3,23 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/contracts"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/createreplayjob"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/getdeadletterrecord"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/getoutboxrecord"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/getoutboxsummary"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/getreplayjob"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/listdeadletterrecords"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/listoutboxrecords"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/listreplayjobs"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/runreplayjob"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/ports"
 )
+
+// --- Shared Result Types ---
 
 type OutboxEventResult struct {
 	ID            string          `json:"id"`
@@ -60,53 +69,9 @@ type OutboxSummaryResult struct {
 	ByEventType  map[string]int `json:"by_event_type,omitempty"`
 }
 
-type Options struct {
-	OutboxRepo     ports.OutboxRepository
-	DeadLetterRepo ports.DeadLetterRepository
-	ReplayJobRepo  ports.ReplayJobRepository
-	TxManager      ports.TransactionManager
-	OutboxWriter   ports.OutboxWriter
-	AccessChecker  ports.WorkspaceAccessChecker
-	IDGen          func() (string, error)
-	Clock          func() time.Time
-	Logger         *slog.Logger
-}
+// --- Exported Mappers ---
 
-type Service struct {
-	outboxRepo     ports.OutboxRepository
-	deadLetterRepo ports.DeadLetterRepository
-	replayJobRepo  ports.ReplayJobRepository
-	txManager      ports.TransactionManager
-	outboxWriter   ports.OutboxWriter
-	accessChecker  ports.WorkspaceAccessChecker
-	idGen          func() (string, error)
-	clock          func() time.Time
-	log            *slog.Logger
-}
-
-func NewService(opts Options) *Service {
-	if opts.Clock == nil {
-		opts.Clock = time.Now
-	}
-	if opts.Logger == nil {
-		opts.Logger = slog.Default()
-	}
-	return &Service{
-		outboxRepo:     opts.OutboxRepo,
-		deadLetterRepo: opts.DeadLetterRepo,
-		replayJobRepo:  opts.ReplayJobRepo,
-		txManager:      opts.TxManager,
-		outboxWriter:   opts.OutboxWriter,
-		accessChecker:  opts.AccessChecker,
-		idGen:          opts.IDGen,
-		clock:          opts.Clock,
-		log:            opts.Logger.With("module", "operations"),
-	}
-}
-
-// --- Mappers ---
-
-func outboxRecordToResult(r domain.OutboxRecord) OutboxEventResult {
+func OutboxRecordToResult(r domain.OutboxRecord) OutboxEventResult {
 	return OutboxEventResult{
 		ID:            r.ID,
 		WorkspaceID:   r.WorkspaceID,
@@ -120,7 +85,7 @@ func outboxRecordToResult(r domain.OutboxRecord) OutboxEventResult {
 	}
 }
 
-func deadLetterToResult(r domain.DeadLetterRecord) DeadLetterResult {
+func DeadLetterToResult(r domain.DeadLetterRecord) DeadLetterResult {
 	return DeadLetterResult{
 		ID:           r.ID,
 		WorkspaceID:  r.WorkspaceID,
@@ -133,7 +98,7 @@ func deadLetterToResult(r domain.DeadLetterRecord) DeadLetterResult {
 	}
 }
 
-func replayJobToResult(j domain.ReplayJob) ReplayJobResult {
+func ReplayJobToResult(j domain.ReplayJob) ReplayJobResult {
 	return ReplayJobResult{
 		ID:                j.ID,
 		WorkspaceID:       j.WorkspaceID,
@@ -153,7 +118,7 @@ func replayJobToResult(j domain.ReplayJob) ReplayJobResult {
 	}
 }
 
-func outboxSummaryToResult(s domain.OutboxSummary) OutboxSummaryResult {
+func OutboxSummaryToResult(s domain.OutboxSummary) OutboxSummaryResult {
 	return OutboxSummaryResult{
 		TotalCount:   s.TotalCount,
 		OldestAgeSec: s.OldestAgeSec,
@@ -162,474 +127,156 @@ func outboxSummaryToResult(s domain.OutboxSummary) OutboxSummaryResult {
 	}
 }
 
-// --- Inputs ---
+// --- Input Type Aliases (for API layer backward compat) ---
 
-type GetOutboxSummaryInput struct {
-	WorkspaceID string
-	UserID      string
-	Filter      domain.OutboxFilter
+type GetOutboxSummaryInput = getoutboxsummary.Input
+type ListOutboxRecordsInput = listoutboxrecords.Input
+type GetOutboxRecordInput = getoutboxrecord.Input
+type ListDeadLetterRecordsInput = listdeadletterrecords.Input
+type GetDeadLetterRecordInput = getdeadletterrecord.Input
+type CreateReplayJobInput = createreplayjob.Input
+type RunReplayJobInput = runreplayjob.Input
+type GetReplayJobInput = getreplayjob.Input
+type ListReplayJobsInput = listreplayjobs.Input
+
+// --- Options ---
+
+type Options struct {
+	OutboxRepo     ports.OutboxRepository
+	DeadLetterRepo ports.DeadLetterRepository
+	ReplayJobRepo  ports.ReplayJobRepository
+	TxManager      ports.TransactionManager
+	OutboxWriter   ports.OutboxWriter
+	AccessChecker  ports.WorkspaceAccessChecker
+	IDGen          func() (string, error)
+	Clock          func() time.Time
+	Logger         *slog.Logger
 }
+
+// --- Service (facade) ---
+
+type Service struct {
+	commands CommandBus
+	queries  QueryBus
+}
+
+func NewService(opts Options) *Service {
+	if opts.Clock == nil {
+		opts.Clock = time.Now
+	}
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
+	}
+
+	logger := opts.Logger.With("module", "operations")
+
+	getOutboxSummaryH := getoutboxsummary.New(getoutboxsummary.Options{
+		OutboxRepo:    opts.OutboxRepo,
+		AccessChecker: opts.AccessChecker,
+		Logger:        logger,
+	})
+	listOutboxRecordsH := listoutboxrecords.New(listoutboxrecords.Options{
+		OutboxRepo:    opts.OutboxRepo,
+		AccessChecker: opts.AccessChecker,
+		Logger:        logger,
+	})
+	getOutboxRecordH := getoutboxrecord.New(getoutboxrecord.Options{
+		OutboxRepo:    opts.OutboxRepo,
+		AccessChecker: opts.AccessChecker,
+		Logger:        logger,
+	})
+	listDeadLetterRecordsH := listdeadletterrecords.New(listdeadletterrecords.Options{
+		DeadLetterRepo: opts.DeadLetterRepo,
+		AccessChecker:  opts.AccessChecker,
+		Logger:         logger,
+	})
+	getDeadLetterRecordH := getdeadletterrecord.New(getdeadletterrecord.Options{
+		DeadLetterRepo: opts.DeadLetterRepo,
+		AccessChecker:  opts.AccessChecker,
+		Logger:         logger,
+	})
+	createReplayJobH := createreplayjob.New(createreplayjob.Options{
+		DeadLetterRepo: opts.DeadLetterRepo,
+		OutboxRepo:     opts.OutboxRepo,
+		ReplayJobRepo:  opts.ReplayJobRepo,
+		OutboxWriter:   opts.OutboxWriter,
+		AccessChecker:  opts.AccessChecker,
+		IDGen:          opts.IDGen,
+		Clock:          opts.Clock,
+		Logger:         logger,
+	})
+	runReplayJobH := runreplayjob.New(runreplayjob.Options{
+		DeadLetterRepo: opts.DeadLetterRepo,
+		OutboxRepo:     opts.OutboxRepo,
+		ReplayJobRepo:  opts.ReplayJobRepo,
+		OutboxWriter:   opts.OutboxWriter,
+		AccessChecker:  opts.AccessChecker,
+		IDGen:          opts.IDGen,
+		Clock:          opts.Clock,
+		Logger:         logger,
+	})
+	getReplayJobH := getreplayjob.New(getreplayjob.Options{
+		ReplayJobRepo: opts.ReplayJobRepo,
+		AccessChecker: opts.AccessChecker,
+		Logger:        logger,
+	})
+	listReplayJobsH := listreplayjobs.New(listreplayjobs.Options{
+		ReplayJobRepo: opts.ReplayJobRepo,
+		AccessChecker: opts.AccessChecker,
+		Logger:        logger,
+	})
+
+	return &Service{
+		commands: newCommandBus(
+			createReplayJobH,
+			runReplayJobH,
+		),
+		queries: newQueryBus(
+			getOutboxSummaryH,
+			listOutboxRecordsH,
+			getOutboxRecordH,
+			listDeadLetterRecordsH,
+			getDeadLetterRecordH,
+			getReplayJobH,
+			listReplayJobsH,
+		),
+	}
+}
+
+// --- Facade Methods ---
 
 func (s *Service) GetOutboxSummary(ctx context.Context, input GetOutboxSummaryInput) (OutboxSummaryResult, error) {
-	log := s.log.With("usecase", "get_outbox_summary", "workspace_id", input.WorkspaceID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.queue.read"); err != nil {
-		if errors.Is(err, domain.ErrQueueReadDenied) || errors.Is(err, domain.ErrDLQReadDenied) || errors.Is(err, domain.ErrReplayManageDenied) {
-			return OutboxSummaryResult{}, err
-		}
-		return OutboxSummaryResult{}, err
-	}
-	if input.WorkspaceID == "" {
-		log.Warn("missing workspace id")
-		return OutboxSummaryResult{}, domain.ErrWorkspaceRequired
-	}
-	if err := input.Filter.Validate(); err != nil {
-		log.Warn("invalid outbox filter", "error", err)
-		return OutboxSummaryResult{}, err
-	}
-	summary, err := s.outboxRepo.GetSummary(ctx, input.WorkspaceID, input.Filter)
-	if err != nil {
-		log.Error("failed to get outbox summary", "error", err)
-		return OutboxSummaryResult{}, err
-	}
-	return outboxSummaryToResult(summary), nil
-}
-
-type ListOutboxRecordsInput struct {
-	WorkspaceID string
-	UserID      string
-	Filter      domain.OutboxFilter
+	return s.queries.GetOutboxSummary(ctx, input)
 }
 
 func (s *Service) ListOutboxRecords(ctx context.Context, input ListOutboxRecordsInput) ([]OutboxEventResult, string, error) {
-	log := s.log.With("usecase", "list_outbox_records", "workspace_id", input.WorkspaceID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.queue.read"); err != nil {
-		return nil, "", err
-	}
-	if input.WorkspaceID == "" {
-		return nil, "", domain.ErrWorkspaceRequired
-	}
-	if err := input.Filter.Validate(); err != nil {
-		log.Warn("invalid outbox filter", "error", err)
-		return nil, "", err
-	}
-	records, cursor, err := s.outboxRepo.List(ctx, input.WorkspaceID, input.Filter)
-	if err != nil {
-		log.Error("failed to list outbox records", "error", err)
-		return nil, "", err
-	}
-	for i := range records {
-		records[i].Payload = domain.RedactSensitiveFields(domain.SanitizePayloadPreview(records[i].Payload, 4096))
-		if len(records[i].Headers) > 0 && string(records[i].Headers) != "null" {
-			records[i].Headers = domain.RedactSensitiveFields(domain.SanitizePayloadPreview(records[i].Headers, 2048))
-		}
-	}
-	results := make([]OutboxEventResult, len(records))
-	for i := range records {
-		results[i] = outboxRecordToResult(records[i])
-	}
-	return results, cursor, nil
-}
-
-type GetOutboxRecordInput struct {
-	WorkspaceID string
-	UserID      string
-	OutboxID    string
+	return s.queries.ListOutboxRecords(ctx, input)
 }
 
 func (s *Service) GetOutboxRecord(ctx context.Context, input GetOutboxRecordInput) (*OutboxEventResult, error) {
-	log := s.log.With("usecase", "get_outbox_record", "workspace_id", input.WorkspaceID, "outbox_id", input.OutboxID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.queue.read"); err != nil {
-		return nil, err
-	}
-	if input.WorkspaceID == "" {
-		return nil, domain.ErrWorkspaceRequired
-	}
-	rec, err := s.outboxRepo.FindByID(ctx, input.WorkspaceID, input.OutboxID)
-	if err != nil {
-		if errors.Is(err, domain.ErrOutboxRecordNotFound) {
-			log.Warn("outbox record not found")
-			return nil, err
-		}
-		log.Error("failed to get outbox record", "error", err)
-		return nil, err
-	}
-	rec.Payload = domain.RedactSensitiveFields(domain.SanitizePayloadPreview(rec.Payload, 4096))
-	if len(rec.Headers) > 0 && string(rec.Headers) != "null" {
-		rec.Headers = domain.RedactSensitiveFields(domain.SanitizePayloadPreview(rec.Headers, 2048))
-	}
-	result := outboxRecordToResult(*rec)
-	return &result, nil
-}
-
-type ListDeadLetterRecordsInput struct {
-	WorkspaceID string
-	UserID      string
-	Filter      domain.DeadLetterFilter
+	return s.queries.GetOutboxRecord(ctx, input)
 }
 
 func (s *Service) ListDeadLetterRecords(ctx context.Context, input ListDeadLetterRecordsInput) ([]DeadLetterResult, string, error) {
-	log := s.log.With("usecase", "list_dead_letter_records", "workspace_id", input.WorkspaceID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.dlq.read"); err != nil {
-		return nil, "", err
-	}
-	if input.WorkspaceID == "" {
-		return nil, "", domain.ErrWorkspaceRequired
-	}
-	if err := input.Filter.Validate(); err != nil {
-		log.Warn("invalid dead letter filter", "error", err)
-		return nil, "", err
-	}
-	records, cursor, err := s.deadLetterRepo.List(ctx, input.WorkspaceID, input.Filter)
-	if err != nil {
-		log.Error("failed to list dead letter records", "error", err)
-		return nil, "", err
-	}
-	for i := range records {
-		records[i].Payload = domain.RedactSensitiveFields(domain.SanitizePayloadPreview(records[i].Payload, 4096))
-	}
-	results := make([]DeadLetterResult, len(records))
-	for i := range records {
-		results[i] = deadLetterToResult(records[i])
-	}
-	return results, cursor, nil
-}
-
-type GetDeadLetterRecordInput struct {
-	WorkspaceID string
-	UserID      string
-	RecordID    string
+	return s.queries.ListDeadLetterRecords(ctx, input)
 }
 
 func (s *Service) GetDeadLetterRecord(ctx context.Context, input GetDeadLetterRecordInput) (*DeadLetterResult, error) {
-	log := s.log.With("usecase", "get_dead_letter_record", "workspace_id", input.WorkspaceID, "dead_letter_id", input.RecordID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.dlq.read"); err != nil {
-		return nil, err
-	}
-	if input.WorkspaceID == "" {
-		return nil, domain.ErrWorkspaceRequired
-	}
-	rec, err := s.deadLetterRepo.FindByID(ctx, input.WorkspaceID, input.RecordID)
-	if err != nil {
-		if errors.Is(err, domain.ErrDeadLetterRecordNotFound) {
-			log.Warn("dead letter record not found")
-			return nil, err
-		}
-		log.Error("failed to get dead letter record", "error", err)
-		return nil, err
-	}
-	rec.Payload = domain.RedactSensitiveFields(domain.SanitizePayloadPreview(rec.Payload, 4096))
-	result := deadLetterToResult(*rec)
-	return &result, nil
-}
-
-type CreateReplayJobInput struct {
-	WorkspaceID string
-	UserID      string
-	TargetType  domain.ReplayTargetType
-	TargetID    string
-	Source      string
-	Reason      string
-	Filter      json.RawMessage
+	return s.queries.GetDeadLetterRecord(ctx, input)
 }
 
 func (s *Service) CreateReplayJob(ctx context.Context, input CreateReplayJobInput) (*ReplayJobResult, error) {
-	log := s.log.With("usecase", "create_replay_job", "workspace_id", input.WorkspaceID, "target_type", input.TargetType, "target_id", input.TargetID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.replay.manage"); err != nil {
-		return nil, err
-	}
-	if input.WorkspaceID == "" {
-		return nil, domain.ErrWorkspaceRequired
-	}
-	if !domain.IsValidTargetType(input.TargetType) {
-		log.Warn("invalid target type", "target_type", input.TargetType)
-		return nil, domain.ErrReplayTargetInvalid
-	}
-	if input.TargetID == "" {
-		log.Warn("missing target id")
-		return nil, domain.ErrReplayTargetInvalid
-	}
-	if len(input.Reason) > 500 {
-		input.Reason = input.Reason[:500]
-	}
-
-	now := s.clock()
-	jobID, err := s.idGen()
-	if err != nil {
-		log.Error("failed to generate job id", "error", err)
-		return nil, err
-	}
-
-	if input.Filter == nil {
-		input.Filter = json.RawMessage(`{}`)
-	}
-
-	job := domain.ReplayJob{
-		ID:                jobID,
-		WorkspaceID:       input.WorkspaceID,
-		TargetType:        input.TargetType,
-		TargetID:          input.TargetID,
-		Source:            input.Source,
-		Status:            domain.ReplayJobQueued,
-		RequestedByUserID: input.UserID,
-		Reason:            input.Reason,
-		Filter:            input.Filter,
-		Result:            json.RawMessage(`{}`),
-		CreatedAt:         now,
-		UpdatedAt:         now,
-	}
-
-	var targetWorkspaceID string
-	switch input.TargetType {
-	case domain.ReplayTargetDeadLetter:
-		dlq, err := s.deadLetterRepo.FindByID(ctx, input.WorkspaceID, input.TargetID)
-		if err != nil {
-			if errors.Is(err, domain.ErrDeadLetterRecordNotFound) {
-				log.Warn("dead letter record not found for replay")
-				return nil, domain.ErrReplayTargetInvalid
-			}
-			log.Error("failed to get dead letter record", "error", err)
-			return nil, err
-		}
-		targetWorkspaceID = dlq.WorkspaceID
-	case domain.ReplayTargetOutbox:
-		outbox, err := s.outboxRepo.FindByID(ctx, input.WorkspaceID, input.TargetID)
-		if err != nil {
-			if errors.Is(err, domain.ErrOutboxRecordNotFound) {
-				log.Warn("outbox record not found for replay")
-				return nil, domain.ErrReplayTargetInvalid
-			}
-			log.Error("failed to get outbox record", "error", err)
-			return nil, err
-		}
-		targetWorkspaceID = outbox.WorkspaceID
-	}
-
-	if targetWorkspaceID != input.WorkspaceID {
-		log.Warn("target workspace mismatch")
-		return nil, domain.ErrReplayTargetInvalid
-	}
-
-	job.Source = input.Source
-
-	if err := s.replayJobRepo.Create(ctx, job); err != nil {
-		log.Error("failed to create replay job", "error", err)
-		return nil, err
-	}
-
-	if s.outboxWriter != nil {
-		if err := s.outboxWriter.Write(ctx, contracts.EventReplayJobCreatedV1, jobID, input.WorkspaceID, contracts.ReplayJobCreatedPayload{
-			JobID:       jobID,
-			WorkspaceID: input.WorkspaceID,
-			TargetType:  string(input.TargetType),
-			TargetID:    input.TargetID,
-			Reason:      input.Reason,
-			RequestedBy: input.UserID,
-		}); err != nil {
-			log.Error("failed to publish replay job created event", "error", err)
-		}
-	}
-
-	log.Info("replay job created",
-		"replay_job_id", jobID,
-		"target_type", input.TargetType,
-		"target_id", input.TargetID,
-		"source", input.Source,
-	)
-	result := replayJobToResult(job)
-	return &result, nil
-}
-
-type RunReplayJobInput struct {
-	WorkspaceID string
-	UserID      string
-	JobID       string
+	return s.commands.CreateReplayJob(ctx, input)
 }
 
 func (s *Service) RunReplayJob(ctx context.Context, input RunReplayJobInput) (*ReplayJobResult, error) {
-	log := s.log.With("usecase", "run_replay_job", "workspace_id", input.WorkspaceID, "replay_job_id", input.JobID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.replay.manage"); err != nil {
-		return nil, err
-	}
-	if input.WorkspaceID == "" {
-		return nil, domain.ErrWorkspaceRequired
-	}
-
-	now := s.clock()
-
-	if err := s.replayJobRepo.MarkRunning(ctx, input.WorkspaceID, input.JobID, now); err != nil {
-		log.Error("failed to mark job running", "error", err)
-		return nil, err
-	}
-
-	job, err := s.replayJobRepo.FindByID(ctx, input.WorkspaceID, input.JobID)
-	if err != nil {
-		log.Error("failed to find replay job", "error", err)
-		return nil, err
-	}
-
-	var resultErr error
-	switch job.TargetType {
-	case domain.ReplayTargetDeadLetter:
-		resultErr = s.executeDeadLetterReplay(ctx, job, log)
-	default:
-		log.Warn("unsupported target type for execution", "target_type", job.TargetType)
-		resultErr = domain.ErrReplayTargetInvalid
-	}
-
-	if resultErr != nil {
-		errMsg := domain.SanitizeErrorMessage(resultErr.Error())
-		if errors.Is(resultErr, domain.ErrReplayTargetInvalid) || errors.Is(resultErr, domain.ErrDeadLetterRecordNotFound) {
-			if err := s.replayJobRepo.MarkFailed(ctx, input.WorkspaceID, input.JobID, errMsg, now); err != nil {
-				log.Error("failed to mark job failed", "error", err)
-				return nil, err
-			}
-			job.Status = domain.ReplayJobFailed
-			job.ErrorMessage = errMsg
-			job.CompletedAt = &now
-			log.Warn("replay job failed", "replay_job_id", input.JobID, "error", errMsg)
-			result := replayJobToResult(*job)
-			return &result, nil
-		}
-		return nil, resultErr
-	}
-
-	resultData := map[string]any{"replayed": true}
-	if err := s.replayJobRepo.MarkCompleted(ctx, input.WorkspaceID, input.JobID, resultData, now); err != nil {
-		log.Error("failed to mark job completed", "error", err)
-		return nil, err
-	}
-	job.Status = domain.ReplayJobCompleted
-	job.CompletedAt = &now
-	job.Result, _ = json.Marshal(resultData)
-
-	if s.outboxWriter != nil {
-		if err := s.outboxWriter.Write(ctx, contracts.EventReplayJobCompletedV1, input.JobID, input.WorkspaceID, contracts.ReplayJobCompletedPayload{
-			JobID:       input.JobID,
-			WorkspaceID: input.WorkspaceID,
-			TargetType:  string(job.TargetType),
-			TargetID:    job.TargetID,
-			ResultCount: 1,
-		}); err != nil {
-			log.Error("failed to publish replay job completed event", "error", err)
-		}
-	}
-
-	log.Info("replay job completed", "replay_job_id", input.JobID)
-	result := replayJobToResult(*job)
-	return &result, nil
-}
-
-func (s *Service) executeDeadLetterReplay(ctx context.Context, job *domain.ReplayJob, log *slog.Logger) error {
-	dlq, err := s.deadLetterRepo.FindByID(ctx, job.WorkspaceID, job.TargetID)
-	if err != nil {
-		return err
-	}
-
-	now := s.clock()
-	eventID, err := s.idGen()
-	if err != nil {
-		return err
-	}
-
-	replayEventType := dlq.SourceEventType
-	if replayEventType == "" {
-		var envelope struct {
-			EventType string `json:"event_type"`
-		}
-		if json.Unmarshal(dlq.Payload, &envelope) == nil && envelope.EventType != "" {
-			replayEventType = envelope.EventType
-		}
-	}
-	if replayEventType == "" {
-		replayEventType = "operations.replay_event.v1"
-	}
-
-	replayHeaders := json.RawMessage(
-		`{"replay_of":"` + job.TargetID + `","replay_job_id":"` + job.ID + `","original_event_type":"` + replayEventType + `"}`,
-	)
-
-	replayEvent := domain.OutboxRecord{
-		ID:            eventID,
-		WorkspaceID:   job.WorkspaceID,
-		AggregateType: "replay",
-		AggregateID:   job.TargetID,
-		EventType:     replayEventType,
-		Payload:       dlq.Payload,
-		Headers:       replayHeaders,
-		OccurredAt:    now,
-		CreatedAt:     now,
-	}
-
-	if err := s.outboxRepo.CreateReplayOutboxEvent(ctx, replayEvent); err != nil {
-		log.Error("failed to create replay outbox event", "error", err)
-		return err
-	}
-
-	log.Info("dead letter record replayed",
-		"replay_job_id", job.ID,
-		"dlq_id", job.TargetID,
-		"original_event_type", replayEventType,
-	)
-
-	return nil
-}
-
-type GetReplayJobInput struct {
-	WorkspaceID string
-	UserID      string
-	JobID       string
+	return s.commands.RunReplayJob(ctx, input)
 }
 
 func (s *Service) GetReplayJob(ctx context.Context, input GetReplayJobInput) (*ReplayJobResult, error) {
-	log := s.log.With("usecase", "get_replay_job", "workspace_id", input.WorkspaceID, "replay_job_id", input.JobID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.replay.manage"); err != nil {
-		return nil, err
-	}
-	if input.WorkspaceID == "" {
-		return nil, domain.ErrWorkspaceRequired
-	}
-	job, err := s.replayJobRepo.FindByID(ctx, input.WorkspaceID, input.JobID)
-	if err != nil {
-		if errors.Is(err, domain.ErrReplayJobNotFound) {
-			log.Warn("replay job not found")
-			return nil, err
-		}
-		log.Error("failed to get replay job", "error", err)
-		return nil, err
-	}
-	result := replayJobToResult(*job)
-	return &result, nil
-}
-
-type ListReplayJobsInput struct {
-	WorkspaceID string
-	UserID      string
-	Filter      domain.ReplayJobFilter
+	return s.queries.GetReplayJob(ctx, input)
 }
 
 func (s *Service) ListReplayJobs(ctx context.Context, input ListReplayJobsInput) ([]ReplayJobResult, string, error) {
-	log := s.log.With("usecase", "list_replay_jobs", "workspace_id", input.WorkspaceID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.replay.manage"); err != nil {
-		return nil, "", err
-	}
-	if input.WorkspaceID == "" {
-		return nil, "", domain.ErrWorkspaceRequired
-	}
-	if input.Filter.Status != "" && !domain.IsValidReplayStatus(domain.ReplayJobStatus(input.Filter.Status)) {
-		return nil, "", domain.ErrFilterInvalid
-	}
-	if err := input.Filter.Validate(); err != nil {
-		log.Warn("invalid replay job filter", "error", err)
-		return nil, "", err
-	}
-	jobs, cursor, err := s.replayJobRepo.List(ctx, input.WorkspaceID, input.Filter)
-	if err != nil {
-		log.Error("failed to list replay jobs", "error", err)
-		return nil, "", err
-	}
-	results := make([]ReplayJobResult, len(jobs))
-	for i := range jobs {
-		results[i] = replayJobToResult(jobs[i])
-	}
-	return results, cursor, nil
+	return s.queries.ListReplayJobs(ctx, input)
 }

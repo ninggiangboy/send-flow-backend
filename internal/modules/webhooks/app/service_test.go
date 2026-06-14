@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/ports"
 )
 
 type mockConfigRead struct {
@@ -45,7 +46,7 @@ func (m *mockConfigWrite) Disable(ctx context.Context, workspaceID, webhookID st
 type mockDeliveryRead struct {
 	findByIDFn              func(ctx context.Context, workspaceID, deliveryID string) (*domain.WebhookDelivery, error)
 	findByWebhookAndEventFn func(ctx context.Context, webhookID, sourceEventID string) (*domain.WebhookDelivery, error)
-	listByWorkspaceFn       func(ctx context.Context, workspaceID string, filter interface{}) ([]domain.WebhookDelivery, string, error)
+	listByWorkspaceFn       func(ctx context.Context, workspaceID string, filter ports.DeliveryFilter) ([]domain.WebhookDelivery, string, error)
 }
 
 func (m *mockDeliveryRead) FindByID(ctx context.Context, workspaceID, deliveryID string) (*domain.WebhookDelivery, error) {
@@ -54,7 +55,7 @@ func (m *mockDeliveryRead) FindByID(ctx context.Context, workspaceID, deliveryID
 func (m *mockDeliveryRead) FindByWebhookAndEvent(ctx context.Context, webhookID, sourceEventID string) (*domain.WebhookDelivery, error) {
 	return m.findByWebhookAndEventFn(ctx, webhookID, sourceEventID)
 }
-func (m *mockDeliveryRead) ListByWorkspace(ctx context.Context, workspaceID string, filter interface{}) ([]domain.WebhookDelivery, string, error) {
+func (m *mockDeliveryRead) ListByWorkspace(ctx context.Context, workspaceID string, filter ports.DeliveryFilter) ([]domain.WebhookDelivery, string, error) {
 	return m.listByWorkspaceFn(ctx, workspaceID, filter)
 }
 
@@ -64,6 +65,7 @@ type mockDeliveryWrite struct {
 	markSucceededFn  func(ctx context.Context, deliveryID string, result domain.DeliveryResult) error
 	markFailedFn     func(ctx context.Context, deliveryID string, result domain.DeliveryResult) error
 	scheduleRetryFn  func(ctx context.Context, deliveryID string, nextAttemptAt time.Time) error
+	claimPendingFn   func(ctx context.Context, limit int, now time.Time) ([]domain.WebhookDelivery, error)
 }
 
 func (m *mockDeliveryWrite) Create(ctx context.Context, delivery domain.WebhookDelivery) error {
@@ -80,6 +82,9 @@ func (m *mockDeliveryWrite) MarkFailed(ctx context.Context, deliveryID string, r
 }
 func (m *mockDeliveryWrite) ScheduleRetry(ctx context.Context, deliveryID string, nextAttemptAt time.Time) error {
 	return m.scheduleRetryFn(ctx, deliveryID, nextAttemptAt)
+}
+func (m *mockDeliveryWrite) ClaimPendingDeliveries(ctx context.Context, limit int, now time.Time) ([]domain.WebhookDelivery, error) {
+	return m.claimPendingFn(ctx, limit, now)
 }
 
 type mockAttemptRead struct {
@@ -107,10 +112,10 @@ func (m *mockTxManager) WithinTx(ctx context.Context, fn func(context.Context) e
 }
 
 type mockDeliverer struct {
-	deliverFn func(ctx context.Context, req interface{}) (interface{}, error)
+	deliverFn func(ctx context.Context, req ports.DeliveryHTTPRequest) (ports.DeliveryHTTPResponse, error)
 }
 
-func (m *mockDeliverer) Deliver(ctx context.Context, req interface{}) (interface{}, error) {
+func (m *mockDeliverer) Deliver(ctx context.Context, req ports.DeliveryHTTPRequest) (ports.DeliveryHTTPResponse, error) {
 	return m.deliverFn(ctx, req)
 }
 
@@ -131,26 +136,36 @@ func fixedClock() time.Time {
 }
 
 func TestCreateWebhookConfig_Valid(t *testing.T) {
-	svc := &Service{
-		configWrite: &mockConfigWrite{
+	svc := NewService(Options{
+		ConfigWrite: &mockConfigWrite{
 			createFn: func(ctx context.Context, config domain.WebhookConfig) error {
 				return nil
 			},
 		},
-		accessChecker: &mockAccessChecker{
+		AccessChecker: &mockAccessChecker{
 			requirePermissionFn: func(ctx context.Context, workspaceID, userID, permission string) error {
 				return nil
 			},
 		},
-		txManager: &mockTxManager{
+		TxManager: &mockTxManager{
 			runInTxFn: func(ctx context.Context, fn func(context.Context) error) error {
 				return fn(ctx)
 			},
 		},
-		idGen: fixedIDGen,
-		clock: fixedClock,
-		log:   slog.Default(),
-	}
+		Deliverer: &mockDeliverer{
+			deliverFn: func(ctx context.Context, req ports.DeliveryHTTPRequest) (ports.DeliveryHTTPResponse, error) {
+				return ports.DeliveryHTTPResponse{}, nil
+			},
+		},
+		DeliveryRead:  &mockDeliveryRead{},
+		DeliveryWrite: &mockDeliveryWrite{},
+		AttemptRead:   &mockAttemptRead{},
+		AttemptWrite:  &mockAttemptWrite{},
+		ConfigRead:    &mockConfigRead{},
+		IDGen:         fixedIDGen,
+		Clock:         fixedClock,
+		Logger:        slog.Default(),
+	})
 
 	result, err := svc.CreateWebhookConfig(context.Background(), CreateConfigInput{
 		WorkspaceID:   "ws-1",
@@ -172,16 +187,27 @@ func TestCreateWebhookConfig_Valid(t *testing.T) {
 }
 
 func TestCreateWebhookConfig_PermissionDenied(t *testing.T) {
-	svc := &Service{
-		accessChecker: &mockAccessChecker{
+	svc := NewService(Options{
+		AccessChecker: &mockAccessChecker{
 			requirePermissionFn: func(ctx context.Context, workspaceID, userID, permission string) error {
 				return domain.ErrManageDenied
 			},
 		},
-		idGen: fixedIDGen,
-		clock: fixedClock,
-		log:   slog.Default(),
-	}
+		ConfigRead:    &mockConfigRead{},
+		ConfigWrite:   &mockConfigWrite{},
+		DeliveryRead:  &mockDeliveryRead{},
+		DeliveryWrite: &mockDeliveryWrite{},
+		AttemptRead:   &mockAttemptRead{},
+		AttemptWrite:  &mockAttemptWrite{},
+		Deliverer: &mockDeliverer{
+			deliverFn: func(ctx context.Context, req ports.DeliveryHTTPRequest) (ports.DeliveryHTTPResponse, error) {
+				return ports.DeliveryHTTPResponse{}, nil
+			},
+		},
+		IDGen:  fixedIDGen,
+		Clock:  fixedClock,
+		Logger: slog.Default(),
+	})
 
 	_, err := svc.CreateWebhookConfig(context.Background(), CreateConfigInput{
 		WorkspaceID:   "ws-1",
@@ -197,16 +223,27 @@ func TestCreateWebhookConfig_PermissionDenied(t *testing.T) {
 }
 
 func TestCreateWebhookConfig_InvalidTargetURL(t *testing.T) {
-	svc := &Service{
-		accessChecker: &mockAccessChecker{
+	svc := NewService(Options{
+		AccessChecker: &mockAccessChecker{
 			requirePermissionFn: func(ctx context.Context, workspaceID, userID, permission string) error {
 				return nil
 			},
 		},
-		idGen: fixedIDGen,
-		clock: fixedClock,
-		log:   slog.Default(),
-	}
+		ConfigRead:    &mockConfigRead{},
+		ConfigWrite:   &mockConfigWrite{},
+		DeliveryRead:  &mockDeliveryRead{},
+		DeliveryWrite: &mockDeliveryWrite{},
+		AttemptRead:   &mockAttemptRead{},
+		AttemptWrite:  &mockAttemptWrite{},
+		Deliverer: &mockDeliverer{
+			deliverFn: func(ctx context.Context, req ports.DeliveryHTTPRequest) (ports.DeliveryHTTPResponse, error) {
+				return ports.DeliveryHTTPResponse{}, nil
+			},
+		},
+		IDGen:  fixedIDGen,
+		Clock:  fixedClock,
+		Logger: slog.Default(),
+	})
 
 	_, err := svc.CreateWebhookConfig(context.Background(), CreateConfigInput{
 		WorkspaceID:   "ws-1",
@@ -221,15 +258,9 @@ func TestCreateWebhookConfig_InvalidTargetURL(t *testing.T) {
 	}
 }
 
-type noopTxManager struct{}
-
-func (m *noopTxManager) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error {
-	return fn(ctx)
-}
-
 func TestDisableWebhookConfig(t *testing.T) {
-	svc := &Service{
-		configRead: &mockConfigRead{
+	svc := NewService(Options{
+		ConfigRead: &mockConfigRead{
 			findByIDFn: func(ctx context.Context, workspaceID, webhookID string) (*domain.WebhookConfig, error) {
 				return &domain.WebhookConfig{
 					ID:          webhookID,
@@ -238,21 +269,34 @@ func TestDisableWebhookConfig(t *testing.T) {
 				}, nil
 			},
 		},
-		configWrite: &mockConfigWrite{
+		ConfigWrite: &mockConfigWrite{
 			disableFn: func(ctx context.Context, workspaceID, webhookID string, disabledAt time.Time) error {
 				return nil
 			},
 		},
-		accessChecker: &mockAccessChecker{
+		AccessChecker: &mockAccessChecker{
 			requirePermissionFn: func(ctx context.Context, workspaceID, userID, permission string) error {
 				return nil
 			},
 		},
-		idGen:     fixedIDGen,
-		clock:     fixedClock,
-		log:       slog.Default(),
-		txManager: &noopTxManager{},
-	}
+		DeliveryRead:  &mockDeliveryRead{},
+		DeliveryWrite: &mockDeliveryWrite{},
+		AttemptRead:   &mockAttemptRead{},
+		AttemptWrite:  &mockAttemptWrite{},
+		Deliverer: &mockDeliverer{
+			deliverFn: func(ctx context.Context, req ports.DeliveryHTTPRequest) (ports.DeliveryHTTPResponse, error) {
+				return ports.DeliveryHTTPResponse{}, nil
+			},
+		},
+		IDGen:     fixedIDGen,
+		Clock:     fixedClock,
+		Logger:    slog.Default(),
+		TxManager: &mockTxManager{
+			runInTxFn: func(ctx context.Context, fn func(context.Context) error) error {
+				return fn(ctx)
+			},
+		},
+	})
 
 	err := svc.DisableWebhookConfig(context.Background(), DisableConfigInput{
 		WorkspaceID: "ws-1",

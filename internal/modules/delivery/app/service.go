@@ -2,17 +2,20 @@ package app
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"log/slog"
-	"strings"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/accepttransactionalsend"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/getmessage"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/gettransactionalmessage"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/handlecampaignscheduled"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/handleproviderevent"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/listmessages"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/processduemessages"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/queuecampaignmessages"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
 
@@ -39,25 +42,9 @@ type Options struct {
 }
 
 type Service struct {
-	messagesRead        ports.MessageReadRepository
-	messagesWrite       ports.MessageWriteRepository
-	attemptsRead        ports.AttemptReadRepository
-	attemptsWrite       ports.AttemptWriteRepository
-	retryStatesRead     ports.RetryStateReadRepository
-	retryStatesWrite    ports.RetryStateWriteRepository
-	txRequestsRead      ports.TransactionalRequestReadRepository
-	txRequestsWrite     ports.TransactionalRequestWriteRepository
-	campaignReader      ports.CampaignCandidateReader
-	contentRenderer     ports.ContentRenderer
-	senderChecker       ports.SenderReadinessChecker
-	suppressionChecker  ports.SuppressionChecker
-	recipientSuppressor RecipientSuppressor
-	emailProvider       ports.EmailProvider
-	outboxWriter        ports.OutboxWriter
-	txManager           ports.UnitOfWork
-	accessChecker       ports.WorkspaceAccessChecker
-	idGen               func() (string, error)
-	log                 *slog.Logger
+	commands CommandBus
+	queries  QueryBus
+	log      *slog.Logger
 }
 
 func NewService(opts Options) *Service {
@@ -67,28 +54,81 @@ func NewService(opts Options) *Service {
 	if opts.IDGen == nil {
 		opts.IDGen = id.NewUUIDGenerator().New
 	}
+
+	acceptTransactionalH := accepttransactionalsend.New(
+		opts.TxRequestsRead,
+		opts.TxRequestsWrite,
+		opts.MessagesRead,
+		opts.MessagesWrite,
+		opts.SenderChecker,
+		opts.ContentRenderer,
+		opts.SuppressionChecker,
+		opts.OutboxWriter,
+		opts.TxManager,
+		opts.IDGen,
+		opts.Logger,
+	)
+
+	queueCampaignH := queuecampaignmessages.New(
+		opts.CampaignReader,
+		opts.MessagesWrite,
+		opts.OutboxWriter,
+		opts.TxManager,
+		opts.IDGen,
+		opts.Logger,
+	)
+
+	handleCampaignH := handlecampaignscheduled.New(queueCampaignH, opts.Logger)
+
+	handleProviderH := handleproviderevent.New(
+		opts.MessagesRead,
+		opts.MessagesWrite,
+		opts.RecipientSuppressor,
+		opts.OutboxWriter,
+		opts.TxManager,
+		opts.IDGen,
+		opts.Logger,
+	)
+
+	processDueMsgsH := processduemessages.New(
+		opts.MessagesRead,
+		opts.MessagesWrite,
+		opts.AttemptsRead,
+		opts.AttemptsWrite,
+		opts.RetryStatesRead,
+		opts.RetryStatesWrite,
+		opts.SenderChecker,
+		opts.SuppressionChecker,
+		opts.ContentRenderer,
+		opts.EmailProvider,
+		opts.OutboxWriter,
+		opts.TxManager,
+		opts.IDGen,
+		opts.Logger,
+	)
+
+	listMessagesH := listmessages.New(opts.MessagesRead, opts.AccessChecker, opts.Logger)
+	getMessageH := getmessage.New(opts.MessagesRead, opts.AccessChecker, opts.Logger)
+	getTransactionalH := gettransactionalmessage.New(opts.MessagesRead, opts.Logger)
+
 	return &Service{
-		messagesRead:        opts.MessagesRead,
-		messagesWrite:       opts.MessagesWrite,
-		attemptsRead:        opts.AttemptsRead,
-		attemptsWrite:       opts.AttemptsWrite,
-		retryStatesRead:     opts.RetryStatesRead,
-		retryStatesWrite:    opts.RetryStatesWrite,
-		txRequestsRead:      opts.TxRequestsRead,
-		txRequestsWrite:     opts.TxRequestsWrite,
-		campaignReader:      opts.CampaignReader,
-		contentRenderer:     opts.ContentRenderer,
-		senderChecker:       opts.SenderChecker,
-		suppressionChecker:  opts.SuppressionChecker,
-		recipientSuppressor: opts.RecipientSuppressor,
-		emailProvider:       opts.EmailProvider,
-		outboxWriter:        opts.OutboxWriter,
-		txManager:           opts.TxManager,
-		accessChecker:       opts.AccessChecker,
-		idGen:               opts.IDGen,
-		log:                 opts.Logger.With("module", "delivery"),
+		commands: newCommandBus(opts.Logger,
+			acceptTransactionalH,
+			queueCampaignH,
+			handleCampaignH,
+			handleProviderH,
+			processDueMsgsH,
+		),
+		queries: newQueryBus(opts.Logger,
+			listMessagesH,
+			getMessageH,
+			getTransactionalH,
+		),
+		log: opts.Logger.With("module", "delivery"),
 	}
 }
+
+// Shared types used by external callers
 
 type QueueCampaignMessagesInput struct {
 	WorkspaceID       string
@@ -104,168 +144,6 @@ type QueueCampaignMessagesInput struct {
 type QueueCampaignMessagesResult struct {
 	QueuedCount    int
 	CandidateCount int
-}
-
-func (s *Service) QueueCampaignMessages(ctx context.Context, input QueueCampaignMessagesInput) (*QueueCampaignMessagesResult, error) {
-	log := s.log.With("usecase", "queue_campaign_messages", "workspace_id", input.WorkspaceID, "campaign_id", input.CampaignID)
-
-	if input.WorkspaceID == "" || input.CampaignID == "" || input.TemplateID == "" || input.TemplateVersionID == "" || input.SenderDomainID == "" || input.MessageType == "" {
-		return nil, domain.ErrPayloadInvalid
-	}
-	if input.Now.IsZero() {
-		return nil, domain.ErrPayloadInvalid
-	}
-
-	count, err := s.campaignReader.CountCandidates(ctx, input.WorkspaceID, input.CampaignID)
-	if err != nil {
-		log.Error("failed to count candidates", "error", err)
-		return nil, err
-	}
-	if count == 0 {
-		return nil, domain.ErrCampaignCandidatesNotFound
-	}
-
-	var totalQueued int
-	var cursor string
-	pageSize := 500
-
-	for {
-		candidates, nextCursor, err := s.campaignReader.ListCandidates(ctx, input.WorkspaceID, input.CampaignID, pageSize, cursor)
-		if err != nil {
-			log.Error("failed to list candidates", "cursor", cursor, "error", err)
-			return nil, err
-		}
-		if len(candidates) == 0 {
-			break
-		}
-
-		messages := make([]domain.Message, 0, len(candidates))
-		for _, c := range candidates {
-			var snapshot domain.RecipientSnapshot
-			if len(c.RecipientSnapshot) > 0 {
-				if err := json.Unmarshal(c.RecipientSnapshot, &snapshot); err != nil {
-					log.Warn("failed to unmarshal recipient snapshot", "candidate_id", c.ID, "error", err)
-				}
-			}
-
-			msgID, err := s.idGen()
-			if err != nil {
-				log.Error("failed to generate message ID", "error", err)
-				return nil, err
-			}
-
-			messages = append(messages, domain.Message{
-				ID:                       msgID,
-				WorkspaceID:              input.WorkspaceID,
-				CampaignID:               input.CampaignID,
-				CampaignCandidateID:      c.ID,
-				ContactID:                c.ContactID,
-				RecipientEmailNormalized: c.EmailNormalized,
-				RecipientSnapshot:        snapshot,
-				TemplateID:               input.TemplateID,
-				TemplateVersionID:        input.TemplateVersionID,
-				SenderDomainID:           input.SenderDomainID,
-				MessageType:              input.MessageType,
-				SourceType:               domain.MessageSourceCampaign,
-				Status:                   domain.MessageStatusQueued,
-				ScheduledAt:              &input.ScheduledAt,
-				QueuedAt:                 &input.Now,
-				CreatedAt:                input.Now,
-				UpdatedAt:                input.Now,
-			})
-		}
-
-		var pageQueued int
-		if err := s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
-			insertedIDs, err := s.messagesWrite.CreateMany(txCtx, messages)
-			if err != nil {
-				return err
-			}
-			pageQueued = len(insertedIDs)
-
-			insertedSet := make(map[string]struct{}, len(insertedIDs))
-			for _, id := range insertedIDs {
-				insertedSet[id] = struct{}{}
-			}
-
-			for _, msg := range messages {
-				if _, ok := insertedSet[msg.ID]; !ok {
-					continue
-				}
-
-				eventID, err := s.idGen()
-				if err != nil {
-					return err
-				}
-
-				var scheduledAt string
-				if msg.ScheduledAt != nil {
-					scheduledAt = msg.ScheduledAt.Format(time.RFC3339)
-				}
-
-				payload := contracts.MessageQueuedPayload{
-					MessageID:           msg.ID,
-					WorkspaceID:         msg.WorkspaceID,
-					CampaignID:          msg.CampaignID,
-					CampaignCandidateID: msg.CampaignCandidateID,
-					TemplateID:          msg.TemplateID,
-					TemplateVersionID:   msg.TemplateVersionID,
-					SenderDomainID:      msg.SenderDomainID,
-					MessageType:         msg.MessageType,
-					SourceType:          msg.SourceType,
-					ScheduledAt:         scheduledAt,
-				}
-				envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-					EventID:       eventID,
-					EventType:     contracts.EventDeliveryMessageQueuedV1,
-					EventVersion:  1,
-					AggregateType: "message",
-					AggregateID:   msg.ID,
-					WorkspaceID:   msg.WorkspaceID,
-					OccurredAt:    input.Now,
-				}, payload)
-				if err != nil {
-					return err
-				}
-				payloadBytes, err := events.Marshal(envelope)
-				if err != nil {
-					return err
-				}
-				if err := s.outboxWriter.Save(txCtx, ports.OutboxEvent{
-					ID:            envelope.EventID,
-					AggregateType: "message",
-					AggregateID:   msg.ID,
-					EventType:     contracts.EventDeliveryMessageQueuedV1,
-					Payload:       payloadBytes,
-					WorkspaceID:   msg.WorkspaceID,
-					OccurredAt:    input.Now,
-				}); err != nil {
-					return err
-				}
-			}
-			return nil
-		}); err != nil {
-			log.Error("failed to queue messages page", "error", err)
-			return nil, err
-		} else {
-			totalQueued += pageQueued
-		}
-
-		if nextCursor == "" {
-			break
-		}
-		cursor = nextCursor
-	}
-
-	log.Info("campaign messages queued",
-		"queued_count", totalQueued,
-		"candidate_count", count,
-	)
-
-	return &QueueCampaignMessagesResult{
-		QueuedCount:    totalQueued,
-		CandidateCount: int(count),
-	}, nil
 }
 
 type ListMessagesInput struct {
@@ -287,69 +165,140 @@ type ListMessagesResult struct {
 	NextCursor string
 }
 
-func (s *Service) ListMessages(ctx context.Context, input ListMessagesInput) (*ListMessagesResult, error) {
-	if input.WorkspaceID == "" {
-		return nil, domain.ErrPayloadInvalid
-	}
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "delivery.read"); err != nil {
-			return nil, err
-		}
-	}
-
-	limit := input.Limit
-	if limit <= 0 || limit > 100 {
-		limit = constants.DefaultPageSize
-	}
-
-	emailNormalized := strings.TrimSpace(strings.ToLower(input.RecipientEmailNormalized))
-
-	query := ports.MessageListQuery{
-		WorkspaceID:              input.WorkspaceID,
-		CampaignID:               input.CampaignID,
-		TransactionalRequestID:   input.TransactionalRequestID,
-		Status:                   input.Status,
-		RecipientEmailNormalized: emailNormalized,
-		ProviderMessageID:        input.ProviderMessageID,
-		From:                     input.From,
-		To:                       input.To,
-		Limit:                    limit,
-		Cursor:                   input.Cursor,
-	}
-
-	messages, cursor, err := s.messagesRead.List(ctx, query)
-	if err != nil {
-		s.log.Error("failed to list messages", "workspace_id", input.WorkspaceID, "error", err)
-		return nil, err
-	}
-
-	return &ListMessagesResult{Messages: messages, NextCursor: cursor}, nil
-}
-
 type GetMessageInput struct {
 	UserID      string
 	WorkspaceID string
 	MessageID   string
 }
 
+type AcceptTransactionalSendInput struct {
+	WorkspaceID       string
+	APIKeyID          string
+	IdempotencyKey    string
+	RecipientEmail    string
+	RecipientName     string
+	SenderDomainID    string
+	TemplateID        string
+	TemplateVersionID string
+	TemplateData      map[string]any
+	Metadata          map[string]any
+	Tags              []string
+	Now               time.Time
+}
+
+type AcceptTransactionalSendResult struct {
+	MessageID  string
+	RequestID  string
+	Status     string
+	AcceptedAt time.Time
+}
+
+type GetTransactionalMessageInput struct {
+	WorkspaceID string
+	MessageID   string
+}
+
+type GetTransactionalMessageResult struct {
+	MessageID         string     `json:"message_id"`
+	Status            string     `json:"status"`
+	Provider          string     `json:"provider,omitempty"`
+	ProviderMessageID string     `json:"provider_message_id,omitempty"`
+	LastUpdatedAt     *time.Time `json:"last_updated_at"`
+}
+
+type HandleCampaignScheduledInput struct {
+	EventID   string
+	EventType string
+	Payload   []byte
+	Now       time.Time
+}
+
+type HandleProviderEventInput struct {
+	EventID           string
+	NormalizedEventID string
+	RawEventID        string
+	WorkspaceID       string
+	MessageID         string
+	Provider          string
+	ProviderEventID   string
+	ProviderMessageID string
+	EventType         string
+	OccurredAt        time.Time
+	ReceivedAt        time.Time
+}
+
+type HandleProviderEventResult struct {
+	Handled            bool
+	Ignored            bool
+	MessageID          string
+	WorkspaceID        string
+	PreviousStatus     string
+	NewStatus          string
+	SuppressionCreated bool
+	SuppressionEntryID string
+}
+
+type ProcessDueMessagesAllInput struct {
+	MessageType string
+	Limit       int
+	Now         time.Time
+}
+
+type ProcessDueMessagesInput struct {
+	WorkspaceID string
+	MessageType string
+	Limit       int
+	Now         time.Time
+}
+
+type ProcessDueMessagesResult struct {
+	SelectedCount       int
+	AcceptedCount       int
+	FailedCount         int
+	RetryScheduledCount int
+}
+
+type (
+	NonRetryableError         = usecase.NonRetryableError
+	RecipientSuppressor       = handleproviderevent.RecipientSuppressor
+	SuppressFromSignalInput   = handleproviderevent.SuppressFromSignalInput
+	SuppressFromSignalResult  = handleproviderevent.SuppressFromSignalResult
+)
+
+// Facade methods delegating to handlers via buses
+
+func (s *Service) QueueCampaignMessages(ctx context.Context, input QueueCampaignMessagesInput) (*QueueCampaignMessagesResult, error) {
+	return s.commands.QueueCampaignMessages(ctx, input)
+}
+
+func (s *Service) ListMessages(ctx context.Context, input ListMessagesInput) (*ListMessagesResult, error) {
+	return s.queries.ListMessages(ctx, input)
+}
+
 func (s *Service) GetMessage(ctx context.Context, input GetMessageInput) (*domain.Message, error) {
-	if input.WorkspaceID == "" || input.MessageID == "" {
-		return nil, domain.ErrPayloadInvalid
-	}
-	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "delivery.read"); err != nil {
-			return nil, err
-		}
-	}
+	return s.queries.GetMessage(ctx, input)
+}
 
-	msg, err := s.messagesRead.FindByID(ctx, input.WorkspaceID, input.MessageID)
-	if err != nil {
-		if errors.Is(err, domain.ErrMessageNotFound) {
-			return nil, err
-		}
-		s.log.Error("failed to find message", "workspace_id", input.WorkspaceID, "message_id", input.MessageID, "error", err)
-		return nil, err
-	}
+func (s *Service) AcceptTransactionalSend(ctx context.Context, input AcceptTransactionalSendInput) (*AcceptTransactionalSendResult, error) {
+	return s.commands.AcceptTransactionalSend(ctx, input)
+}
 
-	return msg, nil
+func (s *Service) GetTransactionalMessage(ctx context.Context, input GetTransactionalMessageInput) (*GetTransactionalMessageResult, error) {
+	return s.queries.GetTransactionalMessage(ctx, input.WorkspaceID, input.MessageID)
+}
+
+func (s *Service) HandleCampaignScheduled(ctx context.Context, input HandleCampaignScheduledInput) error {
+	return s.commands.HandleCampaignScheduled(ctx, input)
+}
+
+func (s *Service) HandleProviderEvent(ctx context.Context, input HandleProviderEventInput) (*HandleProviderEventResult, error) {
+	return s.commands.HandleProviderEvent(ctx, input)
+}
+
+func (s *Service) ProcessDueMessagesAllWorkspaces(ctx context.Context, input ProcessDueMessagesAllInput) (int, error) {
+	return s.commands.ProcessDueMessagesAllWorkspaces(ctx, input)
+}
+
+func (s *Service) ProcessDueMessages(ctx context.Context, input ProcessDueMessagesInput) (*ProcessDueMessagesResult, error) {
+	return s.commands.ProcessDueMessages(ctx, input)
 }

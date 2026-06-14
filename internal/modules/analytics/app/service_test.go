@@ -140,9 +140,18 @@ func newTestServiceWithQuery(
 	outbox ports.OutboxWriter,
 	checker ports.WorkspaceAccessChecker,
 ) *Service {
-	s := newTestService(factRepo, projRead, projWrite, txMgr, outbox, checker)
-	s.campaignQueryRepo = campaignQuery
-	return s
+	return NewService(Options{
+		FactRepo:          factRepo,
+		ProjectionRead:    projRead,
+		ProjectionWrite:   projWrite,
+		CampaignQueryRepo: campaignQuery,
+		TxManager:         txMgr,
+		OutboxWriter:      outbox,
+		AccessChecker:     checker,
+		IDGen:             func() (string, error) { return "fact-1", nil },
+		Clock:             func() time.Time { return fixedTime },
+		Logger:            slog.Default(),
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -1202,9 +1211,18 @@ func newTestServiceWithDeliverabilityQuery(
 	outbox ports.OutboxWriter,
 	checker ports.WorkspaceAccessChecker,
 ) *Service {
-	s := newTestService(factRepo, projRead, projWrite, txMgr, outbox, checker)
-	s.deliverabilityQueryRepo = deliverabilityQuery
-	return s
+	return NewService(Options{
+		FactRepo:                factRepo,
+		ProjectionRead:          projRead,
+		ProjectionWrite:         projWrite,
+		DeliverabilityQueryRepo: deliverabilityQuery,
+		TxManager:               txMgr,
+		OutboxWriter:            outbox,
+		AccessChecker:           checker,
+		IDGen:                   func() (string, error) { return "fact-1", nil },
+		Clock:                   func() time.Time { return fixedTime },
+		Logger:                  slog.Default(),
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -1465,9 +1483,18 @@ func newTestServiceWithForensicQuery(
 	outbox ports.OutboxWriter,
 	checker ports.WorkspaceAccessChecker,
 ) *Service {
-	s := newTestService(factRepo, projRead, projWrite, txMgr, outbox, checker)
-	s.forensicQueryRepo = forensicQuery
-	return s
+	return NewService(Options{
+		FactRepo:          factRepo,
+		ProjectionRead:    projRead,
+		ProjectionWrite:   projWrite,
+		ForensicQueryRepo: forensicQuery,
+		TxManager:         txMgr,
+		OutboxWriter:      outbox,
+		AccessChecker:     checker,
+		IDGen:             func() (string, error) { return "fact-1", nil },
+		Clock:             func() time.Time { return fixedTime },
+		Logger:            slog.Default(),
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -1919,9 +1946,18 @@ func newTestServiceWithOperationsQuery(
 	outbox ports.OutboxWriter,
 	checker ports.WorkspaceAccessChecker,
 ) *Service {
-	s := newTestService(factRepo, projRead, projWrite, txMgr, outbox, checker)
-	s.operationsQueryRepo = operationsQuery
-	return s
+	return NewService(Options{
+		FactRepo:            factRepo,
+		ProjectionRead:      projRead,
+		ProjectionWrite:     projWrite,
+		OperationsQueryRepo: operationsQuery,
+		TxManager:           txMgr,
+		OutboxWriter:        outbox,
+		AccessChecker:       checker,
+		IDGen:               func() (string, error) { return "fact-1", nil },
+		Clock:               func() time.Time { return fixedTime },
+		Logger:              slog.Default(),
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -2496,9 +2532,18 @@ func newTestServiceWithUsageQuery(
 	outbox ports.OutboxWriter,
 	checker ports.WorkspaceAccessChecker,
 ) *Service {
-	s := newTestService(factRepo, projRead, projWrite, txMgr, outbox, checker)
-	s.usageQueryRepo = usageQuery
-	return s
+	return NewService(Options{
+		FactRepo:        factRepo,
+		ProjectionRead:  projRead,
+		ProjectionWrite: projWrite,
+		UsageQueryRepo:  usageQuery,
+		TxManager:       txMgr,
+		OutboxWriter:    outbox,
+		AccessChecker:   checker,
+		IDGen:           func() (string, error) { return "fact-1", nil },
+		Clock:           func() time.Time { return fixedTime },
+		Logger:          slog.Default(),
+	})
 }
 
 // ── GetUsageTimeSeries ──

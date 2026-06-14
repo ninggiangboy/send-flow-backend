@@ -2,12 +2,20 @@ package app
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"time"
 
-	webhookscontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/contracts"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/createwebhookconfig"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/deliverwebhook"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/disablewebhookconfig"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/getdelivery"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/handlesourceevent"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/listdeliveries"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/listwebhookconfigs"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/processduedelivery"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/retrywebhookdelivery"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/rotatesecret"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/updatewebhookconfig"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/ports"
 )
@@ -29,196 +37,18 @@ type Options struct {
 }
 
 type Service struct {
-	configRead    ports.ConfigReadRepository
-	configWrite   ports.ConfigWriteRepository
-	deliveryRead  ports.DeliveryReadRepository
-	deliveryWrite ports.DeliveryWriteRepository
-	attemptWrite  ports.AttemptWriteRepository
-	attemptRead   ports.AttemptReadRepository
-	txManager     ports.TransactionManager
-	outboxWriter  ports.OutboxWriter
-	deliverer     ports.HTTPDeliverer
-	accessChecker ports.WorkspaceAccessChecker
-	idGen         func() (string, error)
-	clock         func() time.Time
-	log           *slog.Logger
-}
-
-func (s *Service) ClaimDueDeliveries(ctx context.Context, limit int, now time.Time) ([]domain.WebhookDelivery, error) {
-	return s.deliveryWrite.ClaimPendingDeliveries(ctx, limit, now)
-}
-
-func (s *Service) ProcessDueDelivery(ctx context.Context, workspaceID, deliveryID string) (string, error) {
-	delivery, err := s.deliveryRead.FindByID(ctx, workspaceID, deliveryID)
-	if err != nil {
-		return "", fmt.Errorf("find delivery: %w", err)
-	}
-
-	cfg, err := s.configRead.FindByID(ctx, delivery.WorkspaceID, delivery.WebhookID)
-	if err != nil {
-		return "", fmt.Errorf("find webhook config: %w", err)
-	}
-
-	if cfg.Status != domain.ConfigStatusActive {
-		if err := s.deliveryWrite.MarkFailed(ctx, deliveryID, domain.DeliveryResult{
-			Error: "webhook config disabled",
-		}); err != nil {
-			return "", fmt.Errorf("mark failed: %w", err)
-		}
-		return "failed", nil
-	}
-
-	attemptNumber := int(delivery.AttemptCount)
-
-	result, err := s.DeliverWebhook(ctx, DeliverWebhookInput{
-		WorkspaceID:     delivery.WorkspaceID,
-		WebhookID:       cfg.ID,
-		DeliveryID:      deliveryID,
-		TargetURL:       cfg.TargetURL,
-		SecretHash:      cfg.SecretHash,
-		EventPayload:    delivery.EventPayloadJSON,
-		SourceEventID:   delivery.SourceEventID,
-		SourceEventType: delivery.SourceEventType,
-		AttemptNumber:   int64(attemptNumber),
-	})
-	if err != nil {
-		return "", fmt.Errorf("deliver webhook: %w", err)
-	}
-
-	return s.recordDeliveryOutcome(ctx, delivery, cfg, attemptNumber, result)
-}
-
-const maxWebhookRetries = 5
-
-func (s *Service) recordDeliveryOutcome(ctx context.Context, delivery *domain.WebhookDelivery, cfg *domain.WebhookConfig, attemptNumber int, result *DeliverWebhookResult) (string, error) {
-	log := s.log.With("delivery_id", delivery.ID, "webhook_id", cfg.ID, "attempt", attemptNumber)
-
-	var outcome string
-	if result.Success {
-		outcome = "succeeded"
-		log.Info("webhook delivery succeeded", "status_code", result.StatusCode, "duration_ms", result.DurationMs)
-	} else if domain.IsRetryableHTTPStatus(result.StatusCode) && attemptNumber < maxWebhookRetries {
-		outcome = "retry_scheduled"
-		backoff := time.Duration(attemptNumber*attemptNumber) * 30 * time.Second
-		nextAttemptAt := s.clock().Add(backoff)
-		log.Warn("webhook delivery failed, scheduling retry",
-			"status_code", result.StatusCode, "next_attempt_at", nextAttemptAt, "backoff", backoff)
-		return outcome, s.emitDeliveryOutcome(ctx, delivery, cfg, result, outcome, &nextAttemptAt, nil)
-	} else {
-		outcome = "failed"
-		if attemptNumber >= maxWebhookRetries {
-			log.Warn("webhook delivery max retries exceeded", "max_retries", maxWebhookRetries, "status_code", result.StatusCode)
-		} else {
-			log.Warn("webhook delivery terminally failed", "status_code", result.StatusCode)
-		}
-	}
-	return outcome, s.emitDeliveryOutcome(ctx, delivery, cfg, result, outcome, nil, nil)
-}
-
-func (s *Service) emitDeliveryOutcome(ctx context.Context, delivery *domain.WebhookDelivery, cfg *domain.WebhookConfig, result *DeliverWebhookResult, outcome string, nextAttemptAt *time.Time, _ error) error {
-	usesOutbox := s.outboxWriter != nil
-	now := s.clock()
-
-	return s.txManager.WithinTx(ctx, func(txCtx context.Context) error {
-		switch outcome {
-		case "succeeded":
-			if err := s.deliveryWrite.MarkSucceeded(txCtx, delivery.ID, result.DeliveryResult); err != nil {
-				return err
-			}
-		case "retry_scheduled":
-			if err := s.deliveryWrite.ScheduleRetry(txCtx, delivery.ID, *nextAttemptAt); err != nil {
-				return err
-			}
-		case "failed":
-			if err := s.deliveryWrite.MarkFailed(txCtx, delivery.ID, result.DeliveryResult); err != nil {
-				return err
-			}
-		}
-
-		if err := s.attemptWrite.Create(txCtx, result.Attempt); err != nil {
-			return err
-		}
-
-		if !usesOutbox {
-			return nil
-		}
-
-		eventID, err := s.idGen()
-		if err != nil {
-			return err
-		}
-
-		switch outcome {
-		case "succeeded":
-			payload, _ := json.Marshal(webhookscontracts.DeliverySucceededPayload{
-				DeliveryID:      delivery.ID,
-				WorkspaceID:     delivery.WorkspaceID,
-				WebhookID:       cfg.ID,
-				SourceEventID:   delivery.SourceEventID,
-				SourceEventType: delivery.SourceEventType,
-				StatusCode:      result.StatusCode,
-				DurationMs:      result.DurationMs,
-			})
-			return s.outboxWriter.Save(txCtx, ports.OutboxEvent{
-				ID:            eventID,
-				AggregateType: "webhook_delivery",
-				AggregateID:   delivery.ID,
-				EventType:     webhookscontracts.EventDeliverySucceededV1,
-				Payload:       payload,
-				WorkspaceID:   delivery.WorkspaceID,
-				OccurredAt:    now,
-			})
-		case "retry_scheduled":
-			var sc *int
-			if result.StatusCode > 0 {
-				sc = &result.StatusCode
-			}
-			payload, _ := json.Marshal(webhookscontracts.DeliveryRetryScheduledPayload{
-				DeliveryID:      delivery.ID,
-				WorkspaceID:     delivery.WorkspaceID,
-				WebhookID:       cfg.ID,
-				SourceEventID:   delivery.SourceEventID,
-				SourceEventType: delivery.SourceEventType,
-				NextAttemptAt:   nextAttemptAt.UTC().Format(time.RFC3339),
-				AttemptNumber:   int64(delivery.AttemptCount),
-				StatusCode:      sc,
-				Error:           result.Error,
-			})
-			return s.outboxWriter.Save(txCtx, ports.OutboxEvent{
-				ID:            eventID,
-				AggregateType: "webhook_delivery",
-				AggregateID:   delivery.ID,
-				EventType:     webhookscontracts.EventDeliveryRetryScheduledV1,
-				Payload:       payload,
-				WorkspaceID:   delivery.WorkspaceID,
-				OccurredAt:    now,
-			})
-		case "failed":
-			failedPayload := webhookscontracts.DeliveryFailedPayload{
-				DeliveryID:      delivery.ID,
-				WorkspaceID:     delivery.WorkspaceID,
-				WebhookID:       cfg.ID,
-				SourceEventID:   delivery.SourceEventID,
-				SourceEventType: delivery.SourceEventType,
-				Error:           result.Error,
-				DurationMs:      result.DurationMs,
-			}
-			if result.Attempt.StatusCode != nil {
-				failedPayload.StatusCode = result.Attempt.StatusCode
-			}
-			payload, _ := json.Marshal(failedPayload)
-			return s.outboxWriter.Save(txCtx, ports.OutboxEvent{
-				ID:            eventID,
-				AggregateType: "webhook_delivery",
-				AggregateID:   delivery.ID,
-				EventType:     webhookscontracts.EventDeliveryFailedV1,
-				Payload:       payload,
-				WorkspaceID:   delivery.WorkspaceID,
-				OccurredAt:    now,
-			})
-		}
-		return nil
-	})
+	listWebhookConfigsH    *listwebhookconfigs.Handler
+	createWebhookConfigH   *createwebhookconfig.Handler
+	updateWebhookConfigH   *updatewebhookconfig.Handler
+	disableWebhookConfigH  *disablewebhookconfig.Handler
+	rotateSecretH          *rotatesecret.Handler
+	deliverWebhookH        *deliverwebhook.Handler
+	processDueDeliveryH    *processduedelivery.Handler
+	retryWebhookDeliveryH  *retrywebhookdelivery.Handler
+	listDeliveriesH        *listdeliveries.Handler
+	getDeliveryH           *getdelivery.Handler
+	handleSourceEventH     *handlesourceevent.Handler
+	deliveryWrite          ports.DeliveryWriteRepository
 }
 
 func NewService(opts Options) *Service {
@@ -228,19 +58,351 @@ func NewService(opts Options) *Service {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
+	logger := opts.Logger.With("module", "webhooks")
+
+	deliverWebhookH := deliverwebhook.New(deliverwebhook.Options{
+		Deliverer: opts.Deliverer,
+		IDGen:     opts.IDGen,
+		Clock:     opts.Clock,
+		Logger:    logger,
+	})
+
 	return &Service{
-		configRead:    opts.ConfigRead,
-		configWrite:   opts.ConfigWrite,
-		deliveryRead:  opts.DeliveryRead,
+		listWebhookConfigsH: listwebhookconfigs.New(listwebhookconfigs.Options{
+			ConfigRead:    opts.ConfigRead,
+			AccessChecker: opts.AccessChecker,
+			Logger:        logger,
+		}),
+		createWebhookConfigH: createwebhookconfig.New(createwebhookconfig.Options{
+			ConfigWrite:   opts.ConfigWrite,
+			TxManager:     opts.TxManager,
+			OutboxWriter:  opts.OutboxWriter,
+			AccessChecker: opts.AccessChecker,
+			IDGen:         opts.IDGen,
+			Clock:         opts.Clock,
+			Logger:        logger,
+		}),
+		updateWebhookConfigH: updatewebhookconfig.New(updatewebhookconfig.Options{
+			ConfigRead:    opts.ConfigRead,
+			ConfigWrite:   opts.ConfigWrite,
+			TxManager:     opts.TxManager,
+			OutboxWriter:  opts.OutboxWriter,
+			AccessChecker: opts.AccessChecker,
+			IDGen:         opts.IDGen,
+			Clock:         opts.Clock,
+			Logger:        logger,
+		}),
+		disableWebhookConfigH: disablewebhookconfig.New(disablewebhookconfig.Options{
+			ConfigWrite:   opts.ConfigWrite,
+			TxManager:     opts.TxManager,
+			OutboxWriter:  opts.OutboxWriter,
+			AccessChecker: opts.AccessChecker,
+			IDGen:         opts.IDGen,
+			Clock:         opts.Clock,
+			Logger:        logger,
+		}),
+		rotateSecretH: rotatesecret.New(rotatesecret.Options{
+			ConfigRead:    opts.ConfigRead,
+			ConfigWrite:   opts.ConfigWrite,
+			TxManager:     opts.TxManager,
+			OutboxWriter:  opts.OutboxWriter,
+			AccessChecker: opts.AccessChecker,
+			IDGen:         opts.IDGen,
+			Clock:         opts.Clock,
+			Logger:        logger,
+		}),
+		deliverWebhookH: deliverWebhookH,
+		processDueDeliveryH: processduedelivery.New(processduedelivery.Options{
+			DeliveryRead:    opts.DeliveryRead,
+			DeliveryWrite:   opts.DeliveryWrite,
+			AttemptWrite:    opts.AttemptWrite,
+			ConfigRead:      opts.ConfigRead,
+			TxManager:       opts.TxManager,
+			OutboxWriter:    opts.OutboxWriter,
+			DeliverWebhookH: deliverWebhookH,
+			IDGen:           opts.IDGen,
+			Clock:           opts.Clock,
+			Logger:          logger,
+		}),
+		retryWebhookDeliveryH: retrywebhookdelivery.New(retrywebhookdelivery.Options{
+			DeliveryRead:    opts.DeliveryRead,
+			DeliveryWrite:   opts.DeliveryWrite,
+			AttemptWrite:    opts.AttemptWrite,
+			ConfigRead:      opts.ConfigRead,
+			TxManager:       opts.TxManager,
+			OutboxWriter:    opts.OutboxWriter,
+			AccessChecker:   opts.AccessChecker,
+			DeliverWebhookH: deliverWebhookH,
+			IDGen:           opts.IDGen,
+			Clock:           opts.Clock,
+			Logger:          logger,
+		}),
+		listDeliveriesH: listdeliveries.New(listdeliveries.Options{
+			DeliveryRead:  opts.DeliveryRead,
+			AccessChecker: opts.AccessChecker,
+			Logger:        logger,
+		}),
+		getDeliveryH: getdelivery.New(getdelivery.Options{
+			DeliveryRead:  opts.DeliveryRead,
+			AttemptRead:   opts.AttemptRead,
+			AccessChecker: opts.AccessChecker,
+			Logger:        logger,
+		}),
+		handleSourceEventH: handlesourceevent.New(handlesourceevent.Options{
+			ConfigRead:    opts.ConfigRead,
+			DeliveryWrite: opts.DeliveryWrite,
+			IDGen:         opts.IDGen,
+			Clock:         opts.Clock,
+			Logger:        logger,
+		}),
 		deliveryWrite: opts.DeliveryWrite,
-		attemptWrite:  opts.AttemptWrite,
-		attemptRead:   opts.AttemptRead,
-		txManager:     opts.TxManager,
-		outboxWriter:  opts.OutboxWriter,
-		deliverer:     opts.Deliverer,
-		accessChecker: opts.AccessChecker,
-		idGen:         opts.IDGen,
-		clock:         opts.Clock,
-		log:           opts.Logger.With("module", "webhooks"),
 	}
+}
+
+// Shared input/output types for external callers.
+
+type ConfigResult struct {
+	ID              string     `json:"id"`
+	WorkspaceID     string     `json:"workspace_id"`
+	Name            string     `json:"name"`
+	TargetURL       string     `json:"target_url"`
+	Status          string     `json:"status"`
+	Subscriptions   []string   `json:"subscriptions"`
+	SecretHint      string     `json:"secret_hint"`
+	RawSecret       string     `json:"raw_secret,omitempty"`
+	Version         int64      `json:"version"`
+	CreatedByUserID string     `json:"created_by_user_id"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	DisabledAt      *time.Time `json:"disabled_at,omitempty"`
+}
+
+func configToResult(cfg *domain.WebhookConfig, rawSecret string) ConfigResult {
+	r := ConfigResult{
+		ID:              cfg.ID,
+		WorkspaceID:     cfg.WorkspaceID,
+		Name:            cfg.Name,
+		TargetURL:       cfg.TargetURL,
+		Status:          string(cfg.Status),
+		Subscriptions:   cfg.Subscriptions,
+		SecretHint:      cfg.SecretHint,
+		RawSecret:       rawSecret,
+		Version:         cfg.Version,
+		CreatedByUserID: cfg.CreatedByUserID,
+		CreatedAt:       cfg.CreatedAt,
+		UpdatedAt:       cfg.UpdatedAt,
+		DisabledAt:      cfg.DisabledAt,
+	}
+	return r
+}
+
+type CreateConfigInput struct {
+	WorkspaceID   string
+	UserID        string
+	Name          string
+	TargetURL     string
+	Subscriptions []string
+	Now           time.Time
+}
+
+type ListConfigsInput struct {
+	WorkspaceID string
+	UserID      string
+}
+
+type UpdateConfigInput struct {
+	WorkspaceID   string
+	UserID        string
+	WebhookID     string
+	Name          *string
+	TargetURL     *string
+	Subscriptions []string
+	Status        *string
+	Now           time.Time
+}
+
+type DisableConfigInput struct {
+	WorkspaceID string
+	UserID      string
+	WebhookID   string
+}
+
+type RotateSecretInput struct {
+	WorkspaceID string
+	UserID      string
+	WebhookID   string
+}
+
+type RotateSecretResult struct {
+	RawSecret string
+	Hint      string
+	Version   int64
+}
+
+type ListDeliveriesInput struct {
+	WorkspaceID string
+	UserID      string
+	WebhookID   string
+	Status      string
+	EventType   string
+	From        *time.Time
+	To          *time.Time
+	Limit       int
+	Cursor      string
+}
+
+type ListDeliveriesResult struct {
+	Deliveries []domain.WebhookDelivery
+	NextCursor string
+}
+
+type GetDeliveryInput struct {
+	WorkspaceID string
+	UserID      string
+	DeliveryID  string
+}
+
+type RetryDeliveryInput struct {
+	WorkspaceID string
+	UserID      string
+	DeliveryID  string
+}
+
+type HandleSourceEventInput struct {
+	RawPayload []byte
+}
+
+// Facade methods.
+
+func (s *Service) CreateWebhookConfig(ctx context.Context, input CreateConfigInput) (*ConfigResult, error) {
+	result, err := s.createWebhookConfigH.Execute(ctx, createwebhookconfig.Command{
+		WorkspaceID:   input.WorkspaceID,
+		UserID:        input.UserID,
+		Name:          input.Name,
+		TargetURL:     input.TargetURL,
+		Subscriptions: input.Subscriptions,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	r := configToResult(&result.Config, result.RawSecret)
+	return &r, nil
+}
+
+func (s *Service) ListWebhookConfigs(ctx context.Context, input ListConfigsInput) ([]ConfigResult, error) {
+	configs, err := s.listWebhookConfigsH.Execute(ctx, listwebhookconfigs.Command{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]ConfigResult, len(configs))
+	for i, cfg := range configs {
+		results[i] = configToResult(&cfg, "")
+	}
+	return results, nil
+}
+
+func (s *Service) UpdateWebhookConfig(ctx context.Context, input UpdateConfigInput) (*ConfigResult, error) {
+	cfg, err := s.updateWebhookConfigH.Execute(ctx, updatewebhookconfig.Command{
+		WorkspaceID:   input.WorkspaceID,
+		UserID:        input.UserID,
+		WebhookID:     input.WebhookID,
+		Name:          input.Name,
+		TargetURL:     input.TargetURL,
+		Subscriptions: input.Subscriptions,
+		Status:        input.Status,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	r := configToResult(cfg, "")
+	return &r, nil
+}
+
+func (s *Service) DisableWebhookConfig(ctx context.Context, input DisableConfigInput) error {
+	return s.disableWebhookConfigH.Execute(ctx, disablewebhookconfig.Command{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		WebhookID:   input.WebhookID,
+	})
+}
+
+func (s *Service) RotateWebhookSecret(ctx context.Context, input RotateSecretInput) (*RotateSecretResult, error) {
+	result, err := s.rotateSecretH.Execute(ctx, rotatesecret.Command{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		WebhookID:   input.WebhookID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &RotateSecretResult{
+		RawSecret: result.RawSecret,
+		Hint:      result.Hint,
+		Version:   result.Config.Version,
+	}, nil
+}
+
+func (s *Service) ListWebhookDeliveries(ctx context.Context, input ListDeliveriesInput) (*ListDeliveriesResult, error) {
+	deliveries, cursor, err := s.listDeliveriesH.Execute(ctx, listdeliveries.Command{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		WebhookID:   input.WebhookID,
+		Status:      input.Status,
+		EventType:   input.EventType,
+		From:        input.From,
+		To:          input.To,
+		Limit:       input.Limit,
+		Cursor:      input.Cursor,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &ListDeliveriesResult{Deliveries: deliveries, NextCursor: cursor}, nil
+}
+
+func (s *Service) GetWebhookDelivery(ctx context.Context, input GetDeliveryInput) (*domain.WebhookDelivery, error) {
+	return s.getDeliveryH.Execute(ctx, getdelivery.Command{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		DeliveryID:  input.DeliveryID,
+	})
+}
+
+func (s *Service) RetryWebhookDelivery(ctx context.Context, input RetryDeliveryInput) error {
+	return s.retryWebhookDeliveryH.Execute(ctx, retrywebhookdelivery.Command{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		DeliveryID:  input.DeliveryID,
+	})
+}
+
+func (s *Service) ClaimDueDeliveries(ctx context.Context, limit int, now time.Time) ([]domain.WebhookDelivery, error) {
+	return s.deliveryWrite.ClaimPendingDeliveries(ctx, limit, now)
+}
+
+func (s *Service) ProcessDueDelivery(ctx context.Context, workspaceID, deliveryID string) (string, error) {
+	return s.processDueDeliveryH.Execute(ctx, processduedelivery.Command{
+		WorkspaceID: workspaceID,
+		DeliveryID:  deliveryID,
+	})
+}
+
+func (s *Service) HandleSourceEvent(ctx context.Context, input HandleSourceEventInput) error {
+	return s.handleSourceEventH.Execute(ctx, handlesourceevent.Command{
+		RawPayload: input.RawPayload,
+	})
+}
+
+// SignPayloadRaw signs a webhook payload using HMAC-SHA256.
+// It is used by the HTTP deliverer in the infrastructure layer.
+func SignPayloadRaw(payload []byte, timestamp, signingKey string) string {
+	return deliverwebhook.SignPayloadRaw(payload, timestamp, signingKey)
 }

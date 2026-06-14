@@ -6,6 +6,12 @@ import (
 	"time"
 
 	senderdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/createsenderdomain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/disablesenderdomain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/getsenderdomain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/getsenderreadiness"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/listsenderdomains"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/refreshsenderdomaindnsstatus"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/ports"
 )
 
@@ -37,13 +43,8 @@ type Readiness struct {
 }
 
 type Service struct {
-	domainsRead     ports.SenderDomainReadRepository
-	domainsWrite    ports.SenderDomainWriteRepository
-	dnsResolver     ports.DNSResolver
-	accessChecker   ports.WorkspaceAccessChecker
-	idGen           func() (string, error)
-	metricsRecorder MetricsRecorder
-	log             *slog.Logger
+	commands CommandBus
+	queries  QueryBus
 }
 
 func NewService(opts Options) *Service {
@@ -55,14 +56,48 @@ func NewService(opts Options) *Service {
 			return "", nil
 		}
 	}
+	logger := opts.Logger
+
+	createH := createsenderdomain.New(createsenderdomain.Options{
+		DomainsRead:     opts.DomainsRead,
+		DomainsWrite:    opts.DomainsWrite,
+		AccessChecker:   opts.AccessChecker,
+		IDGen:           opts.IDGen,
+		MetricsRecorder: opts.MetricsRecorder,
+		Logger:          logger,
+	})
+	refreshH := refreshsenderdomaindnsstatus.New(refreshsenderdomaindnsstatus.Options{
+		DomainsRead:     opts.DomainsRead,
+		DomainsWrite:    opts.DomainsWrite,
+		DNSResolver:     opts.DNSResolver,
+		AccessChecker:   opts.AccessChecker,
+		MetricsRecorder: opts.MetricsRecorder,
+		Logger:          logger,
+	})
+	disableH := disablesenderdomain.New(disablesenderdomain.Options{
+		DomainsRead:   opts.DomainsRead,
+		DomainsWrite:  opts.DomainsWrite,
+		AccessChecker: opts.AccessChecker,
+		Logger:        logger,
+	})
+	getH := getsenderdomain.New(getsenderdomain.Options{
+		DomainsRead:   opts.DomainsRead,
+		AccessChecker: opts.AccessChecker,
+		Logger:        logger,
+	})
+	listH := listsenderdomains.New(listsenderdomains.Options{
+		DomainsRead:   opts.DomainsRead,
+		AccessChecker: opts.AccessChecker,
+		Logger:        logger,
+	})
+	readinessH := getsenderreadiness.New(getsenderreadiness.Options{
+		DomainsRead: opts.DomainsRead,
+		Logger:      logger,
+	})
+
 	return &Service{
-		domainsRead:     opts.DomainsRead,
-		domainsWrite:    opts.DomainsWrite,
-		dnsResolver:     opts.DNSResolver,
-		accessChecker:   opts.AccessChecker,
-		idGen:           opts.IDGen,
-		metricsRecorder: opts.MetricsRecorder,
-		log:             opts.Logger.With("module", "sender"),
+		commands: newCommandBus(createH, refreshH, disableH),
+		queries:  newQueryBus(getH, listH, readinessH),
 	}
 }
 
@@ -91,23 +126,113 @@ func readinessFor(sd senderdomain.SenderDomain, records []senderdomain.DNSRecord
 	return Readiness{Ready: ready, Reason: reason, CheckedAt: now}
 }
 
-func (s *Service) GetSenderDomainReadiness(ctx context.Context, workspaceID, senderDomainID string) (*Readiness, error) {
-	sd, records, err := s.domainsRead.FindByID(ctx, workspaceID, senderDomainID)
-	if err != nil {
-		return nil, err
-	}
-	if sd == nil {
-		return nil, senderdomain.ErrDomainNotFound
-	}
-
-	readiness := readinessFor(*sd, records, time.Now())
-	return &readiness, nil
-}
-
 func buildResult(sd senderdomain.SenderDomain, records []senderdomain.DNSRecord, now time.Time) *Result {
 	return &Result{
 		Domain:    sd,
 		Records:   records,
 		Readiness: readinessFor(sd, records, now),
 	}
+}
+
+func (s *Service) CreateSenderDomain(ctx context.Context, workspaceID, actorUserID, rawDomain, provider string, now time.Time) (*Result, error) {
+	sd, records, err := s.commands.CreateSenderDomain(ctx, createsenderdomain.Command{
+		WorkspaceID: workspaceID,
+		ActorUserID: actorUserID,
+		RawDomain:   rawDomain,
+		Provider:    provider,
+		Now:         now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buildResult(*sd, records, now), nil
+}
+
+func (s *Service) RefreshSenderDomainDNSStatus(ctx context.Context, workspaceID, domainID, actorUserID string, now time.Time) (*Result, error) {
+	sd, records, err := s.commands.RefreshSenderDomainDNSStatus(ctx, refreshsenderdomaindnsstatus.Command{
+		WorkspaceID: workspaceID,
+		DomainID:    domainID,
+		ActorUserID: actorUserID,
+		Now:         now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buildResult(*sd, records, now), nil
+}
+
+func (s *Service) DisableSenderDomain(ctx context.Context, workspaceID, domainID, actorUserID string, now time.Time) (*Result, error) {
+	sd, records, err := s.commands.DisableSenderDomain(ctx, disablesenderdomain.Command{
+		WorkspaceID: workspaceID,
+		DomainID:    domainID,
+		ActorUserID: actorUserID,
+		Now:         now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buildResult(*sd, records, now), nil
+}
+
+func (s *Service) GetSenderDomain(ctx context.Context, workspaceID, domainID, actorUserID string) (*Result, error) {
+	sd, records, err := s.queries.GetSenderDomain(ctx, getsenderdomain.Command{
+		WorkspaceID: workspaceID,
+		DomainID:    domainID,
+		ActorUserID: actorUserID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buildResult(*sd, records, time.Now().UTC()), nil
+}
+
+func (s *Service) ListSenderDomains(ctx context.Context, workspaceID, actorUserID string) ([]Result, error) {
+	domains, err := s.queries.ListSenderDomains(ctx, listsenderdomains.Command{
+		WorkspaceID: workspaceID,
+		ActorUserID: actorUserID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]Result, 0, len(domains))
+	now := time.Now().UTC()
+	for _, sd := range domains {
+		_, records, err := s.queries.GetSenderDomain(ctx, getsenderdomain.Command{
+			WorkspaceID: workspaceID,
+			DomainID:    sd.ID,
+			ActorUserID: actorUserID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, *buildResult(sd, records, now))
+	}
+	return results, nil
+}
+
+func (s *Service) GetSenderDomainReadiness(ctx context.Context, workspaceID, senderDomainID string) (*Readiness, error) {
+	sd, records, err := s.queries.GetSenderReadiness(ctx, getsenderreadiness.Command{
+		WorkspaceID:    workspaceID,
+		SenderDomainID: senderDomainID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	readiness := readinessFor(*sd, records, time.Now())
+	return &readiness, nil
+}
+
+func (s *Service) GetSenderReadiness(ctx context.Context, workspaceID, domainID string) (*Readiness, error) {
+	sd, records, err := s.queries.GetSenderReadiness(ctx, getsenderreadiness.Command{
+		WorkspaceID:    workspaceID,
+		SenderDomainID: domainID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	ready := readinessFor(*sd, records, time.Now().UTC())
+	return &ready, nil
 }

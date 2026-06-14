@@ -2,13 +2,16 @@ package app
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/app/authenticateapikey"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/app/createapikey"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/app/listapikeys"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/app/revokeapikey"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/app/updateapikey"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/ports"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type Options struct {
@@ -21,22 +24,45 @@ type Options struct {
 }
 
 type Service struct {
-	apiKeyRepo    ports.APIKeyRepository
-	accessChecker ports.WorkspaceAccessChecker
-	idGen         ports.IDGenerator
-	secretGen     ports.SecretGenerator
-	secretHasher  ports.SecretHasher
-	logger        *slog.Logger
+	listAPIKeysH        *listapikeys.Handler
+	createAPIKeyH       *createapikey.Handler
+	updateAPIKeyH       *updateapikey.Handler
+	revokeAPIKeyH       *revokeapikey.Handler
+	authenticateAPIKeyH *authenticateapikey.Handler
 }
 
 func NewService(opts Options) *Service {
 	return &Service{
-		apiKeyRepo:    opts.APIKeyRepo,
-		accessChecker: opts.AccessChecker,
-		idGen:         opts.IDGen,
-		secretGen:     opts.SecretGen,
-		secretHasher:  opts.SecretHasher,
-		logger:        opts.Logger.With("module", "access", "service", "api_key"),
+		listAPIKeysH: listapikeys.New(listapikeys.Options{
+			APIKeyRepo:    opts.APIKeyRepo,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
+		createAPIKeyH: createapikey.New(createapikey.Options{
+			APIKeyRepo:    opts.APIKeyRepo,
+			AccessChecker: opts.AccessChecker,
+			IDGen:         opts.IDGen,
+			SecretGen:     opts.SecretGen,
+			SecretHasher:  opts.SecretHasher,
+			Logger:        opts.Logger,
+		}),
+		updateAPIKeyH: updateapikey.New(updateapikey.Options{
+			APIKeyRepo:    opts.APIKeyRepo,
+			AccessChecker: opts.AccessChecker,
+			SecretGen:     opts.SecretGen,
+			SecretHasher:  opts.SecretHasher,
+			Logger:        opts.Logger,
+		}),
+		revokeAPIKeyH: revokeapikey.New(revokeapikey.Options{
+			APIKeyRepo:    opts.APIKeyRepo,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
+		authenticateAPIKeyH: authenticateapikey.New(authenticateapikey.Options{
+			APIKeyRepo:   opts.APIKeyRepo,
+			SecretHasher: opts.SecretHasher,
+			Logger:       opts.Logger,
+		}),
 	}
 }
 
@@ -113,23 +139,14 @@ type AuthenticatedAPIKey struct {
 }
 
 func (s *Service) ListAPIKeys(ctx context.Context, input ListAPIKeysInput) (*ListAPIKeysResult, error) {
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.ActorUserID, "api_key.manage"); err != nil {
-		return nil, err
-	}
-
-	limit := input.Limit
-	if limit <= 0 || limit > 100 {
-		limit = constants.DefaultPageSize
-	}
-
-	keys, cursor, err := s.apiKeyRepo.ListByWorkspace(ctx, ports.APIKeyListQuery{
+	keys, cursor, err := s.listAPIKeysH.Execute(ctx, listapikeys.Command{
 		WorkspaceID: input.WorkspaceID,
+		ActorUserID: input.ActorUserID,
 		Status:      input.Status,
-		Limit:       limit,
+		Limit:       input.Limit,
 		Cursor:      input.Cursor,
 	})
 	if err != nil {
-		s.logger.Error("failed to list api keys", "error", err, "workspace_id", input.WorkspaceID)
 		return nil, err
 	}
 
@@ -142,219 +159,68 @@ func (s *Service) ListAPIKeys(ctx context.Context, input ListAPIKeysInput) (*Lis
 }
 
 func (s *Service) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) (*CreateAPIKeyResult, error) {
-	log := s.logger.With("usecase", "CreateAPIKey", "workspace_id", input.WorkspaceID, "actor_user_id", input.ActorUserID)
-
-	if input.WorkspaceID == "" || input.ActorUserID == "" {
-		return nil, domain.ErrPayloadInvalid
-	}
-
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.ActorUserID, "api_key.manage"); err != nil {
-		return nil, err
-	}
-
-	name := domain.NormalizeName(input.Name)
-	if name == "" || len(name) > 120 {
-		return nil, domain.ErrAPIKeyConfigInvalid
-	}
-
-	if err := domain.ValidateScopes(input.Scopes); err != nil {
-		log.Warn("invalid scopes for create", "scopes", input.Scopes)
-		return nil, err
-	}
-
-	now := time.Now().UTC()
-
-	if input.ExpiresAt != nil && !input.ExpiresAt.IsZero() && input.ExpiresAt.Before(now) {
-		return nil, domain.ErrAPIKeyConfigInvalid
-	}
-
-	id, err := s.idGen()
-	if err != nil {
-		log.Error("failed to generate id", "error", err)
-		return nil, err
-	}
-
-	plaintext, keyPrefix, err := s.secretGen.Generate()
-	if err != nil {
-		log.Error("failed to generate secret", "error", err)
-		return nil, err
-	}
-
-	secretHash, err := s.secretHasher.Hash(plaintext)
-	if err != nil {
-		log.Error("failed to hash secret", "error", err)
-		return nil, err
-	}
-
-	key := domain.APIKey{
-		ID:          id,
+	result, err := s.createAPIKeyH.Execute(ctx, createapikey.Command{
 		WorkspaceID: input.WorkspaceID,
-		Name:        name,
-		KeyPrefix:   keyPrefix,
-		SecretHash:  secretHash,
+		ActorUserID: input.ActorUserID,
+		Name:        input.Name,
 		Scopes:      input.Scopes,
-		Status:      domain.APIKeyStatusActive,
-		CreatedAt:   now,
-		UpdatedAt:   now,
 		ExpiresAt:   input.ExpiresAt,
-	}
-
-	if err := s.apiKeyRepo.Create(ctx, key); err != nil {
-		log.Error("failed to persist api key", "error", err)
+	})
+	if err != nil {
 		return nil, err
 	}
 
-	log.Info("api key created", "api_key_id", id)
-
-	result := apiKeyToResult(key)
-	return &CreateAPIKeyResult{APIKeyResult: result, Secret: plaintext}, nil
+	return &CreateAPIKeyResult{
+		APIKeyResult: apiKeyToResult(result.APIKey),
+		Secret:       result.Secret,
+	}, nil
 }
 
 func (s *Service) UpdateAPIKey(ctx context.Context, input UpdateAPIKeyInput) (*UpdateAPIKeyResult, error) {
-	log := s.logger.With("usecase", "UpdateAPIKey", "workspace_id", input.WorkspaceID, "api_key_id", input.APIKeyID, "actor_user_id", input.ActorUserID)
-
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.ActorUserID, "api_key.manage"); err != nil {
-		return nil, err
-	}
-
-	existing, err := s.apiKeyRepo.FindByID(ctx, input.WorkspaceID, input.APIKeyID)
+	result, err := s.updateAPIKeyH.Execute(ctx, updateapikey.Command{
+		WorkspaceID: input.WorkspaceID,
+		ActorUserID: input.ActorUserID,
+		APIKeyID:    input.APIKeyID,
+		Name:        input.Name,
+		Scopes:      input.Scopes,
+		ExpiresAt:   input.ExpiresAt,
+		Rotate:      input.Rotate,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	if existing.Status != domain.APIKeyStatusActive {
-		log.Warn("attempted to update non-active key", "status", existing.Status)
-		return nil, domain.ErrAPIKeyRotateConflict
-	}
-
-	now := time.Now().UTC()
-
-	if input.Name != nil {
-		name := domain.NormalizeName(*input.Name)
-		if name == "" || len(name) > 120 {
-			return nil, domain.ErrAPIKeyConfigInvalid
-		}
-		existing.Name = name
-	}
-
-	if input.Scopes != nil {
-		if err := domain.ValidateScopes(input.Scopes); err != nil {
-			log.Warn("invalid scopes for update", "scopes", input.Scopes)
-			return nil, err
-		}
-		existing.Scopes = input.Scopes
-	}
-
-	if input.ExpiresAt != nil {
-		if !input.ExpiresAt.IsZero() && input.ExpiresAt.Before(now) {
-			return nil, domain.ErrAPIKeyConfigInvalid
-		}
-		existing.ExpiresAt = input.ExpiresAt
-	}
-
-	var newSecret string
-
-	if input.Rotate {
-		plaintext, keyPrefix, err := s.secretGen.Generate()
-		if err != nil {
-			log.Error("failed to generate secret for rotation", "error", err)
-			return nil, err
-		}
-
-		secretHash, err := s.secretHasher.Hash(plaintext)
-		if err != nil {
-			log.Error("failed to hash secret for rotation", "error", err)
-			return nil, err
-		}
-
-		existing.KeyPrefix = keyPrefix
-		existing.SecretHash = secretHash
-		newSecret = plaintext
-	}
-
-	existing.UpdatedAt = now
-
-	if err := s.apiKeyRepo.Update(ctx, *existing); err != nil {
-		log.Error("failed to update api key", "error", err)
-		return nil, err
-	}
-
-	log.Info("api key updated", "rotated", input.Rotate)
-
-	result := apiKeyToResult(*existing)
-	return &UpdateAPIKeyResult{APIKeyResult: result, Secret: newSecret}, nil
+	return &UpdateAPIKeyResult{
+		APIKeyResult: apiKeyToResult(result.APIKey),
+		Secret:       result.Secret,
+	}, nil
 }
 
 func (s *Service) RevokeAPIKey(ctx context.Context, input RevokeAPIKeyInput) (*APIKeyResult, error) {
-	log := s.logger.With("usecase", "RevokeAPIKey", "workspace_id", input.WorkspaceID, "api_key_id", input.APIKeyID, "actor_user_id", input.ActorUserID)
-
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.ActorUserID, "api_key.manage"); err != nil {
-		return nil, err
-	}
-
-	existing, err := s.apiKeyRepo.FindByID(ctx, input.WorkspaceID, input.APIKeyID)
+	key, err := s.revokeAPIKeyH.Execute(ctx, revokeapikey.Command{
+		WorkspaceID: input.WorkspaceID,
+		ActorUserID: input.ActorUserID,
+		APIKeyID:    input.APIKeyID,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	if existing.Status == domain.APIKeyStatusRevoked {
-		log.Info("api key already revoked, returning success")
-		result := apiKeyToResult(*existing)
-		return &result, nil
-	}
-
-	now := time.Now().UTC()
-	existing.Status = domain.APIKeyStatusRevoked
-	existing.RevokedAt = &now
-	existing.UpdatedAt = now
-
-	if err := s.apiKeyRepo.Update(ctx, *existing); err != nil {
-		log.Error("failed to revoke api key", "error", err)
-		return nil, err
-	}
-
-	log.Info("api key revoked")
-
-	result := apiKeyToResult(*existing)
+	result := apiKeyToResult(*key)
 	return &result, nil
 }
 
 func (s *Service) AuthenticateAPIKey(ctx context.Context, input AuthenticateAPIKeyInput) (*AuthenticatedAPIKey, error) {
-	log := s.logger.With("usecase", "AuthenticateAPIKey")
-
-	token := input.BearerToken
-	if token == "" {
-		return nil, domain.ErrAPIKeyInvalid
-	}
-
-	prefix := domain.DerivePrefix(token)
-
-	key, err := s.apiKeyRepo.FindByPrefix(ctx, prefix)
+	result, err := s.authenticateAPIKeyH.Execute(ctx, input.BearerToken)
 	if err != nil {
-		if errors.Is(err, domain.ErrAPIKeyNotFound) {
-			return nil, domain.ErrAPIKeyInvalid
-		}
-		log.Error("failed to find api key by prefix", "error", err)
-		return nil, domain.ErrAPIKeyInvalid
-	}
-
-	if !s.secretHasher.Verify(key.SecretHash, token) {
-		return nil, domain.ErrAPIKeyInvalid
-	}
-
-	if !domain.IsActive(*key, time.Now().UTC()) {
-		return nil, domain.ErrAPIKeyInvalid
-	}
-
-	if err := s.apiKeyRepo.TouchLastUsed(ctx, key.WorkspaceID, key.ID, time.Now().UTC()); err != nil {
-		log.Error("failed to touch last_used_at", "error", err, "api_key_id", key.ID)
+		return nil, err
 	}
 
 	return &AuthenticatedAPIKey{
-		WorkspaceID: key.WorkspaceID,
-		APIKeyID:    key.ID,
-		Scopes:      key.Scopes,
-		KeyPrefix:   key.KeyPrefix,
+		WorkspaceID: result.WorkspaceID,
+		APIKeyID:    result.APIKeyID,
+		Scopes:      result.Scopes,
+		KeyPrefix:   result.KeyPrefix,
 	}, nil
 }
 

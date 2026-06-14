@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -124,20 +125,6 @@ func (m *mockSegmentWrite) UpdateSegment(ctx context.Context, segment domain.Seg
 	return m.update(ctx, segment)
 }
 
-type mockImportJobRead struct {
-	ports.ImportJobReadRepository
-	findByID func(ctx context.Context, workspaceID, jobID string) (*domain.AudienceImportJob, error)
-	list     func(ctx context.Context, query ports.ImportJobListQuery) ([]domain.AudienceImportJob, string, error)
-}
-
-func (m *mockImportJobRead) FindImportJobByID(ctx context.Context, workspaceID, jobID string) (*domain.AudienceImportJob, error) {
-	return m.findByID(ctx, workspaceID, jobID)
-}
-
-func (m *mockImportJobRead) ListImportJobs(ctx context.Context, query ports.ImportJobListQuery) ([]domain.AudienceImportJob, string, error) {
-	return m.list(ctx, query)
-}
-
 type mockImportJobWrite struct {
 	ports.ImportJobWriteRepository
 	create func(ctx context.Context, job domain.AudienceImportJob) error
@@ -145,15 +132,6 @@ type mockImportJobWrite struct {
 
 func (m *mockImportJobWrite) CreateImportJob(ctx context.Context, job domain.AudienceImportJob) error {
 	return m.create(ctx, job)
-}
-
-type mockExportJobRead struct {
-	ports.ExportJobReadRepository
-	findByID func(ctx context.Context, workspaceID, jobID string) (*domain.AudienceExportJob, error)
-}
-
-func (m *mockExportJobRead) FindExportJobByID(ctx context.Context, workspaceID, jobID string) (*domain.AudienceExportJob, error) {
-	return m.findByID(ctx, workspaceID, jobID)
 }
 
 type mockExportJobWrite struct {
@@ -165,45 +143,37 @@ func (m *mockExportJobWrite) CreateExportJob(ctx context.Context, job domain.Aud
 	return m.create(ctx, job)
 }
 
-func newServiceTestOpts() Options {
-	return Options{
-		ContactsRead:    &mockContactRead{},
-		ContactsWrite:   &mockContactWrite{},
-		ListsRead:       &mockListRead{},
-		ListsWrite:      &mockListWrite{},
-		SegmentsRead:    &mockSegmentRead{},
-		SegmentsWrite:   &mockSegmentWrite{},
-		ImportJobsRead:  &mockImportJobRead{},
-		ImportJobsWrite: &mockImportJobWrite{},
-		ExportJobsRead:  &mockExportJobRead{},
-		ExportJobsWrite: &mockExportJobWrite{},
-		IDGen:           func() (string, error) { return "id_1", nil },
-		Logger:          slog.Default(),
-	}
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 func TestCreateContact(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil }}
-	opts.AccessChecker = access
 	created := false
-	write := opts.ContactsWrite.(*mockContactWrite)
-	write.create = func(ctx context.Context, contact domain.Contact) error {
-		created = true
-		if contact.EmailNormalized != "test@example.com" {
-			t.Errorf("expected normalized email test@example.com, got %s", contact.EmailNormalized)
-		}
-		if contact.Status != domain.ContactStatusActive {
-			t.Errorf("expected status active, got %s", contact.Status)
-		}
-		return nil
-	}
-	read := opts.ContactsRead.(*mockContactRead)
-	read.findByEmail = func(ctx context.Context, workspaceID, emailNormalized string) (*domain.Contact, error) {
-		return nil, domain.ErrContactNotFound
-	}
+	svc := NewService(Options{
+		ContactsRead: &mockContactRead{
+			findByEmail: func(ctx context.Context, workspaceID, emailNormalized string) (*domain.Contact, error) {
+				return nil, domain.ErrContactNotFound
+			},
+		},
+		ContactsWrite: &mockContactWrite{
+			create: func(ctx context.Context, contact domain.Contact) error {
+				created = true
+				if contact.EmailNormalized != "test@example.com" {
+					t.Errorf("expected normalized email test@example.com, got %s", contact.EmailNormalized)
+				}
+				if contact.Status != domain.ContactStatusActive {
+					t.Errorf("expected status active, got %s", contact.Status)
+				}
+				return nil
+			},
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		IDGen:  func() (string, error) { return "id_1", nil },
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	result, err := svc.CreateContact(context.Background(), CreateContactInput{
 		WorkspaceID: "ws_1",
 		UserID:      "user_1",
@@ -223,15 +193,19 @@ func TestCreateContact(t *testing.T) {
 }
 
 func TestCreateContactEmailConflict(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil }}
-	opts.AccessChecker = access
-	read := opts.ContactsRead.(*mockContactRead)
-	read.findByEmail = func(ctx context.Context, workspaceID, emailNormalized string) (*domain.Contact, error) {
-		return &domain.Contact{ID: "existing", EmailNormalized: emailNormalized}, nil
-	}
+	svc := NewService(Options{
+		ContactsRead: &mockContactRead{
+			findByEmail: func(ctx context.Context, workspaceID, emailNormalized string) (*domain.Contact, error) {
+				return &domain.Contact{ID: "existing", EmailNormalized: emailNormalized}, nil
+			},
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		IDGen:  func() (string, error) { return "id_1", nil },
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	_, err := svc.CreateContact(context.Background(), CreateContactInput{
 		WorkspaceID: "ws_1",
 		UserID:      "user_1",
@@ -244,13 +218,15 @@ func TestCreateContactEmailConflict(t *testing.T) {
 }
 
 func TestCreateContactPermissionDenied(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error {
-		return domain.ErrWriteDenied
-	}}
-	opts.AccessChecker = access
+	svc := NewService(Options{
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error {
+				return domain.ErrWriteDenied
+			},
+		},
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	_, err := svc.CreateContact(context.Background(), CreateContactInput{
 		WorkspaceID: "ws_1",
 		UserID:      "user_1",
@@ -263,19 +239,22 @@ func TestCreateContactPermissionDenied(t *testing.T) {
 }
 
 func TestGetContact(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil }}
-	opts.AccessChecker = access
-	read := opts.ContactsRead.(*mockContactRead)
-	read.findByID = func(ctx context.Context, workspaceID, contactID string) (*domain.Contact, error) {
-		return &domain.Contact{
-			ID:     contactID,
-			Email:  "test@example.com",
-			Status: domain.ContactStatusActive,
-		}, nil
-	}
+	svc := NewService(Options{
+		ContactsRead: &mockContactRead{
+			findByID: func(ctx context.Context, workspaceID, contactID string) (*domain.Contact, error) {
+				return &domain.Contact{
+					ID:     contactID,
+					Email:  "test@example.com",
+					Status: domain.ContactStatusActive,
+				}, nil
+			},
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	result, err := svc.GetContact(context.Background(), "ws_1", "ct_1", "user_1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -286,21 +265,25 @@ func TestGetContact(t *testing.T) {
 }
 
 func TestArchiveContact(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil }}
-	opts.AccessChecker = access
 	archived := false
-	read := opts.ContactsRead.(*mockContactRead)
-	read.findByID = func(ctx context.Context, workspaceID, contactID string) (*domain.Contact, error) {
-		return &domain.Contact{ID: contactID}, nil
-	}
-	write := opts.ContactsWrite.(*mockContactWrite)
-	write.archive = func(ctx context.Context, workspaceID, contactID string, archivedAt time.Time) error {
-		archived = true
-		return nil
-	}
+	svc := NewService(Options{
+		ContactsRead: &mockContactRead{
+			findByID: func(ctx context.Context, workspaceID, contactID string) (*domain.Contact, error) {
+				return &domain.Contact{ID: contactID}, nil
+			},
+		},
+		ContactsWrite: &mockContactWrite{
+			archive: func(ctx context.Context, workspaceID, contactID string, archivedAt time.Time) error {
+				archived = true
+				return nil
+			},
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	err := svc.ArchiveContact(context.Background(), "ws_1", "ct_1", "user_1", time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -311,17 +294,21 @@ func TestArchiveContact(t *testing.T) {
 }
 
 func TestCreateList(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil }}
-	opts.AccessChecker = access
 	created := false
-	write := opts.ListsWrite.(*mockListWrite)
-	write.create = func(ctx context.Context, list domain.AudienceList) error {
-		created = true
-		return nil
-	}
+	svc := NewService(Options{
+		ListsWrite: &mockListWrite{
+			create: func(ctx context.Context, list domain.AudienceList) error {
+				created = true
+				return nil
+			},
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		IDGen:  func() (string, error) { return "id_1", nil },
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	result, err := svc.CreateList(context.Background(), "ws_1", "user_1", "Test List", "", nil, time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -335,17 +322,21 @@ func TestCreateList(t *testing.T) {
 }
 
 func TestCreateSegment(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil }}
-	opts.AccessChecker = access
 	created := false
-	write := opts.SegmentsWrite.(*mockSegmentWrite)
-	write.create = func(ctx context.Context, segment domain.Segment) error {
-		created = true
-		return nil
-	}
+	svc := NewService(Options{
+		SegmentsWrite: &mockSegmentWrite{
+			create: func(ctx context.Context, segment domain.Segment) error {
+				created = true
+				return nil
+			},
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		IDGen:  func() (string, error) { return "id_1", nil },
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	result, err := svc.CreateSegment(context.Background(), "ws_1", "user_1", "Test Segment", map[string]any{"rules": []any{}}, time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -359,11 +350,13 @@ func TestCreateSegment(t *testing.T) {
 }
 
 func TestCreateSegmentInvalidDefinition(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil }}
-	opts.AccessChecker = access
+	svc := NewService(Options{
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	_, err := svc.CreateSegment(context.Background(), "ws_1", "user_1", "Test", nil, time.Now())
 	if !errors.Is(err, domain.ErrSegmentDefinitionInvalid) {
 		t.Errorf("expected ErrSegmentDefinitionInvalid, got %v", err)
@@ -371,17 +364,21 @@ func TestCreateSegmentInvalidDefinition(t *testing.T) {
 }
 
 func TestStartAudienceImport(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil }}
-	opts.AccessChecker = access
 	created := false
-	write := opts.ImportJobsWrite.(*mockImportJobWrite)
-	write.create = func(ctx context.Context, job domain.AudienceImportJob) error {
-		created = true
-		return nil
-	}
+	svc := NewService(Options{
+		ImportJobsWrite: &mockImportJobWrite{
+			create: func(ctx context.Context, job domain.AudienceImportJob) error {
+				created = true
+				return nil
+			},
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		IDGen:  func() (string, error) { return "id_1", nil },
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	result, err := svc.StartAudienceImport(context.Background(), "ws_1", "user_1", "s3://bucket/file.csv", "by_email", nil, time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -398,17 +395,21 @@ func TestStartAudienceImport(t *testing.T) {
 }
 
 func TestStartAudienceExport(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil }}
-	opts.AccessChecker = access
 	created := false
-	write := opts.ExportJobsWrite.(*mockExportJobWrite)
-	write.create = func(ctx context.Context, job domain.AudienceExportJob) error {
-		created = true
-		return nil
-	}
+	svc := NewService(Options{
+		ExportJobsWrite: &mockExportJobWrite{
+			create: func(ctx context.Context, job domain.AudienceExportJob) error {
+				created = true
+				return nil
+			},
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		IDGen:  func() (string, error) { return "id_1", nil },
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	result, err := svc.StartAudienceExport(context.Background(), "ws_1", "user_1", "csv", map[string]any{"list_id": "list_1"}, nil, time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -422,21 +423,21 @@ func TestStartAudienceExport(t *testing.T) {
 }
 
 func TestResolveAudienceSelection(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil }}
-	opts.AccessChecker = access
-	read := opts.ContactsRead.(*mockContactRead)
-	read.findByEmail = func(ctx context.Context, workspaceID, emailNormalized string) (*domain.Contact, error) {
-		return nil, domain.ErrContactNotFound
-	}
-	read.list = func(ctx context.Context, query ports.ContactListQuery) ([]domain.Contact, string, error) {
-		return []domain.Contact{
-			{ID: "ct_1"},
-			{ID: "ct_2"},
-		}, "", nil
-	}
+	svc := NewService(Options{
+		ContactsRead: &mockContactRead{
+			list: func(ctx context.Context, query ports.ContactListQuery) ([]domain.Contact, string, error) {
+				return []domain.Contact{
+					{ID: "ct_1"},
+					{ID: "ct_2"},
+				}, "", nil
+			},
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	ids, err := svc.ResolveAudienceSelection(context.Background(), "ws_1", "user_1", AudienceSelectionRef{
 		ListID: "list_1",
 	})
@@ -449,22 +450,22 @@ func TestResolveAudienceSelection(t *testing.T) {
 }
 
 func TestEstimateAudienceSize(t *testing.T) {
-	opts := newServiceTestOpts()
-	access := &mockAccessChecker{requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil }}
-	opts.AccessChecker = access
-	read := opts.ContactsRead.(*mockContactRead)
-	read.findByEmail = func(ctx context.Context, workspaceID, emailNormalized string) (*domain.Contact, error) {
-		return nil, domain.ErrContactNotFound
-	}
-	read.list = func(ctx context.Context, query ports.ContactListQuery) ([]domain.Contact, string, error) {
-		return []domain.Contact{
-			{ID: "ct_1"},
-			{ID: "ct_2"},
-			{ID: "ct_3"},
-		}, "", nil
-	}
+	svc := NewService(Options{
+		ContactsRead: &mockContactRead{
+			list: func(ctx context.Context, query ports.ContactListQuery) ([]domain.Contact, string, error) {
+				return []domain.Contact{
+					{ID: "ct_1"},
+					{ID: "ct_2"},
+					{ID: "ct_3"},
+				}, "", nil
+			},
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		Logger: testLogger(),
+	})
 
-	svc := NewService(opts)
 	size, err := svc.EstimateAudienceSize(context.Background(), "ws_1", "user_1", AudienceSelectionRef{
 		ContactIDs: []string{"ct_1", "ct_2", "ct_3"},
 	})

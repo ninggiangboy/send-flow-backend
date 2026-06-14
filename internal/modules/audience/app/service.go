@@ -2,11 +2,27 @@ package app
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/archivecontact"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/createcontact"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/createlist"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/createsegment"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/getaudienceexport"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/getaudienceimport"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/getcontact"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listaudienceimports"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listcontacts"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listlists"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listsegments"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/resolveaudiencerecipients"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/resolveaudienceselection"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/startaudienceexport"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/startaudienceimport"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatecontact"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatelistmemberships"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatesegment"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
@@ -28,19 +44,24 @@ type Options struct {
 }
 
 type Service struct {
-	contactsRead    ports.ContactReadRepository
-	contactsWrite   ports.ContactWriteRepository
-	listsRead       ports.ListReadRepository
-	listsWrite      ports.ListWriteRepository
-	segmentsRead    ports.SegmentReadRepository
-	segmentsWrite   ports.SegmentWriteRepository
-	importJobsRead  ports.ImportJobReadRepository
-	importJobsWrite ports.ImportJobWriteRepository
-	exportJobsRead  ports.ExportJobReadRepository
-	exportJobsWrite ports.ExportJobWriteRepository
-	accessChecker   ports.WorkspaceAccessChecker
-	idGen           func() (string, error)
-	log             *slog.Logger
+	createContactH             *createcontact.Handler
+	getContactH                *getcontact.Handler
+	listContactsH              *listcontacts.Handler
+	updateContactH             *updatecontact.Handler
+	archiveContactH            *archivecontact.Handler
+	createListH                *createlist.Handler
+	listListsH                 *listlists.Handler
+	updateListMembershipsH     *updatelistmemberships.Handler
+	createSegmentH             *createsegment.Handler
+	listSegmentsH              *listsegments.Handler
+	updateSegmentH             *updatesegment.Handler
+	startAudienceImportH       *startaudienceimport.Handler
+	listAudienceImportsH       *listaudienceimports.Handler
+	getAudienceImportH         *getaudienceimport.Handler
+	startAudienceExportH       *startaudienceexport.Handler
+	getAudienceExportH         *getaudienceexport.Handler
+	resolveAudienceSelectionH  *resolveaudienceselection.Handler
+	resolveAudienceRecipientsH *resolveaudiencerecipients.Handler
 }
 
 func NewService(opts Options) *Service {
@@ -51,323 +72,375 @@ func NewService(opts Options) *Service {
 		opts.IDGen = id.NewUUIDGenerator().New
 	}
 	return &Service{
-		contactsRead:    opts.ContactsRead,
-		contactsWrite:   opts.ContactsWrite,
-		listsRead:       opts.ListsRead,
-		listsWrite:      opts.ListsWrite,
-		segmentsRead:    opts.SegmentsRead,
-		segmentsWrite:   opts.SegmentsWrite,
-		importJobsRead:  opts.ImportJobsRead,
-		importJobsWrite: opts.ImportJobsWrite,
-		exportJobsRead:  opts.ExportJobsRead,
-		exportJobsWrite: opts.ExportJobsWrite,
-		accessChecker:   opts.AccessChecker,
-		idGen:           opts.IDGen,
-		log:             opts.Logger.With("module", "audience"),
+		createContactH: createcontact.New(createcontact.Options{
+			ContactsRead:  opts.ContactsRead,
+			ContactsWrite: opts.ContactsWrite,
+			AccessChecker: opts.AccessChecker,
+			IDGen:         opts.IDGen,
+			Logger:        opts.Logger,
+		}),
+		getContactH: getcontact.New(getcontact.Options{
+			ContactsRead:  opts.ContactsRead,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
+		listContactsH: listcontacts.New(listcontacts.Options{
+			ContactsRead:  opts.ContactsRead,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
+		updateContactH: updatecontact.New(updatecontact.Options{
+			ContactsRead:  opts.ContactsRead,
+			ContactsWrite: opts.ContactsWrite,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
+		archiveContactH: archivecontact.New(archivecontact.Options{
+			ContactsRead:  opts.ContactsRead,
+			ContactsWrite: opts.ContactsWrite,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
+		createListH: createlist.New(createlist.Options{
+			ListsWrite:    opts.ListsWrite,
+			AccessChecker: opts.AccessChecker,
+			IDGen:         opts.IDGen,
+			Logger:        opts.Logger,
+		}),
+		listListsH: listlists.New(listlists.Options{
+			ListsRead:     opts.ListsRead,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
+		updateListMembershipsH: updatelistmemberships.New(updatelistmemberships.Options{
+			ListsRead:     opts.ListsRead,
+			ListsWrite:    opts.ListsWrite,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
+		createSegmentH: createsegment.New(createsegment.Options{
+			SegmentsWrite: opts.SegmentsWrite,
+			AccessChecker: opts.AccessChecker,
+			IDGen:         opts.IDGen,
+			Logger:        opts.Logger,
+		}),
+		listSegmentsH: listsegments.New(listsegments.Options{
+			SegmentsRead:  opts.SegmentsRead,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
+		updateSegmentH: updatesegment.New(updatesegment.Options{
+			SegmentsRead:  opts.SegmentsRead,
+			SegmentsWrite: opts.SegmentsWrite,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
+		startAudienceImportH: startaudienceimport.New(startaudienceimport.Options{
+			ImportJobsWrite: opts.ImportJobsWrite,
+			AccessChecker:   opts.AccessChecker,
+			IDGen:           opts.IDGen,
+			Logger:          opts.Logger,
+		}),
+		listAudienceImportsH: listaudienceimports.New(listaudienceimports.Options{
+			ImportJobsRead: opts.ImportJobsRead,
+			AccessChecker:  opts.AccessChecker,
+			Logger:         opts.Logger,
+		}),
+		getAudienceImportH: getaudienceimport.New(getaudienceimport.Options{
+			ImportJobsRead: opts.ImportJobsRead,
+			AccessChecker:  opts.AccessChecker,
+			Logger:         opts.Logger,
+		}),
+		startAudienceExportH: startaudienceexport.New(startaudienceexport.Options{
+			ExportJobsWrite: opts.ExportJobsWrite,
+			AccessChecker:   opts.AccessChecker,
+			IDGen:           opts.IDGen,
+			Logger:          opts.Logger,
+		}),
+		getAudienceExportH: getaudienceexport.New(getaudienceexport.Options{
+			ExportJobsRead: opts.ExportJobsRead,
+			AccessChecker:  opts.AccessChecker,
+			Logger:         opts.Logger,
+		}),
+		resolveAudienceSelectionH: resolveaudienceselection.New(resolveaudienceselection.Options{
+			ContactsRead:  opts.ContactsRead,
+			SegmentsRead:  opts.SegmentsRead,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
+		resolveAudienceRecipientsH: resolveaudiencerecipients.New(resolveaudiencerecipients.Options{
+			ContactsRead:  opts.ContactsRead,
+			ListsRead:     opts.ListsRead,
+			SegmentsRead:  opts.SegmentsRead,
+			AccessChecker: opts.AccessChecker,
+			Logger:        opts.Logger,
+		}),
 	}
 }
 
-type ContactDTO struct {
-	ID              string
-	WorkspaceID     string
-	Email           string
-	EmailNormalized string
-	FirstName       string
-	LastName        string
-	Status          string
-	Tags            []string
-	Attributes      map[string]any
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	ArchivedAt      *time.Time
-}
+// --- Contact facade methods ---
 
-func contactToDTO(c domain.Contact) ContactDTO {
-	return ContactDTO{
-		ID:              c.ID,
-		WorkspaceID:     c.WorkspaceID,
-		Email:           c.Email,
-		EmailNormalized: c.EmailNormalized,
-		FirstName:       c.FirstName,
-		LastName:        c.LastName,
-		Status:          string(c.Status),
-		Tags:            c.Tags,
-		Attributes:      c.Attributes,
-		CreatedAt:       c.CreatedAt,
-		UpdatedAt:       c.UpdatedAt,
-		ArchivedAt:      c.ArchivedAt,
-	}
-}
-
-func contactSliceToDTOs(contacts []domain.Contact) []ContactDTO {
-	result := make([]ContactDTO, len(contacts))
-	for i, c := range contacts {
-		result[i] = contactToDTO(c)
-	}
-	return result
-}
-
-type ContactResult struct {
-	Contact ContactDTO
-}
-
-type ContactListResult struct {
-	Contacts   []ContactDTO
-	NextCursor string
-}
-
-type AudienceListDTO struct {
-	ID          string
-	WorkspaceID string
-	Name        string
-	Description string
-	Metadata    map[string]any
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	ArchivedAt  *time.Time
-}
-
-func listToDTO(l domain.AudienceList) AudienceListDTO {
-	return AudienceListDTO{
-		ID:          l.ID,
-		WorkspaceID: l.WorkspaceID,
-		Name:        l.Name,
-		Description: l.Description,
-		Metadata:    l.Metadata,
-		CreatedAt:   l.CreatedAt,
-		UpdatedAt:   l.UpdatedAt,
-		ArchivedAt:  l.ArchivedAt,
-	}
-}
-
-func listSliceToDTOs(lists []domain.AudienceList) []AudienceListDTO {
-	result := make([]AudienceListDTO, len(lists))
-	for i, l := range lists {
-		result[i] = listToDTO(l)
-	}
-	return result
-}
-
-type ListResult struct {
-	List AudienceListDTO
-}
-
-type ListListResult struct {
-	Lists      []AudienceListDTO
-	Counts     map[string]int64
-	NextCursor string
-}
-
-type MembershipUpdateResultDTO struct {
-	AddedCount   int
-	RemovedCount int
-	SkippedCount int
-}
-
-type MembershipUpdateResult struct {
-	Result MembershipUpdateResultDTO
-}
-
-type SegmentDTO struct {
-	ID             string
-	WorkspaceID    string
-	Name           string
-	DefinitionJSON map[string]any
-	Status         string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
-
-func segmentToDTO(s domain.Segment) SegmentDTO {
-	return SegmentDTO{
-		ID:             s.ID,
-		WorkspaceID:    s.WorkspaceID,
-		Name:           s.Name,
-		DefinitionJSON: s.DefinitionJSON,
-		Status:         string(s.Status),
-		CreatedAt:      s.CreatedAt,
-		UpdatedAt:      s.UpdatedAt,
-	}
-}
-
-func segmentSliceToDTOs(segments []domain.Segment) []SegmentDTO {
-	result := make([]SegmentDTO, len(segments))
-	for i, s := range segments {
-		result[i] = segmentToDTO(s)
-	}
-	return result
-}
-
-type SegmentResult struct {
-	Segment SegmentDTO
-}
-
-type SegmentListResult struct {
-	Segments   []SegmentDTO
-	NextCursor string
-}
-
-type ImportJobDTO struct {
-	ID             string
-	WorkspaceID    string
-	SourceURI      string
-	DedupeMode     string
-	Status         string
-	ProcessedCount int64
-	CreatedCount   int64
-	UpdatedCount   int64
-	FailedCount    int64
-	ErrorSummary   string
-	Metadata       map[string]any
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CompletedAt    *time.Time
-}
-
-func importJobToDTO(j domain.AudienceImportJob) ImportJobDTO {
-	return ImportJobDTO{
-		ID:             j.ID,
-		WorkspaceID:    j.WorkspaceID,
-		SourceURI:      j.SourceURI,
-		DedupeMode:     string(j.DedupeMode),
-		Status:         string(j.Status),
-		ProcessedCount: j.ProcessedCount,
-		CreatedCount:   j.CreatedCount,
-		UpdatedCount:   j.UpdatedCount,
-		FailedCount:    j.FailedCount,
-		ErrorSummary:   j.ErrorSummary,
-		Metadata:       j.Metadata,
-		CreatedAt:      j.CreatedAt,
-		UpdatedAt:      j.UpdatedAt,
-		CompletedAt:    j.CompletedAt,
-	}
-}
-
-func importJobSliceToDTOs(jobs []domain.AudienceImportJob) []ImportJobDTO {
-	result := make([]ImportJobDTO, len(jobs))
-	for i, j := range jobs {
-		result[i] = importJobToDTO(j)
-	}
-	return result
-}
-
-type ImportJobResult struct {
-	Job ImportJobDTO
-}
-
-type ImportJobListResult struct {
-	Jobs       []ImportJobDTO
-	NextCursor string
-}
-
-type ExportJobDTO struct {
-	ID             string
-	WorkspaceID    string
-	FiltersJSON    map[string]any
-	SelectedFields []string
-	Format         string
-	Status         string
-	ArtifactURI    string
-	ErrorSummary   string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CompletedAt    *time.Time
-}
-
-func exportJobToDTO(j domain.AudienceExportJob) ExportJobDTO {
-	return ExportJobDTO{
-		ID:             j.ID,
-		WorkspaceID:    j.WorkspaceID,
-		FiltersJSON:    j.FiltersJSON,
-		SelectedFields: j.SelectedFields,
-		Format:         string(j.Format),
-		Status:         string(j.Status),
-		ArtifactURI:    j.ArtifactURI,
-		ErrorSummary:   j.ErrorSummary,
-		CreatedAt:      j.CreatedAt,
-		UpdatedAt:      j.UpdatedAt,
-		CompletedAt:    j.CompletedAt,
-	}
-}
-
-type ExportJobResult struct {
-	Job ExportJobDTO
-}
-
-type AudienceSelectionRef struct {
-	ListID     string
-	SegmentID  string
-	ContactIDs []string
-}
-
-type AudienceRecipient struct {
-	ContactID       string
-	Email           string
-	EmailNormalized string
-	FirstName       string
-	LastName        string
-	Tags            []string
-	Attributes      map[string]any
-}
-
-func (s *Service) ResolveAudienceSelection(ctx context.Context, workspaceID, userID string, ref AudienceSelectionRef) ([]string, error) {
-	log := s.log.With("usecase", "resolve_audience_selection", "workspace_id", workspaceID)
-
-	if err := s.accessChecker.RequirePermission(ctx, workspaceID, userID, "audience:resolve"); err != nil {
+func (s *Service) CreateContact(ctx context.Context, input CreateContactInput) (*ContactResult, error) {
+	contact, err := s.createContactH.Execute(ctx, createcontact.Command{
+		WorkspaceID: input.WorkspaceID,
+		UserID:      input.UserID,
+		Email:       input.Email,
+		FirstName:   input.FirstName,
+		LastName:    input.LastName,
+		Tags:        input.Tags,
+		Attributes:  input.Attributes,
+		Now:         input.Now,
+	})
+	if err != nil {
 		return nil, err
 	}
+	return &ContactResult{Contact: contactToDTO(*contact)}, nil
+}
 
-	contactIDs := make(map[string]struct{})
+func (s *Service) ListContacts(ctx context.Context, query ports.ContactListQuery, userID string) (*ContactListResult, error) {
+	contacts, cursor, err := s.listContactsH.Execute(ctx, listcontacts.Command{
+		Query:  query,
+		UserID: userID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ContactListResult{Contacts: contactSliceToDTOs(contacts), NextCursor: cursor}, nil
+}
 
-	if ref.ListID != "" {
-		query := ports.ContactListQuery{
-			WorkspaceID: workspaceID,
-			ListID:      ref.ListID,
-			Limit:       10000,
-		}
-		for {
-			contacts, cursor, err := s.contactsRead.ListContacts(ctx, query)
-			if err != nil {
-				log.Error("failed to list contacts by list", "error", err)
-				return nil, err
-			}
-			for _, c := range contacts {
-				contactIDs[c.ID] = struct{}{}
-			}
-			if cursor == "" {
-				break
-			}
-			query.Cursor = cursor
-		}
+func (s *Service) GetContact(ctx context.Context, workspaceID, contactID, userID string) (*ContactResult, error) {
+	contact, err := s.getContactH.Execute(ctx, getcontact.Command{
+		WorkspaceID: workspaceID,
+		ContactID:   contactID,
+		UserID:      userID,
+	})
+	if err != nil {
+		return nil, err
 	}
+	return &ContactResult{Contact: contactToDTO(*contact)}, nil
+}
 
-	if ref.SegmentID != "" {
-		_, err := s.segmentsRead.FindSegmentByID(ctx, workspaceID, ref.SegmentID)
-		if err != nil {
-			if errors.Is(err, domain.ErrSegmentNotFound) {
-				return nil, err
-			}
-			log.Error("failed to find segment", "error", err)
-			return nil, err
-		}
+func (s *Service) UpdateContact(ctx context.Context, input UpdateContactInput) (*ContactResult, error) {
+	contact, err := s.updateContactH.Execute(ctx, updatecontact.Command{
+		WorkspaceID: input.WorkspaceID,
+		ContactID:   input.ContactID,
+		UserID:      input.UserID,
+		Email:       input.Email,
+		FirstName:   input.FirstName,
+		LastName:    input.LastName,
+		Status:      input.Status,
+		Tags:        input.Tags,
+		Attributes:  input.Attributes,
+		Now:         input.Now,
+	})
+	if err != nil {
+		return nil, err
 	}
+	return &ContactResult{Contact: contactToDTO(*contact)}, nil
+}
 
-	for _, id := range ref.ContactIDs {
-		contactIDs[id] = struct{}{}
-	}
+func (s *Service) ArchiveContact(ctx context.Context, workspaceID, contactID, userID string, now time.Time) error {
+	return s.archiveContactH.Execute(ctx, archivecontact.Command{
+		WorkspaceID: workspaceID,
+		ContactID:   contactID,
+		UserID:      userID,
+		Now:         now,
+	})
+}
 
-	result := make([]string, 0, len(contactIDs))
-	for id := range contactIDs {
-		result = append(result, id)
+// --- List facade methods ---
+
+func (s *Service) CreateList(ctx context.Context, workspaceID, userID, name, description string, metadata map[string]any, now time.Time) (*ListResult, error) {
+	list, err := s.createListH.Execute(ctx, createlist.Command{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		Name:        name,
+		Description: description,
+		Metadata:    metadata,
+		Now:         now,
+	})
+	if err != nil {
+		return nil, err
 	}
-	if result == nil {
-		result = []string{}
+	return &ListResult{List: listToDTO(*list)}, nil
+}
+
+func (s *Service) ListLists(ctx context.Context, workspaceID, userID string, limit int, cursor string) (*ListListResult, error) {
+	result, err := s.listListsH.Execute(ctx, listlists.Command{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		Limit:       limit,
+		Cursor:      cursor,
+	})
+	if err != nil {
+		return nil, err
 	}
-	return result, nil
+	return &ListListResult{
+		Lists:      listSliceToDTOs(result.Lists),
+		Counts:     result.Counts,
+		NextCursor: result.NextCursor,
+	}, nil
+}
+
+func (s *Service) UpdateListMemberships(ctx context.Context, workspaceID, listID, userID, mode string, contactIDs []string, now time.Time) (*MembershipUpdateResult, error) {
+	result, err := s.updateListMembershipsH.Execute(ctx, updatelistmemberships.Command{
+		WorkspaceID: workspaceID,
+		ListID:      listID,
+		UserID:      userID,
+		Mode:        mode,
+		ContactIDs:  contactIDs,
+		Now:         now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &MembershipUpdateResult{
+		Result: MembershipUpdateResultDTO{
+			AddedCount:   result.AddedCount,
+			RemovedCount: result.RemovedCount,
+			SkippedCount: result.SkippedCount,
+		},
+	}, nil
+}
+
+// --- Segment facade methods ---
+
+func (s *Service) CreateSegment(ctx context.Context, workspaceID, userID, name string, definition map[string]any, now time.Time) (*SegmentResult, error) {
+	segment, err := s.createSegmentH.Execute(ctx, createsegment.Command{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		Name:        name,
+		Definition:  definition,
+		Now:         now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &SegmentResult{Segment: segmentToDTO(*segment)}, nil
+}
+
+func (s *Service) ListSegments(ctx context.Context, workspaceID, userID, status string, limit int, cursor string) (*SegmentListResult, error) {
+	segments, nextCursor, err := s.listSegmentsH.Execute(ctx, listsegments.Command{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		Status:      status,
+		Limit:       limit,
+		Cursor:      cursor,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &SegmentListResult{Segments: segmentSliceToDTOs(segments), NextCursor: nextCursor}, nil
+}
+
+func (s *Service) UpdateSegment(ctx context.Context, workspaceID, segmentID, userID, name string, definition map[string]any, status string, now time.Time) (*SegmentResult, error) {
+	segment, err := s.updateSegmentH.Execute(ctx, updatesegment.Command{
+		WorkspaceID: workspaceID,
+		SegmentID:   segmentID,
+		UserID:      userID,
+		Name:        name,
+		Definition:  definition,
+		Status:      status,
+		Now:         now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &SegmentResult{Segment: segmentToDTO(*segment)}, nil
+}
+
+// --- Import facade methods ---
+
+func (s *Service) StartAudienceImport(ctx context.Context, workspaceID, userID, sourceURI, dedupeMode string, metadata map[string]any, now time.Time) (*ImportJobResult, error) {
+	job, err := s.startAudienceImportH.Execute(ctx, startaudienceimport.Command{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		SourceURI:   sourceURI,
+		DedupeMode:  dedupeMode,
+		Metadata:    metadata,
+		Now:         now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ImportJobResult{Job: importJobToDTO(*job)}, nil
+}
+
+func (s *Service) ListAudienceImports(ctx context.Context, workspaceID, userID, status string, limit int, cursor string) (*ImportJobListResult, error) {
+	jobs, nextCursor, err := s.listAudienceImportsH.Execute(ctx, listaudienceimports.Command{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		Status:      status,
+		Limit:       limit,
+		Cursor:      cursor,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ImportJobListResult{Jobs: importJobSliceToDTOs(jobs), NextCursor: nextCursor}, nil
+}
+
+func (s *Service) GetAudienceImport(ctx context.Context, workspaceID, jobID, userID string) (*ImportJobResult, error) {
+	job, err := s.getAudienceImportH.Execute(ctx, getaudienceimport.Command{
+		WorkspaceID: workspaceID,
+		JobID:       jobID,
+		UserID:      userID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ImportJobResult{Job: importJobToDTO(*job)}, nil
+}
+
+// --- Export facade methods ---
+
+func (s *Service) StartAudienceExport(ctx context.Context, workspaceID, userID, format string, filters map[string]any, selectedFields []string, now time.Time) (*ExportJobResult, error) {
+	job, err := s.startAudienceExportH.Execute(ctx, startaudienceexport.Command{
+		WorkspaceID:    workspaceID,
+		UserID:         userID,
+		Format:         format,
+		Filters:        filters,
+		SelectedFields: selectedFields,
+		Now:            now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ExportJobResult{Job: exportJobToDTO(*job)}, nil
+}
+
+func (s *Service) GetAudienceExport(ctx context.Context, workspaceID, jobID, userID string) (*ExportJobResult, error) {
+	job, err := s.getAudienceExportH.Execute(ctx, getaudienceexport.Command{
+		WorkspaceID: workspaceID,
+		JobID:       jobID,
+		UserID:      userID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ExportJobResult{Job: exportJobToDTO(*job)}, nil
+}
+
+// --- Audience resolution facade methods ---
+
+func (s *Service) ResolveAudienceSelection(ctx context.Context, workspaceID, userID string, ref AudienceSelectionRef) ([]string, error) {
+	return s.resolveAudienceSelectionH.Execute(ctx, resolveaudienceselection.Command{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		ListID:      ref.ListID,
+		SegmentID:   ref.SegmentID,
+		ContactIDs:  ref.ContactIDs,
+	})
 }
 
 func (s *Service) EstimateAudienceSize(ctx context.Context, workspaceID, userID string, ref AudienceSelectionRef) (int, error) {
-	ids, err := s.ResolveAudienceSelection(ctx, workspaceID, userID, ref)
+	ids, err := s.resolveAudienceSelectionH.Execute(ctx, resolveaudienceselection.Command{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		ListID:      ref.ListID,
+		SegmentID:   ref.SegmentID,
+		ContactIDs:  ref.ContactIDs,
+	})
 	if err != nil {
 		return 0, err
 	}
@@ -375,143 +448,27 @@ func (s *Service) EstimateAudienceSize(ctx context.Context, workspaceID, userID 
 }
 
 func (s *Service) ResolveAudienceRecipients(ctx context.Context, workspaceID, userID string, ref AudienceSelectionRef) ([]AudienceRecipient, error) {
-	log := s.log.With("usecase", "resolve_audience_recipients", "workspace_id", workspaceID)
-
-	if err := s.accessChecker.RequirePermission(ctx, workspaceID, userID, "audience:resolve"); err != nil {
+	recipients, err := s.resolveAudienceRecipientsH.Execute(ctx, resolveaudiencerecipients.Command{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		ListID:      ref.ListID,
+		SegmentID:   ref.SegmentID,
+		ContactIDs:  ref.ContactIDs,
+	})
+	if err != nil {
 		return nil, err
 	}
-
-	const maxAudienceRecipients = 100000
-
-	recipients := make(map[string]*AudienceRecipient)
-	order := make([]string, 0)
-
-	addContact := func(c domain.Contact) bool {
-		if _, ok := recipients[c.ID]; !ok {
-			if len(order) >= maxAudienceRecipients {
-				return false
-			}
-			recipients[c.ID] = &AudienceRecipient{
-				ContactID:       c.ID,
-				Email:           c.Email,
-				EmailNormalized: c.EmailNormalized,
-				FirstName:       c.FirstName,
-				LastName:        c.LastName,
-				Tags:            c.Tags,
-				Attributes:      c.Attributes,
-			}
-			order = append(order, c.ID)
+	result := make([]AudienceRecipient, len(recipients))
+	for i, r := range recipients {
+		result[i] = AudienceRecipient{
+			ContactID:       r.ContactID,
+			Email:           r.Email,
+			EmailNormalized: r.EmailNormalized,
+			FirstName:       r.FirstName,
+			LastName:        r.LastName,
+			Tags:            r.Tags,
+			Attributes:      r.Attributes,
 		}
-		return true
-	}
-
-	if ref.ListID != "" {
-		list, err := s.listsRead.FindListByID(ctx, workspaceID, ref.ListID)
-		if err != nil {
-			if errors.Is(err, domain.ErrListNotFound) {
-				return nil, err
-			}
-			log.Error("failed to find list", "error", err)
-			return nil, err
-		}
-		_ = list
-
-		query := ports.ContactListQuery{
-			WorkspaceID: workspaceID,
-			ListID:      ref.ListID,
-			Status:      string(domain.ContactStatusActive),
-			Limit:       10000,
-		}
-		for {
-			contacts, cursor, err := s.contactsRead.ListContacts(ctx, query)
-			if err != nil {
-				log.Error("failed to list contacts by list", "error", err)
-				return nil, err
-			}
-			for _, c := range contacts {
-				if c.Status == domain.ContactStatusActive {
-					if !addContact(c) {
-						break
-					}
-				}
-			}
-			if cursor == "" || len(order) >= maxAudienceRecipients {
-				break
-			}
-			query.Cursor = cursor
-		}
-	}
-
-	if ref.SegmentID != "" {
-		segment, err := s.segmentsRead.FindSegmentByID(ctx, workspaceID, ref.SegmentID)
-		if err != nil {
-			if errors.Is(err, domain.ErrSegmentNotFound) {
-				return nil, err
-			}
-			log.Error("failed to find segment", "error", err)
-			return nil, err
-		}
-		if segment.Status != domain.SegmentStatusReady {
-			return nil, domain.ErrSegmentDefinitionInvalid
-		}
-
-		rules, err := domain.ExtractRules(segment.DefinitionJSON)
-		if err != nil {
-			return nil, domain.ErrSegmentDefinitionInvalid
-		}
-
-		query := ports.ContactListQuery{
-			WorkspaceID: workspaceID,
-			Status:      string(domain.ContactStatusActive),
-			Limit:       10000,
-		}
-		for {
-			contacts, cursor, err := s.contactsRead.ListContacts(ctx, query)
-			if err != nil {
-				log.Error("failed to list contacts for segment", "error", err)
-				return nil, err
-			}
-			for _, c := range contacts {
-				if domain.MatchesSegment(c, rules) {
-					if !addContact(c) {
-						break
-					}
-				}
-			}
-			if cursor == "" || len(order) >= maxAudienceRecipients {
-				break
-			}
-			query.Cursor = cursor
-		}
-	}
-
-	for _, cid := range ref.ContactIDs {
-		if len(order) >= maxAudienceRecipients {
-			break
-		}
-		contact, err := s.contactsRead.FindContactByID(ctx, workspaceID, cid)
-		if err != nil {
-			if errors.Is(err, domain.ErrContactNotFound) {
-				return nil, err
-			}
-			log.Error("failed to find contact", "error", err)
-			return nil, err
-		}
-		addContact(*contact)
-	}
-
-	if len(order) >= maxAudienceRecipients {
-		log.Warn("audience recipient limit reached, results truncated", "count", len(order), "limit", maxAudienceRecipients)
-	}
-
-	result := make([]AudienceRecipient, 0, len(order))
-	for _, id := range order {
-		if r, ok := recipients[id]; ok {
-			result = append(result, *r)
-		}
-	}
-	if result == nil {
-		result = []AudienceRecipient{}
 	}
 	return result, nil
 }
