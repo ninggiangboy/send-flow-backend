@@ -30,6 +30,7 @@ type Stream struct {
 	w       http.ResponseWriter
 	flusher http.Flusher
 	done    chan struct{}
+	wg      sync.WaitGroup
 
 	mu sync.Mutex
 }
@@ -57,6 +58,7 @@ func New(w http.ResponseWriter, r *http.Request, opts Options) (*Stream, error) 
 		interval = DefaultHeartbeatInterval
 	}
 	if interval > 0 {
+		s.wg.Add(1)
 		go s.heartbeat(r.Context(), interval)
 	}
 
@@ -69,6 +71,7 @@ func (s *Stream) Close() {
 		return
 	default:
 		close(s.done)
+		s.wg.Wait()
 	}
 }
 
@@ -98,6 +101,8 @@ func (s *Stream) WriteComment(comment string) error {
 }
 
 func (s *Stream) heartbeat(ctx context.Context, interval time.Duration) {
+	defer s.wg.Done()
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

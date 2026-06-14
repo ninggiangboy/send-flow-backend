@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/buildinfo"
 )
 
 func TestServiceReadyOK(t *testing.T) {
@@ -20,6 +22,11 @@ func TestServiceReadyOK(t *testing.T) {
 		},
 		KafkaEnabled:         true,
 		ObjectStorageEnabled: true,
+		Build: buildinfo.Info{
+			Version:   "1.2.3",
+			GitSHA:    "abc123",
+			BuildTime: "2026-06-13T00:00:00Z",
+		},
 	})
 
 	ready := svc.Ready(context.Background())
@@ -34,6 +41,13 @@ func TestServiceReadyOK(t *testing.T) {
 	}
 	if ready.Dependencies["object_storage"] != "up" {
 		t.Fatalf("expected object storage up")
+	}
+	if ready.Version != "1.2.3" || ready.GitSHA != "abc123" || ready.BuildTime == "" {
+		t.Fatalf("expected build metadata in readiness response, got %+v", ready)
+	}
+	live := svc.Live()
+	if live.Version != "1.2.3" || live.GitSHA != "abc123" || live.BuildTime == "" {
+		t.Fatalf("expected build metadata in liveness response, got %+v", live)
 	}
 }
 

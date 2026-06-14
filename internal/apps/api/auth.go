@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/observability"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
 )
 
@@ -20,6 +22,7 @@ const (
 	ctxUserID         contextKey = "user_id"
 	ctxSessionID      contextKey = "session_id"
 	ctxRequestContext contextKey = "request_context"
+	ctxWorkspaceID    contextKey = "workspace_id"
 )
 
 type requestLogContext struct {
@@ -29,13 +32,15 @@ type requestLogContext struct {
 }
 
 type authHTTP struct {
-	svc          *identityapp.Service
-	rateLimiter  ratelimit.Service
-	secureCookie bool
+	svc           *identityapp.Service
+	rateLimiter   ratelimit.Service
+	secureCookie  bool
+	auditRecorder identityapp.AuditRecorder
+	metrics       *observability.AuthMetrics
 }
 
-func newAuthHTTP(svc *identityapp.Service, rateLimiter ratelimit.Service, secureCookie bool) *authHTTP {
-	return &authHTTP{svc: svc, rateLimiter: rateLimiter, secureCookie: secureCookie}
+func newAuthHTTP(svc *identityapp.Service, rateLimiter ratelimit.Service, secureCookie bool, auditRecorder identityapp.AuditRecorder, metrics *observability.AuthMetrics) *authHTTP {
+	return &authHTTP{svc: svc, rateLimiter: rateLimiter, secureCookie: secureCookie, auditRecorder: auditRecorder, metrics: metrics}
 }
 
 func (a *authHTTP) signup(w http.ResponseWriter, r *http.Request) {
@@ -51,10 +56,24 @@ func (a *authHTTP) signup(w http.ResponseWriter, r *http.Request) {
 	}
 	sctx, err := a.svc.Signup(r.Context(), req.Email, req.Password, clientIP(r), r.UserAgent(), time.Now().UTC())
 	if err != nil {
+		if a.metrics != nil {
+			a.metrics.RecordAuthAttempt("signup", "failure")
+		}
 		writeAuthErr(w, r, err)
 		return
 	}
 	a.setRefreshCookie(w, sctx.Tokens.RefreshToken, sctx.Tokens.RefreshExpiresAt)
+	a.recordAudit(r, identityapp.RecordAuditInput{
+		ActorUserID:    sctx.User.ID,
+		ActionType:     "auth.signup",
+		TargetType:     "user",
+		TargetID:       sctx.User.ID,
+		PayloadSummary: map[string]any{"email": sctx.User.Email},
+	})
+	if a.metrics != nil {
+		a.metrics.RecordAuthAttempt("signup", "success")
+		a.metrics.IncSessionCreations()
+	}
 	writeEnvelope(w, r, http.StatusCreated, authSessionData(sctx))
 }
 
@@ -69,12 +88,29 @@ func (a *authHTTP) login(w http.ResponseWriter, r *http.Request) {
 	if !a.allow(w, r, "login", req.Email, 10, time.Minute) {
 		return
 	}
+	start := time.Now()
 	result, err := a.svc.Login(r.Context(), req.Email, req.Password, clientIP(r), r.UserAgent(), time.Now().UTC())
 	if err != nil {
+		if a.metrics != nil {
+			a.metrics.RecordAuthAttempt("login", "failure")
+		}
 		writeAuthErr(w, r, err)
 		return
 	}
+	if a.metrics != nil {
+		a.metrics.RecordLoginDuration("password", time.Since(start).Seconds())
+	}
 	if result.MFARequired {
+		if a.metrics != nil {
+			a.metrics.RecordAuthAttempt("login", "mfa_required")
+		}
+		a.recordAudit(r, identityapp.RecordAuditInput{
+			ActorUserID:    result.User.ID,
+			ActionType:     "auth.login_mfa_required",
+			TargetType:     "user",
+			TargetID:       result.User.ID,
+			PayloadSummary: map[string]any{"email": result.User.Email},
+		})
 		writeEnvelope(w, r, http.StatusOK, MFARequiredResponse{
 			MFARequired:       true,
 			MFAChallengeToken: result.MFAChallengeToken,
@@ -91,6 +127,17 @@ func (a *authHTTP) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setRefreshCookie(w, result.SessionContext.Tokens.RefreshToken, result.SessionContext.Tokens.RefreshExpiresAt)
+	if a.metrics != nil {
+		a.metrics.RecordAuthAttempt("login", "success")
+		a.metrics.IncSessionCreations()
+	}
+	a.recordAudit(r, identityapp.RecordAuditInput{
+		ActorUserID:    result.User.ID,
+		ActionType:     "auth.login_success",
+		TargetType:     "user",
+		TargetID:       result.User.ID,
+		PayloadSummary: map[string]any{},
+	})
 	writeEnvelope(w, r, http.StatusOK, authSessionData(result.SessionContext))
 }
 
@@ -108,10 +155,24 @@ func (a *authHTTP) loginMFA(w http.ResponseWriter, r *http.Request) {
 	}
 	sctx, err := a.svc.MFALogin(r.Context(), req.ChallengeToken, req.Code, req.RecoveryCode, clientIP(r), r.UserAgent(), time.Now().UTC())
 	if err != nil {
+		if a.metrics != nil {
+			a.metrics.RecordAuthAttempt("mfa", "failure")
+		}
 		writeAuthErr(w, r, err)
 		return
 	}
 	a.setRefreshCookie(w, sctx.Tokens.RefreshToken, sctx.Tokens.RefreshExpiresAt)
+	if a.metrics != nil {
+		a.metrics.RecordAuthAttempt("mfa", "success")
+		a.metrics.IncSessionCreations()
+	}
+	a.recordAudit(r, identityapp.RecordAuditInput{
+		ActorUserID:    sctx.User.ID,
+		ActionType:     "auth.mfa_login_success",
+		TargetType:     "user",
+		TargetID:       sctx.User.ID,
+		PayloadSummary: map[string]any{},
+	})
 	writeEnvelope(w, r, http.StatusOK, authSessionData(sctx))
 }
 
@@ -190,6 +251,13 @@ func (a *authHTTP) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.clearRefreshCookie(w)
+	a.recordAudit(r, identityapp.RecordAuditInput{
+		ActorUserID:    userID,
+		ActionType:     "auth.logout",
+		TargetType:     "session",
+		TargetID:       sessionID,
+		PayloadSummary: map[string]any{},
+	})
 	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Revoked: ptrBool(true)})
 }
 
@@ -233,6 +301,13 @@ func (a *authHTTP) requestVerifyEmail(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
+	a.recordAudit(r, identityapp.RecordAuditInput{
+		ActorUserID:    userID,
+		ActionType:     "auth.verification_email_sent",
+		TargetType:     "user",
+		TargetID:       userID,
+		PayloadSummary: map[string]any{},
+	})
 	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Sent: ptrBool(true)})
 }
 
@@ -251,6 +326,17 @@ func (a *authHTTP) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Verified: ptrBool(true)})
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	if userID == "" {
+		userID = "anonymous"
+	}
+	a.recordAudit(r, identityapp.RecordAuditInput{
+		ActorUserID:    userID,
+		ActionType:     "auth.email_verified",
+		TargetType:     "user",
+		TargetID:       userID,
+		PayloadSummary: map[string]any{},
+	})
 }
 
 func (a *authHTTP) forgotPassword(w http.ResponseWriter, r *http.Request) {
@@ -286,6 +372,13 @@ func (a *authHTTP) resetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Reset: ptrBool(true)})
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	a.recordAudit(r, identityapp.RecordAuditInput{
+		ActorUserID: userID,
+		ActionType:  "auth.password_reset",
+		TargetType:  "user",
+		TargetID:    userID,
+	})
 }
 
 func (a *authHTTP) mfaTOTPSetup(w http.ResponseWriter, r *http.Request) {
@@ -295,6 +388,13 @@ func (a *authHTTP) mfaTOTPSetup(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
+	a.recordAudit(r, identityapp.RecordAuditInput{
+		ActorUserID:    userID,
+		ActionType:     "auth.mfa_setup",
+		TargetType:     "user",
+		TargetID:       userID,
+		PayloadSummary: map[string]any{},
+	})
 	writeEnvelope(w, r, http.StatusOK, res)
 }
 
@@ -311,6 +411,13 @@ func (a *authHTTP) mfaTOTPEnable(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
+	a.recordAudit(r, identityapp.RecordAuditInput{
+		ActorUserID:    userID,
+		ActionType:     "auth.mfa_enabled",
+		TargetType:     "user",
+		TargetID:       userID,
+		PayloadSummary: map[string]any{},
+	})
 	writeEnvelope(w, r, http.StatusOK, res)
 }
 
@@ -327,6 +434,13 @@ func (a *authHTTP) mfaTOTPDisable(w http.ResponseWriter, r *http.Request) {
 		writeAuthErr(w, r, err)
 		return
 	}
+	a.recordAudit(r, identityapp.RecordAuditInput{
+		ActorUserID:    userID,
+		ActionType:     "auth.mfa_disabled",
+		TargetType:     "user",
+		TargetID:       userID,
+		PayloadSummary: map[string]any{},
+	})
 	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Disabled: ptrBool(true)})
 }
 
@@ -343,6 +457,13 @@ func (a *authHTTP) mfaRecoveryRegenerate(w http.ResponseWriter, r *http.Request)
 		writeAuthErr(w, r, err)
 		return
 	}
+	a.recordAudit(r, identityapp.RecordAuditInput{
+		ActorUserID:    userID,
+		ActionType:     "auth.mfa_recovery_regenerated",
+		TargetType:     "user",
+		TargetID:       userID,
+		PayloadSummary: map[string]any{},
+	})
 	writeEnvelope(w, r, http.StatusOK, res)
 }
 
@@ -464,4 +585,16 @@ func (a *authHTTP) allow(w http.ResponseWriter, r *http.Request, scope, email st
 		}
 	}
 	return true
+}
+
+func (a *authHTTP) recordAudit(r *http.Request, input identityapp.RecordAuditInput) {
+	if a.auditRecorder == nil {
+		return
+	}
+	reqCtx := r.Context().Value(ctxRequestContext).(*requestLogContext)
+	input.RequestID = reqCtx.RequestID
+	input.OccurredAt = time.Now().UTC()
+	if err := a.auditRecorder.Record(r.Context(), input); err != nil {
+		slog.Warn("failed to record audit event", "error", err)
+	}
 }

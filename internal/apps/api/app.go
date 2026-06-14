@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -45,11 +44,11 @@ import (
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
 	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
 	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/buildinfo"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/clickhouse"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/httpjson"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/logger"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/migration"
@@ -59,9 +58,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
 	platformredis "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/security"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/sse"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func Run(ctx context.Context) error {
@@ -90,6 +87,21 @@ func Run(ctx context.Context) error {
 	}
 
 	chMetrics, err := observability.NewClickHouseMetrics(nil)
+	if err != nil {
+		return err
+	}
+
+	authMetrics, err := observability.NewAuthMetrics(nil)
+	if err != nil {
+		return err
+	}
+
+	apiKeyMetrics, err := observability.NewAPIKeyMetrics(nil)
+	if err != nil {
+		return err
+	}
+
+	senderMetrics, err := observability.NewSenderMetrics(nil)
 	if err != nil {
 		return err
 	}
@@ -194,6 +206,7 @@ func Run(ctx context.Context) error {
 
 	healthSvc := platformhealth.NewService(platformhealth.Options{
 		AppName:           cfg.AppName,
+		Build:             buildinfo.Current(),
 		PostgresCheck:     pgClient.Ping,
 		PostgresReadCheck: pgClient.PingRead,
 		RedisCheck:        redisClient.Ping,
@@ -216,7 +229,7 @@ func Run(ctx context.Context) error {
 
 	senderReadRepo, senderWriteRepo := shared.NewSenderRepos(pgClient.ReadPool(), pgClient.WritePool())
 	senderResolver := senderdns.NewResolver()
-	senderSvc := shared.NewSenderService(senderReadRepo, senderWriteRepo, senderResolver, newWorkspaceAccessAdapter(authSvc), log)
+	senderSvc := shared.NewSenderService(senderReadRepo, senderWriteRepo, senderResolver, newWorkspaceAccessAdapter(authSvc), log, senderMetrics)
 
 	audienceContactsRead := audiencepostgres.NewContactReadRepository(pgClient.ReadPool())
 	audienceContactsWrite := audiencepostgres.NewContactWriteRepository(pgClient.WritePool())
@@ -396,6 +409,9 @@ func Run(ctx context.Context) error {
 		SecureCookies:   cfg.SecureCookies(),
 		FrontendBaseURL: cfg.FrontendBaseURL,
 		HTTPMetrics:     httpMetrics,
+		AuthMetrics:     authMetrics,
+		APIKeyMetrics:   apiKeyMetrics,
+		SenderMetrics:   senderMetrics,
 		Log:             log,
 	})
 
@@ -450,6 +466,9 @@ type RouterDeps struct {
 	SecureCookies   bool
 	FrontendBaseURL string
 	HTTPMetrics     *observability.HTTPMetrics
+	AuthMetrics     *observability.AuthMetrics
+	APIKeyMetrics   *observability.APIKeyMetrics
+	SenderMetrics   *observability.SenderMetrics
 	Log             *slog.Logger
 }
 
@@ -504,35 +523,6 @@ func newRouter(deps *RouterDeps) http.Handler {
 	humaAPI := humachi.New(r, openAPIConfig())
 	registerOpenAPIRoutes(humaAPI, r, deps)
 
-	r.Route("/api", func(r chi.Router) {
-		r.Group(func(r chi.Router) {
-			r.Use(authzMiddleware(deps.AuthSvc))
-			r.Get("/events/stream", func(w http.ResponseWriter, req *http.Request) {
-				stream, err := sse.New(w, req, sse.Options{HeartbeatInterval: sse.DefaultHeartbeatInterval})
-				if err != nil {
-					_ = httpjson.Write(w, http.StatusInternalServerError, map[string]string{"error": "streaming is not supported"})
-					return
-				}
-				defer stream.Close()
-				if err := stream.WriteEvent(sse.Event{Event: "connected", Data: "send-flow stream connected"}); err != nil {
-					return
-				}
-				ticker := time.NewTicker(30 * time.Second)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-req.Context().Done():
-						return
-					case ts := <-ticker.C:
-						if err := stream.WriteEvent(sse.Event{Event: "tick", ID: fmt.Sprintf("%d", ts.Unix()), Data: ts.UTC().Format(time.RFC3339)}); err != nil {
-							return
-						}
-					}
-				}
-			})
-		})
-		r.Handle("/metrics", promhttp.Handler())
-	})
 	if deps.TrackingSvc != nil {
 		tracking := newTrackingHTTP(deps.TrackingSvc)
 		r.Get("/o/{tracking_id}", tracking.serveOpenPixel)

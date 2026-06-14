@@ -66,14 +66,15 @@ func NewSenderRepos(pgReadPool, pgWritePool *pgxpool.Pool) (*senderpostgres.Read
 		senderpostgres.NewWriteRepository(pgWritePool)
 }
 
-func NewSenderService(readRepo *senderpostgres.ReadRepository, writeRepo *senderpostgres.WriteRepository, dnsResolver *senderdns.Resolver, accessChecker auth.WorkspaceAccessChecker, logger *slog.Logger) *senderapp.Service {
+func NewSenderService(readRepo *senderpostgres.ReadRepository, writeRepo *senderpostgres.WriteRepository, dnsResolver *senderdns.Resolver, accessChecker auth.WorkspaceAccessChecker, logger *slog.Logger, metricsRecorder senderapp.MetricsRecorder) *senderapp.Service {
 	return senderapp.NewService(senderapp.Options{
-		DomainsRead:   readRepo,
-		DomainsWrite:  writeRepo,
-		DNSResolver:   dnsResolver,
-		AccessChecker: accessChecker,
-		IDGen:         id.NewUUIDGenerator().New,
-		Logger:        logger,
+		DomainsRead:     readRepo,
+		DomainsWrite:    writeRepo,
+		DNSResolver:     dnsResolver,
+		AccessChecker:   accessChecker,
+		IDGen:           id.NewUUIDGenerator().New,
+		Logger:          logger,
+		MetricsRecorder: metricsRecorder,
 	})
 }
 

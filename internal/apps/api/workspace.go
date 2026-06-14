@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -11,11 +12,12 @@ import (
 )
 
 type workspaceHTTP struct {
-	svc *identityapp.Service
+	svc           *identityapp.Service
+	auditRecorder identityapp.AuditRecorder
 }
 
-func newWorkspaceHTTP(svc *identityapp.Service) *workspaceHTTP {
-	return &workspaceHTTP{svc: svc}
+func newWorkspaceHTTP(svc *identityapp.Service, auditRecorder identityapp.AuditRecorder) *workspaceHTTP {
+	return &workspaceHTTP{svc: svc, auditRecorder: auditRecorder}
 }
 
 func (h *workspaceHTTP) createWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +124,21 @@ func (h *workspaceHTTP) inviteWorkspaceMember(w http.ResponseWriter, r *http.Req
 		writeWorkspaceErr(w, r, err)
 		return
 	}
+	invID := ""
+	if result.Invitation != nil {
+		invID = result.Invitation.ID
+	}
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID: workspaceID,
+		ActorUserID: userID,
+		ActionType:  "workspace.invitation_created",
+		TargetType:  "invitation",
+		TargetID:    invID,
+		PayloadSummary: map[string]any{
+			"email":    req.Email,
+			"role_ids": req.RoleIDs,
+		},
+	})
 	if result.Invitation != nil {
 		writeEnvelope(w, r, http.StatusOK, invitationResponse(*result.Invitation))
 	} else {
@@ -137,6 +154,13 @@ func (h *workspaceHTTP) acceptWorkspaceInvitation(w http.ResponseWriter, r *http
 		writeWorkspaceErr(w, r, err)
 		return
 	}
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID: membership.WorkspaceID,
+		ActorUserID: userID,
+		ActionType:  "workspace.invitation_accepted",
+		TargetType:  "membership",
+		TargetID:    membership.ID,
+	})
 	writeEnvelope(w, r, http.StatusOK, membershipResponse(*membership))
 }
 
@@ -148,6 +172,14 @@ func (h *workspaceHTTP) removeWorkspaceMember(w http.ResponseWriter, r *http.Req
 		writeWorkspaceErr(w, r, err)
 		return
 	}
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID:    workspaceID,
+		ActorUserID:    userID,
+		ActionType:     "workspace.member_removed",
+		TargetType:     "membership",
+		TargetID:       membershipID,
+		PayloadSummary: map[string]any{},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -165,6 +197,16 @@ func (h *workspaceHTTP) updateWorkspaceMemberRole(w http.ResponseWriter, r *http
 		writeWorkspaceErr(w, r, err)
 		return
 	}
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID: workspaceID,
+		ActorUserID: userID,
+		ActionType:  "workspace.member_role_updated",
+		TargetType:  "membership",
+		TargetID:    membershipID,
+		PayloadSummary: map[string]any{
+			"role_ids": req.RoleIDs,
+		},
+	})
 	writeEnvelope(w, r, http.StatusOK, statusResponseDoc{Updated: ptrBool(true)})
 }
 
@@ -183,6 +225,16 @@ func (h *workspaceHTTP) assignWorkspaceMemberRoles(w http.ResponseWriter, r *htt
 		writeWorkspaceErr(w, r, err)
 		return
 	}
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID: workspaceID,
+		ActorUserID: userID,
+		ActionType:  "workspace.member_roles_assigned",
+		TargetType:  "membership",
+		TargetID:    membershipID,
+		PayloadSummary: map[string]any{
+			"role_ids": req.RoleIDs,
+		},
+	})
 	writeEnvelope(w, r, http.StatusOK, membershipRoleAssignmentResponse(*membership))
 }
 
@@ -217,6 +269,17 @@ func (h *workspaceHTTP) createWorkspaceRole(w http.ResponseWriter, r *http.Reque
 		writeWorkspaceErr(w, r, err)
 		return
 	}
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID: workspaceID,
+		ActorUserID: userID,
+		ActionType:  "workspace.role_created",
+		TargetType:  "role",
+		TargetID:    role.ID,
+		PayloadSummary: map[string]any{
+			"name":             req.Name,
+			"permission_names": req.PermissionNames,
+		},
+	})
 	writeEnvelope(w, r, http.StatusCreated, roleResponse(*role))
 }
 
@@ -238,6 +301,18 @@ func (h *workspaceHTTP) updateWorkspaceRole(w http.ResponseWriter, r *http.Reque
 		writeWorkspaceErr(w, r, err)
 		return
 	}
+	h.recordAudit(r, identityapp.RecordAuditInput{
+		WorkspaceID: workspaceID,
+		ActorUserID: userID,
+		ActionType:  "workspace.role_updated",
+		TargetType:  "role",
+		TargetID:    roleID,
+		PayloadSummary: map[string]any{
+			"name":             req.Name,
+			"permission_names": req.PermissionNames,
+			"status":           req.Status,
+		},
+	})
 	writeEnvelope(w, r, http.StatusOK, roleResponse(*role))
 }
 
@@ -414,5 +489,17 @@ func roleResponse(role domain.Role) roleResponseData {
 		Builtin:         role.Builtin,
 		Status:          string(role.Status),
 		Version:         role.Version,
+	}
+}
+
+func (h *workspaceHTTP) recordAudit(r *http.Request, input identityapp.RecordAuditInput) {
+	if h.auditRecorder == nil {
+		return
+	}
+	reqCtx := r.Context().Value(ctxRequestContext).(*requestLogContext)
+	input.RequestID = reqCtx.RequestID
+	input.OccurredAt = time.Now().UTC()
+	if err := h.auditRecorder.Record(r.Context(), input); err != nil {
+		slog.Warn("failed to record audit event", "error", err)
 	}
 }

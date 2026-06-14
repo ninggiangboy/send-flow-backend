@@ -80,10 +80,20 @@ func (s *Service) RefreshSenderDomainDNSStatus(ctx context.Context, workspaceID,
 		sd.Status = senderdomain.SenderDomainStatusVerified
 		sd.VerifiedAt = &now
 		s.log.Info("sender domain verified", "workspace_id", workspaceID, "sender_domain_id", domainID)
+		if s.metricsRecorder != nil {
+			s.metricsRecorder.RecordVerificationAttempt("verified")
+		}
 	} else if sd.Status == senderdomain.SenderDomainStatusVerified {
 		sd.Status = senderdomain.SenderDomainStatusPendingVerification
 		sd.VerifiedAt = nil
 		s.log.Warn("sender domain reverted to pending", "workspace_id", workspaceID, "sender_domain_id", domainID)
+		if s.metricsRecorder != nil {
+			s.metricsRecorder.RecordVerificationAttempt("reverted")
+		}
+	} else {
+		if s.metricsRecorder != nil {
+			s.metricsRecorder.RecordVerificationAttempt("pending")
+		}
 	}
 	sd.UpdatedAt = now
 

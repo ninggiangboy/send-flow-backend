@@ -20,6 +20,7 @@ import (
 	deliveryports "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
 	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
 	trackingAppMappers "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/analyticsmappers"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/buildinfo"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/clickhouse"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
@@ -98,6 +99,7 @@ func Run(ctx context.Context) error {
 
 	healthSvc := platformhealth.NewService(platformhealth.Options{
 		AppName:           cfg.AppName,
+		Build:             buildinfo.Current(),
 		PostgresCheck:     pgClient.Ping,
 		PostgresReadCheck: pgClient.PingRead,
 		RedisCheck:        redisClient.Ping,
@@ -147,7 +149,7 @@ func Run(ctx context.Context) error {
 	contentSvc := shared.NewContentService(contentReadRepo, contentWriteRepo, nil, log)
 
 	senderReadRepo, senderWriteRepo := shared.NewSenderRepos(pgReadPool, pgWritePool)
-	senderSvc := shared.NewSenderService(senderReadRepo, senderWriteRepo, nil, nil, log)
+	senderSvc := shared.NewSenderService(senderReadRepo, senderWriteRepo, nil, nil, log, nil)
 
 	// Create platform email sender (shared across modules)
 	emailSender, err := platformemail.NewSender(ctx, cfg)

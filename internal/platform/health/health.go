@@ -3,6 +3,8 @@ package health
 import (
 	"context"
 	"time"
+
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/buildinfo"
 )
 
 type Checker func(context.Context) error
@@ -17,6 +19,7 @@ type Options struct {
 	KafkaEnabled         bool
 	ObjectStorageEnabled bool
 	ClickHouseEnabled    bool
+	Build                buildinfo.Info
 }
 
 type Service struct {
@@ -27,6 +30,9 @@ type Liveness struct {
 	Status    string    `json:"status"`
 	App       string    `json:"app"`
 	Timestamp time.Time `json:"timestamp"`
+	Version   string    `json:"version,omitempty"`
+	GitSHA    string    `json:"git_sha,omitempty"`
+	BuildTime string    `json:"build_time,omitempty"`
 }
 
 type Readiness struct {
@@ -34,6 +40,9 @@ type Readiness struct {
 	App          string            `json:"app"`
 	Timestamp    time.Time         `json:"timestamp"`
 	Dependencies map[string]string `json:"dependencies"`
+	Version      string            `json:"version,omitempty"`
+	GitSHA       string            `json:"git_sha,omitempty"`
+	BuildTime    string            `json:"build_time,omitempty"`
 }
 
 func NewService(opts Options) *Service {
@@ -45,6 +54,9 @@ func (s *Service) Live() Liveness {
 		Status:    "ok",
 		App:       s.opts.AppName,
 		Timestamp: time.Now().UTC(),
+		Version:   s.opts.Build.Version,
+		GitSHA:    s.opts.Build.GitSHA,
+		BuildTime: s.opts.Build.BuildTime,
 	}
 }
 
@@ -116,5 +128,8 @@ func (s *Service) Ready(ctx context.Context) Readiness {
 		App:          s.opts.AppName,
 		Timestamp:    time.Now().UTC(),
 		Dependencies: deps,
+		Version:      s.opts.Build.Version,
+		GitSHA:       s.opts.Build.GitSHA,
+		BuildTime:    s.opts.Build.BuildTime,
 	}
 }

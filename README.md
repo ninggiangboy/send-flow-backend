@@ -154,6 +154,8 @@ internal/
 
 ## Quick Start
 
+Use this flow for local development.
+
 1. Create local env file:
 
 ```bash
@@ -198,6 +200,10 @@ make build         # Build ./bin/api and ./bin/worker
 make format        # gofmt for cmd/ and internal/
 make vet           # go vet ./...
 make test          # go test ./...
+make check         # Format, vet, test, and verify OpenAPI snapshot
+make test-race     # Run race detector over internal packages
+make test-integration # Run Docker-backed integration tests
+make openapi-generate # Regenerate docs/api/openapi.yaml
 make migrate-up    # Apply migrations
 make migrate-down  # Rollback one migration step
 ```
@@ -221,4 +227,37 @@ make migrate-down  # Rollback one migration step
 ```bash
 curl http://localhost:8081/api/readyz
 curl http://localhost:8082/api/readyz
+```
+
+Health responses include `version`, `git_sha`, and `build_time` when binaries are built through `make build`.
+
+## Staging Deployment
+
+Staging should mirror production dependencies with lower capacity and isolated credentials.
+
+1. Build release artifacts:
+
+```bash
+make check
+make build VERSION=staging
+```
+
+2. Provision staging Postgres, Redis, Kafka/Redpanda, ClickHouse when analytics is enabled, object storage when import/export is enabled, and an email provider suitable for staging.
+3. Apply migrations with staging `DATABASE_URL`.
+4. Deploy API and worker with staging environment variables.
+5. Smoke test health, auth, transactional send, provider webhook ingestion, worker lag, and analytics freshness.
+
+## Production Deployment
+
+Production deployment follows the launch checklist in `docs/production/launch-checklist.md`.
+
+Before promoting a release:
+
+- Review `docs/production/readiness-matrix.md`.
+- Confirm module contracts in `docs/production/module-contracts.md` still match the release.
+- Confirm route exposure in `docs/production/http-route-classification.md`.
+- Run `make check` and build with an explicit version:
+
+```bash
+make build VERSION=<release-version>
 ```

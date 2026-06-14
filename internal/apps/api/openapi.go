@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -19,7 +20,12 @@ import (
 	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/httpjson"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/httputil"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/observability"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/sse"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type humaContextKey string
@@ -72,8 +78,8 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, deps *RouterDeps) {
 	}
 
 	if deps.AuthSvc != nil {
-		auth := newAuthHTTP(deps.AuthSvc, deps.AuthRateLimiter, deps.SecureCookies)
-		workspace := newWorkspaceHTTP(deps.AuthSvc)
+		auth := newAuthHTTP(deps.AuthSvc, deps.AuthRateLimiter, deps.SecureCookies, auditRecorder, deps.AuthMetrics)
+		workspace := newWorkspaceHTTP(deps.AuthSvc, auditRecorder)
 		authMiddleware = humaAuthzMiddleware(deps.AuthSvc)
 
 		registerAuthOperations(api, auth, authMiddleware)
@@ -104,7 +110,7 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, deps *RouterDeps) {
 		registerDeliveryOperations(api, delivery, authMiddleware)
 
 		transactional := newTransactionalHTTP(deps.DeliverySvc)
-		registerTransactionalOperations(api, transactional, deps.AccessSvc)
+		registerTransactionalOperations(api, transactional, deps.AccessSvc, deps.APIKeyMetrics, deps.AuthRateLimiter)
 	}
 	if deps.IngestionSvc != nil {
 		ingestion := newIngestionHTTP(deps.IngestionSvc)
@@ -142,7 +148,82 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, deps *RouterDeps) {
 		registerSettingsOperations(api, settings, authMiddleware)
 		registerAuditOperations(api, audit, authMiddleware)
 	}
+	registerOperationalRoutes(api, authMiddleware)
 	documentApplicationErrors(api.OpenAPI())
+}
+
+func registerOperationalRoutes(api huma.API, authMiddleware func(huma.Context, func(huma.Context))) {
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "events-stream",
+		Method:      http.MethodGet,
+		Path:        "/api/events/stream",
+		Tags:        []string{"Operations"},
+		Summary:     "Stream server-sent events",
+		Description: "Establishes an SSE connection for receiving real-time server events. Requires authentication.",
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*struct{}, error) {
+		return delegateHTTP[struct{}](ctx, nil, func(w http.ResponseWriter, req *http.Request) {
+			stream, err := sse.New(w, req, sse.Options{HeartbeatInterval: sse.DefaultHeartbeatInterval})
+			if err != nil {
+				_ = httpjson.Write(w, http.StatusInternalServerError, map[string]string{"error": "streaming is not supported"})
+				return
+			}
+			defer stream.Close()
+			if err := stream.WriteEvent(sse.Event{Event: "connected", Data: "send-flow stream connected"}); err != nil {
+				return
+			}
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-req.Context().Done():
+					return
+				case ts := <-ticker.C:
+					if err := stream.WriteEvent(sse.Event{Event: "tick", ID: fmt.Sprintf("%d", ts.Unix()), Data: ts.UTC().Format(time.RFC3339)}); err != nil {
+						return
+					}
+				}
+			}
+		})
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-metrics",
+		Method:      http.MethodGet,
+		Path:        "/api/metrics",
+		Tags:        []string{"Operations"},
+		Summary:     "Get Prometheus metrics",
+		Description: "Returns Prometheus-formatted metrics for monitoring and alerting.",
+	}, func(ctx context.Context, _ *struct{}) (*struct{}, error) {
+		return delegateHTTP[struct{}](ctx, nil, promhttp.Handler().ServeHTTP)
+	})
+
+	fixOperationalRouteResponses(api.OpenAPI())
+}
+
+func fixOperationalRouteResponses(oapi *huma.OpenAPI) {
+	if oapi == nil {
+		return
+	}
+	type fix struct {
+		statusCode  string
+		description string
+		contentType string
+	}
+	paths := map[string]fix{
+		"/api/events/stream": {"200", "SSE stream established", "text/event-stream"},
+		"/api/metrics":       {"200", "Prometheus metrics", "text/plain"},
+	}
+	for pathStr, info := range paths {
+		item, ok := oapi.Paths[pathStr]
+		if !ok || item.Get == nil {
+			continue
+		}
+		delete(item.Get.Responses, "204")
+		item.Get.Responses[info.statusCode] = &huma.Response{
+			Description: info.description,
+			Content:     map[string]*huma.MediaType{info.contentType: {}},
+		}
+	}
 }
 
 func captureHTTPContext(ctx huma.Context, next func(huma.Context)) {
@@ -1967,27 +2048,59 @@ func registerDeliveryOperations(api huma.API, delivery *deliveryHTTP, authMiddle
 	})
 }
 
-func humaAPIKeyAuthMiddleware(svc *accessapp.Service) func(huma.Context, func(huma.Context)) {
+type apiKeyAuthDeps struct {
+	svc     *accessapp.Service
+	metrics *observability.APIKeyMetrics
+	limiter ratelimit.Service
+}
+
+func humaAPIKeyAuthMiddleware(deps apiKeyAuthDeps) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		req, w := humachi.Unwrap(ctx)
 
 		authHeader := strings.TrimSpace(req.Header.Get("Authorization"))
 		token, ok := httputil.ExtractBearerToken(authHeader)
 		if !ok {
+			if deps.metrics != nil {
+				deps.metrics.RecordAuthAttempt("missing_token")
+			}
 			writeError(w, req, http.StatusUnauthorized, "api_key.invalid", "missing or malformed bearer token", nil)
 			return
 		}
 
-		key, err := svc.AuthenticateAPIKey(req.Context(), accessapp.AuthenticateAPIKeyInput{
+		if deps.limiter != nil {
+			rateKey := "api_key:auth:ip:" + clientIP(req)
+			allowed, err := deps.limiter.Allow(req.Context(), rateKey, 20, time.Minute)
+			if err != nil {
+				writeError(w, req, http.StatusInternalServerError, "internal.error", "internal error", nil)
+				return
+			}
+			if !allowed {
+				if deps.metrics != nil {
+					deps.metrics.RecordAuthAttempt("rate_limited")
+				}
+				writeError(w, req, http.StatusTooManyRequests, "api_key.rate_limited", "too many api key auth attempts", nil)
+				return
+			}
+		}
+
+		key, err := deps.svc.AuthenticateAPIKey(req.Context(), accessapp.AuthenticateAPIKeyInput{
 			BearerToken: token,
 		})
 		if err != nil {
+			if deps.metrics != nil {
+				deps.metrics.RecordAuthAttempt("invalid")
+			}
 			if errors.Is(err, accessdomain.ErrAPIKeyInvalid) {
 				writeError(w, req, http.StatusUnauthorized, "api_key.invalid", "invalid, revoked, or expired api key", nil)
 				return
 			}
 			writeError(w, req, http.StatusInternalServerError, "internal.error", "internal error", nil)
 			return
+		}
+
+		if deps.metrics != nil {
+			deps.metrics.RecordAuthAttempt("success")
 		}
 
 		baseCtx := context.WithValue(req.Context(), ctxAPIKeyWorkspaceID, key.WorkspaceID)
@@ -2011,9 +2124,9 @@ func humaAPIKeyScopeMiddleware(scope string) func(huma.Context, func(huma.Contex
 	}
 }
 
-func apiKeyProtectedOperation(op huma.Operation, svc *accessapp.Service, scope string) huma.Operation {
+func apiKeyProtectedOperation(op huma.Operation, svc *accessapp.Service, scope string, metrics *observability.APIKeyMetrics, limiter ratelimit.Service) huma.Operation {
 	op.Security = []map[string][]string{{"apiKeyAuth": {}}}
-	op.Middlewares = append(op.Middlewares, humaAPIKeyAuthMiddleware(svc))
+	op.Middlewares = append(op.Middlewares, humaAPIKeyAuthMiddleware(apiKeyAuthDeps{svc: svc, metrics: metrics, limiter: limiter}))
 	if scope != "" {
 		op.Middlewares = append(op.Middlewares, humaAPIKeyScopeMiddleware(scope))
 	}
@@ -2024,7 +2137,7 @@ type transactionalMessagePathInput struct {
 	MessageID string `path:"message_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Message ID."`
 }
 
-func registerTransactionalOperations(api huma.API, transactional *transactionalHTTP, accessSvc *accessapp.Service) {
+func registerTransactionalOperations(api huma.API, transactional *transactionalHTTP, accessSvc *accessapp.Service, apiKeyMetrics *observability.APIKeyMetrics, apiKeyRateLimiter ratelimit.Service) {
 	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
 		OperationID:   "sendTransactionalEmail",
 		Method:        http.MethodPost,
@@ -2033,7 +2146,7 @@ func registerTransactionalOperations(api huma.API, transactional *transactionalH
 		Summary:       "Send a transactional email",
 		DefaultStatus: http.StatusAccepted,
 		Errors:        documentedErrorStatuses(),
-	}, accessSvc, "transactional.send"), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
+	}, accessSvc, "transactional.send", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
 		return delegateHTTP[emptyOutput](ctx, nil, transactional.send)
 	})
 
@@ -2044,7 +2157,7 @@ func registerTransactionalOperations(api huma.API, transactional *transactionalH
 		Tags:        []string{"Delivery"},
 		Summary:     "Get transactional message status",
 		Errors:      documentedErrorStatuses(),
-	}, accessSvc, "transactional.read"), func(ctx context.Context, input *transactionalMessagePathInput) (*emptyOutput, error) {
+	}, accessSvc, "transactional.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *transactionalMessagePathInput) (*emptyOutput, error) {
 		_ = input
 		return delegateHTTP[emptyOutput](ctx, nil, transactional.getMessage)
 	})

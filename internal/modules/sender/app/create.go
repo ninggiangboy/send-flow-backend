@@ -53,5 +53,9 @@ func (s *Service) CreateSenderDomain(ctx context.Context, workspaceID, actorUser
 	}
 
 	s.log.Info("sender domain created", "workspace_id", workspaceID, "sender_domain_id", id, "domain", normalizedDomain)
+	if s.metricsRecorder != nil {
+		s.metricsRecorder.SetPendingDomains(0)
+		s.metricsRecorder.RecordVerificationAttempt("created")
+	}
 	return buildResult(sd, records, now), nil
 }

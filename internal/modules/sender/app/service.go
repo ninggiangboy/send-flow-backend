@@ -9,13 +9,19 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/ports"
 )
 
+type MetricsRecorder interface {
+	RecordVerificationAttempt(result string)
+	SetPendingDomains(count int64)
+}
+
 type Options struct {
-	DomainsRead   ports.SenderDomainReadRepository
-	DomainsWrite  ports.SenderDomainWriteRepository
-	DNSResolver   ports.DNSResolver
-	AccessChecker ports.WorkspaceAccessChecker
-	IDGen         func() (string, error)
-	Logger        *slog.Logger
+	DomainsRead     ports.SenderDomainReadRepository
+	DomainsWrite    ports.SenderDomainWriteRepository
+	DNSResolver     ports.DNSResolver
+	AccessChecker   ports.WorkspaceAccessChecker
+	IDGen           func() (string, error)
+	Logger          *slog.Logger
+	MetricsRecorder MetricsRecorder
 }
 
 type Result struct {
@@ -31,12 +37,13 @@ type Readiness struct {
 }
 
 type Service struct {
-	domainsRead   ports.SenderDomainReadRepository
-	domainsWrite  ports.SenderDomainWriteRepository
-	dnsResolver   ports.DNSResolver
-	accessChecker ports.WorkspaceAccessChecker
-	idGen         func() (string, error)
-	log           *slog.Logger
+	domainsRead     ports.SenderDomainReadRepository
+	domainsWrite    ports.SenderDomainWriteRepository
+	dnsResolver     ports.DNSResolver
+	accessChecker   ports.WorkspaceAccessChecker
+	idGen           func() (string, error)
+	metricsRecorder MetricsRecorder
+	log             *slog.Logger
 }
 
 func NewService(opts Options) *Service {
@@ -49,12 +56,13 @@ func NewService(opts Options) *Service {
 		}
 	}
 	return &Service{
-		domainsRead:   opts.DomainsRead,
-		domainsWrite:  opts.DomainsWrite,
-		dnsResolver:   opts.DNSResolver,
-		accessChecker: opts.AccessChecker,
-		idGen:         opts.IDGen,
-		log:           opts.Logger.With("module", "sender"),
+		domainsRead:     opts.DomainsRead,
+		domainsWrite:    opts.DomainsWrite,
+		dnsResolver:     opts.DNSResolver,
+		accessChecker:   opts.AccessChecker,
+		idGen:           opts.IDGen,
+		metricsRecorder: opts.MetricsRecorder,
+		log:             opts.Logger.With("module", "sender"),
 	}
 }
 
