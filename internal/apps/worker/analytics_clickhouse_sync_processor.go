@@ -17,20 +17,20 @@ const (
 )
 
 type AnalyticsClickHouseSyncProcessor struct {
-	name         string
-	svc          *analyticsapp.Service
-	log          *slog.Logger
-	pollInterval time.Duration
-	batchSize    int
-	maxBatches   int
-	metrics      *observability.SyncMetrics
+	name       string
+	svc        *analyticsapp.Service
+	log        *slog.Logger
+	batchSize  int
+	maxBatches int
+	metrics    *observability.SyncMetrics
+	guard      *PollingGuard
 }
 
 type AnalyticsClickHouseSyncProcessorOption func(*AnalyticsClickHouseSyncProcessor)
 
 func WithSyncPollInterval(d time.Duration) AnalyticsClickHouseSyncProcessorOption {
 	return func(p *AnalyticsClickHouseSyncProcessor) {
-		p.pollInterval = d
+		p.guard = NewPollingGuard(p.name, d, 3, 0, p.log)
 	}
 }
 
@@ -53,13 +53,14 @@ func WithSyncMetrics(m *observability.SyncMetrics) AnalyticsClickHouseSyncProces
 }
 
 func NewAnalyticsClickHouseSyncProcessor(svc *analyticsapp.Service, log *slog.Logger, opts ...AnalyticsClickHouseSyncProcessorOption) *AnalyticsClickHouseSyncProcessor {
+	name := "analytics.clickhouse_sync"
 	p := &AnalyticsClickHouseSyncProcessor{
-		name:         "analytics.clickhouse_sync",
-		svc:          svc,
-		log:          log.With("worker", "analytics.clickhouse_sync"),
-		pollInterval: defaultSyncPollInterval,
-		batchSize:    defaultSyncBatchSize,
-		maxBatches:   defaultSyncMaxBatches,
+		name:       name,
+		svc:        svc,
+		log:        log.With("worker", name),
+		batchSize:  defaultSyncBatchSize,
+		maxBatches: defaultSyncMaxBatches,
+		guard:      NewPollingGuard(name, defaultSyncPollInterval, 3, 0, log),
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -73,26 +74,13 @@ func (p *AnalyticsClickHouseSyncProcessor) Name() string {
 
 func (p *AnalyticsClickHouseSyncProcessor) Run(ctx context.Context) error {
 	p.log.Info("starting clickhouse sync processor",
-		"poll_interval", p.pollInterval,
 		"batch_size", p.batchSize,
 		"max_batches", p.maxBatches,
 	)
-
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			p.log.Info("clickhouse sync processor stopped")
-			return nil
-		case <-ticker.C:
-			p.syncOnce(ctx)
-		}
-	}
+	return p.guard.Run(ctx, p)
 }
 
-func (p *AnalyticsClickHouseSyncProcessor) syncOnce(ctx context.Context) {
+func (p *AnalyticsClickHouseSyncProcessor) Poll(ctx context.Context) (bool, error) {
 	start := time.Now()
 	batchesProcessed := 0
 	totalSynced := 0
@@ -101,7 +89,7 @@ func (p *AnalyticsClickHouseSyncProcessor) syncOnce(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			p.log.Info("sync cancelled, context done")
-			return
+			return totalSynced > 0, nil
 		default:
 		}
 
@@ -119,7 +107,7 @@ func (p *AnalyticsClickHouseSyncProcessor) syncOnce(ctx context.Context) {
 			if p.metrics != nil {
 				p.metrics.RecordBatch(0, time.Since(start).Seconds(), err)
 			}
-			return
+			return totalSynced > 0, nil
 		}
 
 		if synced.SyncedCount == 0 {
@@ -150,4 +138,5 @@ func (p *AnalyticsClickHouseSyncProcessor) syncOnce(ctx context.Context) {
 			"duration_ms", duration.Milliseconds(),
 		)
 	}
+	return totalSynced > 0, nil
 }

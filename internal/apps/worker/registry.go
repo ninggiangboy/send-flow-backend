@@ -14,6 +14,10 @@ type Runner interface {
 	Run(context.Context) error
 }
 
+type keyedRunner interface {
+	RunnerKey() string
+}
+
 type Registry struct {
 	runners map[string]Runner
 }
@@ -61,6 +65,7 @@ func (r *Registry) selectRunners(enabled []string) ([]Runner, error) {
 		return nil, nil
 	}
 	selected := make([]Runner, 0, len(enabled))
+	seen := map[string]struct{}{}
 	for _, name := range enabled {
 		name = strings.TrimSpace(name)
 		if name == "" {
@@ -70,6 +75,14 @@ func (r *Registry) selectRunners(enabled []string) ([]Runner, error) {
 		if !exists {
 			return nil, fmt.Errorf("worker consumer %q is not registered", name)
 		}
+		key := runner.Name()
+		if keyed, ok := runner.(keyedRunner); ok {
+			key = keyed.RunnerKey()
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
 		selected = append(selected, runner)
 	}
 	return selected, nil

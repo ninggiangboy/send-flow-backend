@@ -18,10 +18,14 @@ type DueMessageProcessor struct {
 }
 
 func NewDueMessageProcessor(svc *deliveryapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int, messageType string) *DueMessageProcessor {
+	return newDueMessageProcessor("delivery.process_due_messages", svc, log, pollInterval, batchSize, messageType)
+}
+
+func newDueMessageProcessor(name string, svc *deliveryapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int, messageType string) *DueMessageProcessor {
 	return &DueMessageProcessor{
-		name:         "delivery.process_due_messages",
+		name:         name,
 		svc:          svc,
-		log:          log.With("worker", "delivery.process_due_messages"),
+		log:          log.With("worker", name),
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
 		messageType:  messageType,
@@ -30,6 +34,10 @@ func NewDueMessageProcessor(svc *deliveryapp.Service, log *slog.Logger, pollInte
 
 func (p *DueMessageProcessor) Name() string {
 	return p.name
+}
+
+func (p *DueMessageProcessor) RunnerKey() string {
+	return "delivery.due_messages.db_processor"
 }
 
 func (p *DueMessageProcessor) Run(ctx context.Context) error {

@@ -18,10 +18,14 @@ type DueWebhookDeliveryProcessor struct {
 }
 
 func NewDueWebhookDeliveryProcessor(svc *webhooksapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int) *DueWebhookDeliveryProcessor {
+	return newDueWebhookDeliveryProcessor("webhooks.process_due_deliveries", svc, log, pollInterval, batchSize)
+}
+
+func newDueWebhookDeliveryProcessor(name string, svc *webhooksapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int) *DueWebhookDeliveryProcessor {
 	return &DueWebhookDeliveryProcessor{
-		name:         "webhooks.process_due_deliveries",
+		name:         name,
 		svc:          svc,
-		log:          log.With("worker", "webhooks.process_due_deliveries"),
+		log:          log.With("worker", name),
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
 	}
@@ -33,6 +37,10 @@ func (p *DueWebhookDeliveryProcessor) SetOperationsRecorder(r OperationsEventRec
 
 func (p *DueWebhookDeliveryProcessor) Name() string {
 	return p.name
+}
+
+func (p *DueWebhookDeliveryProcessor) RunnerKey() string {
+	return "webhooks.due_deliveries.db_processor"
 }
 
 func (p *DueWebhookDeliveryProcessor) Run(ctx context.Context) error {

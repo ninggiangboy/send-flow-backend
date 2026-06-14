@@ -8,7 +8,13 @@ const (
 	EventDeliverySucceededV1      = "webhooks.delivery.succeeded.v1"
 	EventDeliveryFailedV1         = "webhooks.delivery.failed.v1"
 	EventDeliveryRetryScheduledV1 = "webhooks.delivery.retry_scheduled.v1"
+	EventDueDeliveriesProcessV1   = "webhooks.due_deliveries.process.v1"
 )
+
+type DueDeliveriesProcessPayload struct {
+	Limit int    `json:"limit"`
+	Now   string `json:"now"`
+}
 
 type ConfigCreatedPayload struct {
 	ConfigID    string   `json:"config_id"`

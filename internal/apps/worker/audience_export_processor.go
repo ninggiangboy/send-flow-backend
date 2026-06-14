@@ -28,8 +28,8 @@ type AudienceExportProcessor struct {
 	objStorage      objectstorage.ObjectStorage
 	idGen           func() (string, error)
 	log             *slog.Logger
-	pollInterval    time.Duration
 	batchSize       int
+	guard           *PollingGuard
 }
 
 func NewAudienceExportProcessor(
@@ -42,17 +42,18 @@ func NewAudienceExportProcessor(
 	pollInterval time.Duration,
 	batchSize int,
 ) *AudienceExportProcessor {
+	name := "audience.export_processor"
 	return &AudienceExportProcessor{
-		name:            "audience.export_processor",
+		name:            name,
 		exportJobsWrite: exportJobsWrite,
 		contactsRead:    contactsRead,
 		outboxWriter:    outboxWriter,
 		txManager:       txManager,
 		objStorage:      objStorage,
 		idGen:           id.NewUUIDGenerator().New,
-		log:             log.With("worker", "audience.export_processor"),
-		pollInterval:    pollInterval,
+		log:             log.With("worker", name),
 		batchSize:       batchSize,
+		guard:           NewPollingGuard(name, pollInterval, 3, 0, log),
 	}
 }
 
@@ -62,29 +63,16 @@ func (p *AudienceExportProcessor) Name() string {
 
 func (p *AudienceExportProcessor) Run(ctx context.Context) error {
 	p.log.Info("starting audience export processor",
-		"poll_interval", p.pollInterval,
 		"batch_size", p.batchSize,
 	)
-
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			p.log.Info("audience export processor stopped")
-			return nil
-		case <-ticker.C:
-			p.processOnce(ctx)
-		}
-	}
+	return p.guard.Run(ctx, p)
 }
 
-func (p *AudienceExportProcessor) processOnce(ctx context.Context) {
+func (p *AudienceExportProcessor) Poll(ctx context.Context) (bool, error) {
 	jobs, err := p.exportJobsWrite.ClaimQueuedExportJobs(ctx, p.batchSize, time.Now().UTC())
 	if err != nil {
 		p.log.Error("failed to claim queued export jobs", "error", err)
-		return
+		return false, nil
 	}
 
 	for _, job := range jobs {
@@ -96,6 +84,8 @@ func (p *AudienceExportProcessor) processOnce(ctx context.Context) {
 			)
 		}
 	}
+
+	return len(jobs) > 0, nil
 }
 
 func (p *AudienceExportProcessor) processJob(ctx context.Context, job domain.AudienceExportJob) error {

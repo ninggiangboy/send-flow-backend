@@ -17,10 +17,14 @@ type DueNotificationProcessor struct {
 }
 
 func NewDueNotificationProcessor(svc *notificationapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int) *DueNotificationProcessor {
+	return newDueNotificationProcessor("notification.process_due_retries", svc, log, pollInterval, batchSize)
+}
+
+func newDueNotificationProcessor(name string, svc *notificationapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int) *DueNotificationProcessor {
 	return &DueNotificationProcessor{
-		name:         "notification.process_due_retries",
+		name:         name,
 		svc:          svc,
-		log:          log.With("worker", "notification.process_due_retries"),
+		log:          log.With("worker", name),
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
 	}
@@ -28,6 +32,10 @@ func NewDueNotificationProcessor(svc *notificationapp.Service, log *slog.Logger,
 
 func (p *DueNotificationProcessor) Name() string {
 	return p.name
+}
+
+func (p *DueNotificationProcessor) RunnerKey() string {
+	return "notification.due_retries.db_processor"
 }
 
 func (p *DueNotificationProcessor) Run(ctx context.Context) error {

@@ -1,10 +1,16 @@
 package contracts
 
 const (
-	EventMessageQueuedV1 = "notification.message.queued.v1"
-	EventMessageSentV1   = "notification.message.sent.v1"
-	EventMessageFailedV1 = "notification.message.failed.v1"
+	EventMessageQueuedV1           = "notification.message.queued.v1"
+	EventMessageSentV1             = "notification.message.sent.v1"
+	EventMessageFailedV1           = "notification.message.failed.v1"
+	EventDueNotificationsProcessV1 = "notification.due_notifications.process.v1"
 )
+
+type DueNotificationsProcessPayload struct {
+	BatchSize int    `json:"batch_size"`
+	Now       string `json:"now"`
+}
 
 type MessageQueuedPayload struct {
 	MessageID      string `json:"message_id"`

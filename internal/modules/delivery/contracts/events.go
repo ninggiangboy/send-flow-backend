@@ -10,7 +10,15 @@ const (
 	EventDeliveryMessageRetryScheduledV1     = "delivery.message.retry_scheduled.v1"
 	EventDeliveryTransactionalSendAcceptedV1 = "delivery.transactional_send.accepted.v1"
 	EventSuppressionRecipientSuppressedV1    = "suppression.recipient_suppressed.v1"
+	EventDueMessagesProcessV1                = "delivery.due_messages.process.v1"
 )
+
+type DueMessagesProcessPayload struct {
+	WorkspaceID string `json:"workspace_id"`
+	MessageType string `json:"message_type"`
+	Limit       int    `json:"limit"`
+	Now         string `json:"now"`
+}
 
 type MessageQueuedPayload struct {
 	MessageID              string `json:"message_id"`

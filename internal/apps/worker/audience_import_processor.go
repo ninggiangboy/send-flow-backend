@@ -32,8 +32,8 @@ type AudienceImportProcessor struct {
 	objStorage      objectstorage.ObjectStorage
 	idGen           func() (string, error)
 	log             *slog.Logger
-	pollInterval    time.Duration
 	batchSize       int
+	guard           *PollingGuard
 }
 
 func NewAudienceImportProcessor(
@@ -47,8 +47,9 @@ func NewAudienceImportProcessor(
 	pollInterval time.Duration,
 	batchSize int,
 ) *AudienceImportProcessor {
+	name := "audience.import_processor"
 	return &AudienceImportProcessor{
-		name:            "audience.import_processor",
+		name:            name,
 		importJobsWrite: importJobsWrite,
 		contactsWrite:   contactsWrite,
 		contactsRead:    contactsRead,
@@ -56,9 +57,9 @@ func NewAudienceImportProcessor(
 		txManager:       txManager,
 		objStorage:      objStorage,
 		idGen:           id.NewUUIDGenerator().New,
-		log:             log.With("worker", "audience.import_processor"),
-		pollInterval:    pollInterval,
+		log:             log.With("worker", name),
 		batchSize:       batchSize,
+		guard:           NewPollingGuard(name, pollInterval, 3, 0, log),
 	}
 }
 
@@ -68,29 +69,16 @@ func (p *AudienceImportProcessor) Name() string {
 
 func (p *AudienceImportProcessor) Run(ctx context.Context) error {
 	p.log.Info("starting audience import processor",
-		"poll_interval", p.pollInterval,
 		"batch_size", p.batchSize,
 	)
-
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			p.log.Info("audience import processor stopped")
-			return nil
-		case <-ticker.C:
-			p.processOnce(ctx)
-		}
-	}
+	return p.guard.Run(ctx, p)
 }
 
-func (p *AudienceImportProcessor) processOnce(ctx context.Context) {
+func (p *AudienceImportProcessor) Poll(ctx context.Context) (bool, error) {
 	jobs, err := p.importJobsWrite.ClaimQueuedImportJobs(ctx, p.batchSize, time.Now().UTC())
 	if err != nil {
 		p.log.Error("failed to claim queued import jobs", "error", err)
-		return
+		return false, nil
 	}
 
 	for _, job := range jobs {
@@ -102,6 +90,8 @@ func (p *AudienceImportProcessor) processOnce(ctx context.Context) {
 			)
 		}
 	}
+
+	return len(jobs) > 0, nil
 }
 
 func (p *AudienceImportProcessor) processJob(ctx context.Context, job domain.AudienceImportJob) error {

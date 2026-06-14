@@ -10,20 +10,21 @@ import (
 )
 
 type OutboxLagSampler struct {
-	name         string
-	svc          *analyticsapp.Service
-	pgPool       *pgxpool.Pool
-	log          *slog.Logger
-	pollInterval time.Duration
+	name   string
+	svc    *analyticsapp.Service
+	pgPool *pgxpool.Pool
+	log    *slog.Logger
+	guard  *PollingGuard
 }
 
 func NewOutboxLagSampler(svc *analyticsapp.Service, pgPool *pgxpool.Pool, log *slog.Logger, pollInterval time.Duration) *OutboxLagSampler {
+	name := "analytics.outbox_lag_sampler"
 	return &OutboxLagSampler{
-		name:         "analytics.outbox_lag_sampler",
-		svc:          svc,
-		pgPool:       pgPool,
-		log:          log.With("worker", "analytics.outbox_lag_sampler"),
-		pollInterval: pollInterval,
+		name:   name,
+		svc:    svc,
+		pgPool: pgPool,
+		log:    log.With("worker", name),
+		guard:  NewPollingGuard(name, pollInterval, 3, 0, log),
 	}
 }
 
@@ -32,25 +33,11 @@ func (s *OutboxLagSampler) Name() string {
 }
 
 func (s *OutboxLagSampler) Run(ctx context.Context) error {
-	s.log.Info("starting outbox lag sampler",
-		"poll_interval", s.pollInterval,
-	)
-
-	ticker := time.NewTicker(s.pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.log.Info("outbox lag sampler stopped")
-			return nil
-		case <-ticker.C:
-			s.sampleOnce(ctx)
-		}
-	}
+	s.log.Info("starting outbox lag sampler")
+	return s.guard.Run(ctx, s)
 }
 
-func (s *OutboxLagSampler) sampleOnce(ctx context.Context) {
+func (s *OutboxLagSampler) Poll(ctx context.Context) (bool, error) {
 	cutoff := time.Now().Add(-1 * time.Minute)
 
 	rows, err := s.pgPool.Query(ctx, `
@@ -63,7 +50,7 @@ func (s *OutboxLagSampler) sampleOnce(ctx context.Context) {
 		LIMIT 1000`, cutoff)
 	if err != nil {
 		s.log.Error("failed to query pending outbox events", "error", err)
-		return
+		return false, nil
 	}
 	defer rows.Close()
 
@@ -73,7 +60,7 @@ func (s *OutboxLagSampler) sampleOnce(ctx context.Context) {
 		var occurredAt time.Time
 		if err := rows.Scan(&eventID, &aggType, &evType, &wsID, &occurredAt); err != nil {
 			s.log.Error("failed to scan outbox event row", "error", err)
-			return
+			return false, nil
 		}
 
 		if err := s.svc.IngestOperationsEvent(ctx, analyticsapp.IngestOperationsEventInput{
@@ -88,17 +75,18 @@ func (s *OutboxLagSampler) sampleOnce(ctx context.Context) {
 			s.log.Error("failed to record outbox lag event",
 				"event_id", eventID, "error", err,
 			)
-			return
+			return false, nil
 		}
 		count++
 	}
 
 	if err := rows.Err(); err != nil {
 		s.log.Error("error iterating outbox event rows", "error", err)
-		return
+		return false, nil
 	}
 
 	if count > 0 {
 		s.log.Debug("recorded outbox lag events", "count", count)
 	}
+	return count > 0, nil
 }

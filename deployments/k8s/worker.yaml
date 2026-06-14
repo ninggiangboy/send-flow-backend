@@ -57,7 +57,7 @@ spec:
             - name: WORKER_HTTP_ADDR
               value: ":8082"
             - name: WORKER_ENABLED_CONSUMERS
-              value: "delivery.queue_campaign_messages,delivery_provider_events,tracking_provider_events,delivery.process_due_messages,analytics_events,notification.identity_events,notification.process_due_retries,webhooks.deliver_events,webhooks.process_due_deliveries,audience.import_processor,audience.export_processor"
+              value: "delivery.queue_campaign_messages,delivery_provider_events,tracking_provider_events,delivery.due_message_scheduler,delivery.due_message_consumer,analytics_events,analytics.clickhouse_sync,analytics.detect_anomalies,analytics.outbox_lag_sampler,notification.identity_events,notification.due_notification_scheduler,notification.due_notification_consumer,webhooks.deliver_events,webhooks.due_webhook_scheduler,webhooks.due_webhook_consumer,audience.import_processor,audience.export_processor"
             - name: WORKER_CONCURRENCY
               value: "1"
             - name: WORKER_SHUTDOWN_TIMEOUT

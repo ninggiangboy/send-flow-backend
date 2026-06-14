@@ -12,15 +12,16 @@ type AnalyticsAnomalyProcessor struct {
 	name         string
 	analyticsSvc *analyticsapp.Service
 	log          *slog.Logger
-	pollInterval time.Duration
+	guard        *PollingGuard
 }
 
 func NewAnalyticsAnomalyProcessor(svc *analyticsapp.Service, log *slog.Logger, pollInterval time.Duration) *AnalyticsAnomalyProcessor {
+	name := "analytics.detect_anomalies"
 	return &AnalyticsAnomalyProcessor{
-		name:         "analytics.detect_anomalies",
+		name:         name,
 		analyticsSvc: svc,
-		log:          log.With("worker", "analytics.detect_anomalies"),
-		pollInterval: pollInterval,
+		log:          log.With("worker", name),
+		guard:        NewPollingGuard(name, pollInterval, 3, 0, log),
 	}
 }
 
@@ -29,28 +30,16 @@ func (p *AnalyticsAnomalyProcessor) Name() string {
 }
 
 func (p *AnalyticsAnomalyProcessor) Run(ctx context.Context) error {
-	p.log.Info("starting anomaly detection processor",
-		"poll_interval", p.pollInterval,
-	)
-
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			p.log.Info("anomaly detection processor stopped")
-			return nil
-		case <-ticker.C:
-			p.processOnce(ctx)
-		}
-	}
+	p.log.Info("starting anomaly detection processor")
+	return p.guard.Run(ctx, p)
 }
 
-func (p *AnalyticsAnomalyProcessor) processOnce(ctx context.Context) {
+func (p *AnalyticsAnomalyProcessor) Poll(ctx context.Context) (bool, error) {
 	p.log.Info("running anomaly detection cycle")
 
 	if err := p.analyticsSvc.DetectAnomaliesAllWorkspaces(ctx); err != nil {
 		p.log.Error("anomaly detection cycle failed", "error", err)
+		return false, nil
 	}
+	return true, nil
 }

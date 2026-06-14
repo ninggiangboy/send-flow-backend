@@ -13,8 +13,17 @@ type testRunner struct {
 	started chan string
 }
 
+type keyedTestRunner struct {
+	testRunner
+	key string
+}
+
 func (r testRunner) Name() string {
 	return r.name
+}
+
+func (r keyedTestRunner) RunnerKey() string {
+	return r.key
 }
 
 func (r testRunner) Run(ctx context.Context) error {
@@ -77,6 +86,52 @@ func TestRegistry_RunSelectedConsumers(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("registry did not stop registered consumers")
+	}
+}
+
+func TestRegistry_RunDeduplicatesRunnerAliases(t *testing.T) {
+	registry := NewRegistry()
+	started := make(chan string, 2)
+	if err := registry.Register(keyedTestRunner{
+		testRunner: testRunner{name: "legacy", started: started},
+		key:        "shared",
+	}); err != nil {
+		t.Fatalf("register legacy: %v", err)
+	}
+	if err := registry.Register(keyedTestRunner{
+		testRunner: testRunner{name: "alias", started: started},
+		key:        "shared",
+	}); err != nil {
+		t.Fatalf("register alias: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- registry.Run(ctx, []string{"legacy", "alias"}, testLogger())
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("expected one aliased runner to start")
+	}
+
+	select {
+	case name := <-started:
+		t.Fatalf("expected aliases to start once, got second runner %q", name)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("registry did not stop aliased runner")
 	}
 }
 

@@ -230,15 +230,68 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	dueMsgProcessor := NewDueMessageProcessor(
-		deliverySvc,
-		log,
-		5*time.Second,
-		50,
-		"marketing",
-	)
-	if err := registry.Register(dueMsgProcessor); err != nil {
-		return err
+	var schedulerProducer kafka.Producer
+	if cfg.KafkaEnabled() {
+		schedulerProducer = kafka.NewWriterProducer(kafka.Brokers(cfg.KafkaBrokers))
+		defer schedulerProducer.Close()
+	}
+
+	if cfg.KafkaEnabled() {
+		dueMsgScheduler := NewDueMessageScheduler(
+			deliveryMsgReadRepo.ListDistinctWorkspacesWithDue,
+			schedulerProducer,
+			log,
+			"marketing",
+			50,
+		)
+		if err := registry.Register(dueMsgScheduler); err != nil {
+			return err
+		}
+
+		dueMsgConsumer := NewDueMessageConsumer(
+			deliverySvc,
+			log,
+			kafka.Brokers(cfg.KafkaBrokers),
+			cfg.WorkerConsumerGroupPrefix+".delivery_due_messages",
+			pgClient.WritePool(),
+		)
+		if err := registry.Register(dueMsgConsumer); err != nil {
+			return err
+		}
+	} else {
+		dueMsgProcessor := NewDueMessageProcessor(
+			deliverySvc,
+			log,
+			5*time.Second,
+			50,
+			"marketing",
+		)
+		if err := registry.Register(dueMsgProcessor); err != nil {
+			return err
+		}
+
+		dueMsgSchedulerFallback := newDueMessageProcessor(
+			"delivery.due_message_scheduler",
+			deliverySvc,
+			log,
+			5*time.Second,
+			50,
+			"marketing",
+		)
+		if err := registry.Register(dueMsgSchedulerFallback); err != nil {
+			return err
+		}
+
+		dueMsgConsumer := NewDueMessageConsumer(
+			deliverySvc,
+			log,
+			kafka.Brokers(cfg.KafkaBrokers),
+			cfg.WorkerConsumerGroupPrefix+".delivery_due_messages",
+			pgClient.WritePool(),
+		)
+		if err := registry.Register(dueMsgConsumer); err != nil {
+			return err
+		}
 	}
 
 	mapperRegistry := analyticsapp.NewMapperRegistry()
@@ -305,14 +358,58 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	dueNotificationProcessor := NewDueNotificationProcessor(
-		notificationSvc,
-		log,
-		10*time.Second,
-		50,
-	)
-	if err := registry.Register(dueNotificationProcessor); err != nil {
-		return err
+	if cfg.KafkaEnabled() {
+		dueNotifScheduler := NewDueNotificationScheduler(
+			schedulerProducer,
+			log,
+			50,
+		)
+		if err := registry.Register(dueNotifScheduler); err != nil {
+			return err
+		}
+
+		dueNotifConsumer := NewDueNotificationConsumer(
+			notificationSvc,
+			log,
+			kafka.Brokers(cfg.KafkaBrokers),
+			cfg.WorkerConsumerGroupPrefix+".notification_due_retries",
+			pgClient.WritePool(),
+		)
+		if err := registry.Register(dueNotifConsumer); err != nil {
+			return err
+		}
+	} else {
+		dueNotificationProcessor := NewDueNotificationProcessor(
+			notificationSvc,
+			log,
+			10*time.Second,
+			50,
+		)
+		if err := registry.Register(dueNotificationProcessor); err != nil {
+			return err
+		}
+
+		dueNotificationSchedulerFallback := newDueNotificationProcessor(
+			"notification.due_notification_scheduler",
+			notificationSvc,
+			log,
+			10*time.Second,
+			50,
+		)
+		if err := registry.Register(dueNotificationSchedulerFallback); err != nil {
+			return err
+		}
+
+		dueNotifConsumer := NewDueNotificationConsumer(
+			notificationSvc,
+			log,
+			kafka.Brokers(cfg.KafkaBrokers),
+			cfg.WorkerConsumerGroupPrefix+".notification_due_retries",
+			pgClient.WritePool(),
+		)
+		if err := registry.Register(dueNotifConsumer); err != nil {
+			return err
+		}
 	}
 
 	webhooksSvc := shared.NewWebhooksService(pgReadPool, pgWritePool, nil, log)
@@ -331,17 +428,67 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	webhookDeliveryProcessor := NewDueWebhookDeliveryProcessor(
-		webhooksSvc,
-		log,
-		10*time.Second,
-		50,
-	)
-	if analyticsSvc != nil {
-		webhookDeliveryProcessor.SetOperationsRecorder(newOpsRecorderAdapter(analyticsSvc))
-	}
-	if err := registry.Register(webhookDeliveryProcessor); err != nil {
-		return err
+	if cfg.KafkaEnabled() {
+		dueWebhookScheduler := NewDueWebhookScheduler(
+			schedulerProducer,
+			log,
+			50,
+		)
+		if err := registry.Register(dueWebhookScheduler); err != nil {
+			return err
+		}
+
+		dueWebhookConsumer := NewDueWebhookConsumer(
+			webhooksSvc,
+			log,
+			kafka.Brokers(cfg.KafkaBrokers),
+			cfg.WorkerConsumerGroupPrefix+".webhooks_due_deliveries",
+			pgClient.WritePool(),
+		)
+		if analyticsSvc != nil {
+			dueWebhookConsumer.SetOperationsRecorder(newOpsRecorderAdapter(analyticsSvc))
+		}
+		if err := registry.Register(dueWebhookConsumer); err != nil {
+			return err
+		}
+	} else {
+		webhookDeliveryProcessor := NewDueWebhookDeliveryProcessor(
+			webhooksSvc,
+			log,
+			10*time.Second,
+			50,
+		)
+		if analyticsSvc != nil {
+			webhookDeliveryProcessor.SetOperationsRecorder(newOpsRecorderAdapter(analyticsSvc))
+		}
+		if err := registry.Register(webhookDeliveryProcessor); err != nil {
+			return err
+		}
+
+		webhookDeliverySchedulerFallback := newDueWebhookDeliveryProcessor(
+			"webhooks.due_webhook_scheduler",
+			webhooksSvc,
+			log,
+			10*time.Second,
+			50,
+		)
+		if analyticsSvc != nil {
+			webhookDeliverySchedulerFallback.SetOperationsRecorder(newOpsRecorderAdapter(analyticsSvc))
+		}
+		if err := registry.Register(webhookDeliverySchedulerFallback); err != nil {
+			return err
+		}
+
+		dueWebhookConsumer := NewDueWebhookConsumer(
+			webhooksSvc,
+			log,
+			kafka.Brokers(cfg.KafkaBrokers),
+			cfg.WorkerConsumerGroupPrefix+".webhooks_due_deliveries",
+			pgClient.WritePool(),
+		)
+		if err := registry.Register(dueWebhookConsumer); err != nil {
+			return err
+		}
 	}
 
 	// Wire audience import/export processors
