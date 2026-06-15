@@ -63,15 +63,16 @@ func (m *mockMessageReadRepo) CountByCampaign(ctx context.Context, workspaceID, 
 
 type mockMessageWriteRepo struct {
 	ports.MessageWriteRepository
-	createMany     func(ctx context.Context, messages []domain.Message) ([]string, error)
-	update         func(ctx context.Context, message domain.Message) error
-	markProcessing func(ctx context.Context, workspaceID, messageID string, now time.Time) error
-	markAccepted   func(ctx context.Context, message domain.Message) error
-	markDelivered  func(ctx context.Context, message domain.Message) error
-	markBounced    func(ctx context.Context, message domain.Message) error
-	markComplained func(ctx context.Context, message domain.Message) error
-	markDelayed    func(ctx context.Context, message domain.Message) error
-	markFailed     func(ctx context.Context, message domain.Message) error
+	createMany       func(ctx context.Context, messages []domain.Message) ([]string, error)
+	update           func(ctx context.Context, message domain.Message) error
+	claimDueMessages func(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error)
+	markProcessing   func(ctx context.Context, workspaceID, messageID string, now time.Time) error
+	markAccepted     func(ctx context.Context, message domain.Message) error
+	markDelivered    func(ctx context.Context, message domain.Message) error
+	markBounced      func(ctx context.Context, message domain.Message) error
+	markComplained   func(ctx context.Context, message domain.Message) error
+	markDelayed      func(ctx context.Context, message domain.Message) error
+	markFailed       func(ctx context.Context, message domain.Message) error
 }
 
 func (m *mockMessageWriteRepo) CreateMany(ctx context.Context, messages []domain.Message) ([]string, error) {
@@ -82,7 +83,17 @@ func (m *mockMessageWriteRepo) Update(ctx context.Context, message domain.Messag
 	return m.update(ctx, message)
 }
 
+func (m *mockMessageWriteRepo) ClaimDueMessages(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error) {
+	if m.claimDueMessages == nil {
+		return nil, nil
+	}
+	return m.claimDueMessages(ctx, query, now)
+}
+
 func (m *mockMessageWriteRepo) MarkProcessing(ctx context.Context, workspaceID, messageID string, now time.Time) error {
+	if m.markProcessing == nil {
+		return nil
+	}
 	return m.markProcessing(ctx, workspaceID, messageID, now)
 }
 

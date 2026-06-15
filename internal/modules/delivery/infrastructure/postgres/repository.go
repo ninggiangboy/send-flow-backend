@@ -419,6 +419,40 @@ func (w *MessageWriteRepository) Update(ctx context.Context, message domain.Mess
 	return nil
 }
 
+func (w *MessageWriteRepository) ClaimDueMessages(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error) {
+	db := w.getDB(ctx)
+	rows, err := db.Query(ctx,
+		`WITH claimed AS (
+		     SELECT id
+		     FROM messages
+		     WHERE workspace_id = $2 AND status = 'queued' AND message_type = $3
+		       AND (scheduled_at IS NULL OR scheduled_at <= $4)
+		     ORDER BY scheduled_at ASC, created_at ASC
+		     LIMIT $5
+		     FOR UPDATE SKIP LOCKED
+		 )
+		 UPDATE messages AS m
+		 SET status = 'processing', processing_started_at = $1, updated_at = $1
+		 FROM claimed
+		 WHERE m.id = claimed.id
+		 RETURNING m.id, m.workspace_id, COALESCE(m.campaign_id, ''), COALESCE(m.campaign_candidate_id, ''), COALESCE(m.transactional_request_id, ''),
+		           COALESCE(m.contact_id, ''), m.recipient_email_normalized, m.recipient_snapshot,
+		           COALESCE(m.template_id, ''), COALESCE(m.template_version_id, ''), COALESCE(m.sender_domain_id, ''),
+		           m.message_type, m.source_type, m.status,
+		           m.scheduled_at, m.queued_at, m.processing_started_at,
+		           m.accepted_at, m.delivered_at, m.bounced_at, m.complained_at, m.failed_at,
+		           m.last_error_class, m.last_error_message, m.provider, m.provider_message_id,
+		           m.created_at, m.updated_at`,
+		now, query.WorkspaceID, query.MessageType, query.Now, query.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanMessageRows(rows)
+}
+
 func (w *MessageWriteRepository) MarkProcessing(ctx context.Context, workspaceID, messageID string, now time.Time) error {
 	db := w.getDB(ctx)
 	tag, err := db.Exec(ctx,

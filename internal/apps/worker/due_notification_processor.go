@@ -14,6 +14,7 @@ type DueNotificationProcessor struct {
 	log          *slog.Logger
 	pollInterval time.Duration
 	batchSize    int
+	guard        *PollingGuard
 }
 
 func NewDueNotificationProcessor(svc *notificationapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int) *DueNotificationProcessor {
@@ -27,6 +28,7 @@ func newDueNotificationProcessor(name string, svc *notificationapp.Service, log 
 		log:          log.With("worker", name),
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
+		guard:        NewPollingGuard(name, pollInterval, 0, pollInterval, log),
 	}
 }
 
@@ -39,33 +41,18 @@ func (p *DueNotificationProcessor) RunnerKey() string {
 }
 
 func (p *DueNotificationProcessor) Run(ctx context.Context) error {
-	p.log.Info("starting due notification retry processor",
-		"poll_interval", p.pollInterval,
-		"batch_size", p.batchSize,
-	)
-
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			p.log.Info("due notification retry processor stopped")
-			return nil
-		case <-ticker.C:
-			p.processOnce(ctx)
-		}
-	}
+	return p.guard.Run(ctx, p)
 }
 
-func (p *DueNotificationProcessor) processOnce(ctx context.Context) {
+func (p *DueNotificationProcessor) Poll(ctx context.Context) (bool, error) {
 	processed, err := p.svc.ProcessRetryBatch(ctx, p.batchSize)
 	if err != nil {
 		p.log.Error("failed to process notification retry batch", "error", err)
-		return
+		return false, err
 	}
 
 	if processed > 0 {
 		p.log.Debug("processed notification retries", "count", processed)
 	}
+	return processed > 0, nil
 }

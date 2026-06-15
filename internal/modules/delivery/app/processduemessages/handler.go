@@ -158,14 +158,14 @@ func (h *Handler) ProcessDueMessages(ctx context.Context, input ProcessDueMessag
 		limit = 100
 	}
 
-	messages, err := h.messagesRead.ListDueQueued(ctx, ports.DueMessageQuery{
+	messages, err := h.messagesWrite.ClaimDueMessages(ctx, ports.DueMessageQuery{
 		Now:         input.Now,
 		Limit:       limit,
 		MessageType: input.MessageType,
 		WorkspaceID: input.WorkspaceID,
-	})
+	}, input.Now)
 	if err != nil {
-		log.Error("failed to list due queued messages", "error", err)
+		log.Error("failed to claim due messages", "error", err)
 		return nil, err
 	}
 
@@ -210,16 +210,6 @@ func (h *Handler) processMessage(ctx context.Context, msg domain.Message, now ti
 	)
 
 	now = now.UTC()
-
-	err := h.messagesWrite.MarkProcessing(ctx, msg.WorkspaceID, msg.ID, now)
-	if err != nil {
-		if errors.Is(err, domain.ErrMessageNotFound) {
-			log.Debug("message already claimed by another worker")
-			return 0, nil
-		}
-		log.Error("failed to mark message processing", "error", err)
-		return 0, err
-	}
 
 	readiness, err := h.senderChecker.GetSenderReadiness(ctx, msg.WorkspaceID, msg.SenderDomainID)
 	if err != nil {

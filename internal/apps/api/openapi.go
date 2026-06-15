@@ -135,7 +135,7 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, deps *RouterDeps) {
 		registerWebhookDeliveryOperations(api, webhookDelivery, authMiddleware)
 	}
 	if deps.NotificationSvc != nil {
-		notification := newNotificationHTTP(deps.NotificationSvc)
+		notification := newNotificationHTTP(deps.NotificationSvc, deps.NotificationRealtime, newWorkspaceAccessAdapter(deps.AuthSvc).RequirePermission, deps.Log)
 		registerNotificationOperations(api, notification, authMiddleware)
 	}
 	if deps.OperationsSvc != nil {
@@ -408,6 +408,9 @@ func senderErrorCodes(_ *huma.Operation) map[int][]string {
 		http.StatusUnprocessableEntity: {
 			"sender.domain_invalid",
 			"sender.provider_config_invalid",
+		},
+		http.StatusServiceUnavailable: {
+			"notification.realtime_unavailable",
 		},
 		http.StatusInternalServerError: {
 			"internal.error",
@@ -3281,6 +3284,29 @@ func registerNotificationOperations(api huma.API, notification *notificationHTTP
 	}, authMiddleware), func(ctx context.Context, input *notificationAlertInput) (*notificationAlertOutput, error) {
 		return delegateHTTP[notificationAlertOutput](ctx, jsonBody(input.Body), notification.sendSystemAlert)
 	})
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "streamWorkspaceNotifications",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/notifications/stream",
+		Tags:        []string{"Notifications"},
+		Summary:     "Stream workspace notification events via SSE",
+		Description: "Opens an SSE connection for receiving realtime notification events for the workspace. Requires notification.read permission.",
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, notification.streamWorkspaceNotifications)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "streamMyNotifications",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/users/me/notifications/stream",
+		Tags:        []string{"Notifications"},
+		Summary:     "Stream my notification events via SSE",
+		Description: "Opens an SSE connection for receiving realtime notification events for the authenticated user. No workspace permission required.",
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
+		return delegateHTTP[emptyOutput](ctx, nil, notification.streamMyNotifications)
+	})
+
 }
 
 func notificationErrorCodes() map[int][]string {

@@ -37,6 +37,7 @@ import (
 	ingestionpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/infrastructure/postgres"
 	ingestionprovider "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/infrastructure/provider"
 	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
+	notificationrealtime "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/realtime"
 	operationsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app"
 	operationspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/operations/infrastructure/postgres"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
@@ -50,6 +51,7 @@ import (
 	platformemail "github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	platformhealth "github.com/ninggiangboy/send-flow/backend/internal/platform/health"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/kafka"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/logger"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/migration"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/objectstorage"
@@ -388,33 +390,59 @@ func Run(ctx context.Context) error {
 	notificationOpts.Logger = log
 	notificationSvc := notificationapp.NewService(notificationOpts)
 
+	var notificationRealtimeSvc *notificationrealtime.Service
+	{
+		backplane := notificationrealtime.NewBackplane(redisClient.Raw(), log)
+		hub := notificationrealtime.NewHub(backplane, log)
+		relay, err := notificationrealtime.NewKafkaRelay(
+			kafka.Brokers(cfg.KafkaBrokers),
+			cfg.WorkerConsumerGroupPrefix+".notification_realtime",
+			backplane, log,
+		)
+		if err != nil && !notificationrealtime.IsKafkaDisabled(err) {
+			return err
+		}
+		if relay != nil && relay.Healthy() {
+			notificationRealtimeSvc = notificationrealtime.NewService(relay, hub)
+		}
+	}
+
 	r := newRouter(&RouterDeps{
-		HealthSvc:       healthSvc,
-		AuthSvc:         authSvc,
-		SenderSvc:       senderSvc,
-		AudienceSvc:     audienceSvc,
-		ContentSvc:      contentSvc,
-		SuppressionSvc:  suppressionSvc,
-		CampaignSvc:     campaignSvc,
-		DeliverySvc:     deliverySvc,
-		AccessSvc:       accessSvc,
-		IngestionSvc:    ingestionSvc,
-		TrackingSvc:     trackingSvc,
-		AnalyticsSvc:    analyticsSvc,
-		WebhooksSvc:     webhooksSvc,
-		OperationsSvc:   operationsSvc,
-		NotificationSvc: notificationSvc,
-		SettingsSvc:     authSvc,
-		AuditSvc:        auditSvc,
-		AuthRateLimiter: ratelimit.NewRedisService(redisClient),
-		SecureCookies:   cfg.SecureCookies(),
-		FrontendBaseURL: cfg.FrontendBaseURL,
-		HTTPMetrics:     httpMetrics,
-		AuthMetrics:     authMetrics,
-		APIKeyMetrics:   apiKeyMetrics,
-		SenderMetrics:   senderMetrics,
-		Log:             log,
+		HealthSvc:            healthSvc,
+		AuthSvc:              authSvc,
+		SenderSvc:            senderSvc,
+		AudienceSvc:          audienceSvc,
+		ContentSvc:           contentSvc,
+		SuppressionSvc:       suppressionSvc,
+		CampaignSvc:          campaignSvc,
+		DeliverySvc:          deliverySvc,
+		AccessSvc:            accessSvc,
+		IngestionSvc:         ingestionSvc,
+		TrackingSvc:          trackingSvc,
+		AnalyticsSvc:         analyticsSvc,
+		WebhooksSvc:          webhooksSvc,
+		OperationsSvc:        operationsSvc,
+		NotificationSvc:      notificationSvc,
+		NotificationRealtime: notificationRealtimeSvc,
+		SettingsSvc:          authSvc,
+		AuditSvc:             auditSvc,
+		AuthRateLimiter:      ratelimit.NewRedisService(redisClient),
+		SecureCookies:        cfg.SecureCookies(),
+		FrontendBaseURL:      cfg.FrontendBaseURL,
+		HTTPMetrics:          httpMetrics,
+		AuthMetrics:          authMetrics,
+		APIKeyMetrics:        apiKeyMetrics,
+		SenderMetrics:        senderMetrics,
+		Log:                  log,
 	})
+
+	if notificationRealtimeSvc != nil {
+		go func() {
+			if err := notificationRealtimeSvc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) && !notificationrealtime.IsKafkaDisabled(err) {
+				log.Error("notification realtime relay stopped", "error", err)
+			}
+		}()
+	}
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -470,31 +498,32 @@ func Run(ctx context.Context) error {
 }
 
 type RouterDeps struct {
-	HealthSvc       *platformhealth.Service
-	AuthSvc         *identityapp.Service
-	SenderSvc       *senderapp.Service
-	AudienceSvc     *audienceapp.Service
-	ContentSvc      *contentapp.Service
-	SuppressionSvc  *suppressionapp.Service
-	CampaignSvc     *campaignapp.Service
-	DeliverySvc     *deliveryapp.Service
-	AccessSvc       *accessapp.Service
-	IngestionSvc    *ingestionapp.Service
-	TrackingSvc     *trackingapp.Service
-	AnalyticsSvc    *analyticsapp.Service
-	WebhooksSvc     *webhooksapp.Service
-	OperationsSvc   *operationsapp.Service
-	NotificationSvc *notificationapp.Service
-	SettingsSvc     *identityapp.Service
-	AuditSvc        *auditapp.Service
-	AuthRateLimiter ratelimit.Service
-	SecureCookies   bool
-	FrontendBaseURL string
-	HTTPMetrics     *observability.HTTPMetrics
-	AuthMetrics     *observability.AuthMetrics
-	APIKeyMetrics   *observability.APIKeyMetrics
-	SenderMetrics   *observability.SenderMetrics
-	Log             *slog.Logger
+	HealthSvc            *platformhealth.Service
+	AuthSvc              *identityapp.Service
+	SenderSvc            *senderapp.Service
+	AudienceSvc          *audienceapp.Service
+	ContentSvc           *contentapp.Service
+	SuppressionSvc       *suppressionapp.Service
+	CampaignSvc          *campaignapp.Service
+	DeliverySvc          *deliveryapp.Service
+	AccessSvc            *accessapp.Service
+	IngestionSvc         *ingestionapp.Service
+	TrackingSvc          *trackingapp.Service
+	AnalyticsSvc         *analyticsapp.Service
+	WebhooksSvc          *webhooksapp.Service
+	OperationsSvc        *operationsapp.Service
+	NotificationSvc      *notificationapp.Service
+	NotificationRealtime *notificationrealtime.Service
+	SettingsSvc          *identityapp.Service
+	AuditSvc             *auditapp.Service
+	AuthRateLimiter      ratelimit.Service
+	SecureCookies        bool
+	FrontendBaseURL      string
+	HTTPMetrics          *observability.HTTPMetrics
+	AuthMetrics          *observability.AuthMetrics
+	APIKeyMetrics        *observability.APIKeyMetrics
+	SenderMetrics        *observability.SenderMetrics
+	Log                  *slog.Logger
 }
 
 func newRouter(deps *RouterDeps) http.Handler {

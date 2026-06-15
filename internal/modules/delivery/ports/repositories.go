@@ -41,6 +41,7 @@ type MessageReadRepository interface {
 type MessageWriteRepository interface {
 	CreateMany(ctx context.Context, messages []domain.Message) ([]string, error)
 	Update(ctx context.Context, message domain.Message) error
+	ClaimDueMessages(ctx context.Context, query DueMessageQuery, now time.Time) ([]domain.Message, error)
 	MarkProcessing(ctx context.Context, workspaceID, messageID string, now time.Time) error
 	MarkAccepted(ctx context.Context, message domain.Message) error
 	MarkDelivered(ctx context.Context, message domain.Message) error

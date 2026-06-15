@@ -37,12 +37,13 @@ func (p *EventPublisher) PublishQueued(ctx context.Context, msg domain.Notificat
 		ws = *msg.WorkspaceID
 	}
 	payload := contracts.MessageQueuedPayload{
-		MessageID:      msg.ID,
-		WorkspaceID:    ws,
-		Type:           string(msg.Type),
-		RecipientEmail: msg.RecipientEmail,
-		Status:         string(msg.Status),
-		CreatedAt:      msg.CreatedAt.Format(time.RFC3339),
+		MessageID:       msg.ID,
+		WorkspaceID:     ws,
+		Type:            string(msg.Type),
+		RecipientEmail:  msg.RecipientEmail,
+		RecipientUserID: recipientUserIDVal(msg.RecipientUserID),
+		Status:          string(msg.Status),
+		CreatedAt:       msg.CreatedAt.Format(time.RFC3339),
 	}
 	envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
 		EventID:       eventID,
@@ -79,13 +80,14 @@ func (p *EventPublisher) PublishSent(ctx context.Context, msg domain.Notificatio
 	}
 	now := time.Now().UTC()
 	payload := contracts.MessageSentPayload{
-		MessageID:      msg.ID,
-		WorkspaceID:    ws,
-		Type:           string(msg.Type),
-		RecipientEmail: msg.RecipientEmail,
-		AttemptNumber:  attemptNumber,
-		Provider:       provider,
-		SentAt:         now.Format(time.RFC3339),
+		MessageID:       msg.ID,
+		WorkspaceID:     ws,
+		Type:            string(msg.Type),
+		RecipientEmail:  msg.RecipientEmail,
+		RecipientUserID: recipientUserIDVal(msg.RecipientUserID),
+		AttemptNumber:   attemptNumber,
+		Provider:        provider,
+		SentAt:          now.Format(time.RFC3339),
 	}
 	envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
 		EventID:       eventID,
@@ -122,13 +124,14 @@ func (p *EventPublisher) PublishFailed(ctx context.Context, msg domain.Notificat
 	}
 	now := time.Now().UTC()
 	payload := contracts.MessageFailedPayload{
-		MessageID:      msg.ID,
-		WorkspaceID:    ws,
-		Type:           string(msg.Type),
-		RecipientEmail: msg.RecipientEmail,
-		AttemptNumber:  attemptNumber,
-		ErrorMessage:   errorMessage,
-		FinalFailure:   finalFailure,
+		MessageID:       msg.ID,
+		WorkspaceID:     ws,
+		Type:            string(msg.Type),
+		RecipientEmail:  msg.RecipientEmail,
+		RecipientUserID: recipientUserIDVal(msg.RecipientUserID),
+		AttemptNumber:   attemptNumber,
+		ErrorMessage:    errorMessage,
+		FinalFailure:    finalFailure,
 	}
 	envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
 		EventID:       eventID,
@@ -155,4 +158,11 @@ func (p *EventPublisher) PublishFailed(ctx context.Context, msg domain.Notificat
 		WorkspaceID:   ws,
 		OccurredAt:    now,
 	})
+}
+
+func recipientUserIDVal(id *string) string {
+	if id == nil {
+		return ""
+	}
+	return *id
 }

@@ -34,14 +34,9 @@ func TestProcessDueMessages_Accepted(t *testing.T) {
 	opts := newTestOpts()
 
 	msg := dueMessage()
-	read := opts.MessagesRead.(*mockMessageReadRepo)
-	read.listDueQueued = func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
-		return []domain.Message{msg}, nil
-	}
-
 	write := opts.MessagesWrite.(*mockMessageWriteRepo)
-	write.markProcessing = func(ctx context.Context, workspaceID, messageID string, now time.Time) error {
-		return nil
+	write.claimDueMessages = func(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error) {
+		return []domain.Message{msg}, nil
 	}
 	write.markAccepted = func(ctx context.Context, message domain.Message) error {
 		if message.Provider != "test" || message.ProviderMessageID != "prov_msg_1" {
@@ -96,14 +91,9 @@ func TestProcessDueMessages_SenderNotReady(t *testing.T) {
 	opts := newTestOpts()
 
 	msg := dueMessage()
-	read := opts.MessagesRead.(*mockMessageReadRepo)
-	read.listDueQueued = func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
-		return []domain.Message{msg}, nil
-	}
-
 	write := opts.MessagesWrite.(*mockMessageWriteRepo)
-	write.markProcessing = func(ctx context.Context, workspaceID, messageID string, now time.Time) error {
-		return nil
+	write.claimDueMessages = func(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error) {
+		return []domain.Message{msg}, nil
 	}
 	write.markFailed = func(ctx context.Context, message domain.Message) error {
 		if message.LastErrorClass != "sender_not_ready" {
@@ -133,14 +123,9 @@ func TestProcessDueMessages_RecipientSuppressed(t *testing.T) {
 	opts := newTestOpts()
 
 	msg := dueMessage()
-	read := opts.MessagesRead.(*mockMessageReadRepo)
-	read.listDueQueued = func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
-		return []domain.Message{msg}, nil
-	}
-
 	write := opts.MessagesWrite.(*mockMessageWriteRepo)
-	write.markProcessing = func(ctx context.Context, workspaceID, messageID string, now time.Time) error {
-		return nil
+	write.claimDueMessages = func(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error) {
+		return []domain.Message{msg}, nil
 	}
 	write.markFailed = func(ctx context.Context, message domain.Message) error {
 		if message.LastErrorClass != "recipient_suppressed" {
@@ -170,14 +155,9 @@ func TestProcessDueMessages_RenderFailure(t *testing.T) {
 	opts := newTestOpts()
 
 	msg := dueMessage()
-	read := opts.MessagesRead.(*mockMessageReadRepo)
-	read.listDueQueued = func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
-		return []domain.Message{msg}, nil
-	}
-
 	write := opts.MessagesWrite.(*mockMessageWriteRepo)
-	write.markProcessing = func(ctx context.Context, workspaceID, messageID string, now time.Time) error {
-		return nil
+	write.claimDueMessages = func(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error) {
+		return []domain.Message{msg}, nil
 	}
 	write.markFailed = func(ctx context.Context, message domain.Message) error {
 		if message.LastErrorClass != "template_render_failed" {
@@ -207,14 +187,9 @@ func TestProcessDueMessages_ProviderPermanentFailure(t *testing.T) {
 	opts := newTestOpts()
 
 	msg := dueMessage()
-	read := opts.MessagesRead.(*mockMessageReadRepo)
-	read.listDueQueued = func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
-		return []domain.Message{msg}, nil
-	}
-
 	write := opts.MessagesWrite.(*mockMessageWriteRepo)
-	write.markProcessing = func(ctx context.Context, workspaceID, messageID string, now time.Time) error {
-		return nil
+	write.claimDueMessages = func(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error) {
+		return []domain.Message{msg}, nil
 	}
 	write.markFailed = func(ctx context.Context, message domain.Message) error {
 		if message.LastErrorClass != "provider_permanent_failure" {
@@ -256,14 +231,9 @@ func TestProcessDueMessages_ProviderTemporaryFailure(t *testing.T) {
 	opts := newTestOpts()
 
 	msg := dueMessage()
-	read := opts.MessagesRead.(*mockMessageReadRepo)
-	read.listDueQueued = func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
-		return []domain.Message{msg}, nil
-	}
-
 	write := opts.MessagesWrite.(*mockMessageWriteRepo)
-	write.markProcessing = func(ctx context.Context, workspaceID, messageID string, _ time.Time) error {
-		return nil
+	write.claimDueMessages = func(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error) {
+		return []domain.Message{msg}, nil
 	}
 	write.update = func(ctx context.Context, message domain.Message) error {
 		if message.Status != domain.MessageStatusQueued {
@@ -332,17 +302,12 @@ func TestProcessDueMessages_ProviderTemporaryFailure(t *testing.T) {
 	}
 }
 
-func TestProcessDueMessages_DuplicateClaim(t *testing.T) {
+func TestProcessDueMessages_NoMessages(t *testing.T) {
 	opts := newTestOpts()
 
-	read := opts.MessagesRead.(*mockMessageReadRepo)
-	read.listDueQueued = func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
-		return []domain.Message{dueMessage()}, nil
-	}
-
 	write := opts.MessagesWrite.(*mockMessageWriteRepo)
-	write.markProcessing = func(ctx context.Context, workspaceID, messageID string, now time.Time) error {
-		return domain.ErrMessageNotFound
+	write.claimDueMessages = func(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error) {
+		return nil, nil
 	}
 
 	svc := NewService(opts)
@@ -355,8 +320,8 @@ func TestProcessDueMessages_DuplicateClaim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.SelectedCount != 1 {
-		t.Errorf("expected 1 selected, got %d", result.SelectedCount)
+	if result.SelectedCount != 0 {
+		t.Errorf("expected 0 selected, got %d", result.SelectedCount)
 	}
 }
 

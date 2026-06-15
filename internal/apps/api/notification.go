@@ -1,21 +1,32 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/domain"
+	notificationrealtime "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/realtime"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/sse"
 )
 
+type permissionChecker func(ctx context.Context, workspaceID, userID, permission string) error
+
 type notificationHTTP struct {
-	svc *app.Service
+	svc         *app.Service
+	realtime    *notificationrealtime.Service
+	permChecker permissionChecker
+	log         *slog.Logger
 }
 
-func newNotificationHTTP(svc *app.Service) *notificationHTTP {
-	return &notificationHTTP{svc: svc}
+func newNotificationHTTP(svc *app.Service, realtime *notificationrealtime.Service, permChecker permissionChecker, log *slog.Logger) *notificationHTTP {
+	return &notificationHTTP{svc: svc, realtime: realtime, permChecker: permChecker, log: log}
 }
 
 type notificationListItem struct {
@@ -211,6 +222,129 @@ func (h *notificationHTTP) sendSystemAlert(w http.ResponseWriter, r *http.Reques
 			Attempts:             nil,
 		},
 	})
+}
+
+func (h *notificationHTTP) streamWorkspaceNotifications(w http.ResponseWriter, r *http.Request) {
+	if h.realtime == nil || !h.realtime.Healthy() {
+		writeError(w, r, http.StatusServiceUnavailable, "notification.realtime_unavailable", "notification realtime is unavailable", nil)
+		return
+	}
+
+	workspaceID := chi.URLParam(r, "workspace_id")
+	if workspaceID == "" {
+		writeError(w, r, http.StatusBadRequest, "notification.filter_invalid", "workspace_id is required", nil)
+		return
+	}
+
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	if userID == "" {
+		writeError(w, r, http.StatusUnauthorized, "auth.invalid_token", "authentication required", nil)
+		return
+	}
+
+	// Require notification.read permission for workspace stream.
+	if err := h.permChecker(r.Context(), workspaceID, userID, "notification.read"); err != nil {
+		var denied *auth.PermissionDeniedError
+		if errors.As(err, &denied) {
+			writeError(w, r, http.StatusForbidden, "notification.read_denied", err.Error(), nil)
+			return
+		}
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		return
+	}
+
+	stream, err := sse.New(w, r, sse.Options{HeartbeatInterval: sse.DefaultHeartbeatInterval})
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "streaming is not supported", nil)
+		return
+	}
+	defer stream.Close()
+
+	_ = stream.WriteEvent(sse.Event{Event: "connected", Data: "notification stream connected"})
+
+	ch, unsub, err := h.realtime.SubscribeWorkspace(r.Context(), workspaceID)
+	if err != nil {
+		h.log.Warn("failed to subscribe to workspace notification stream", "workspace_id", workspaceID, "error", err)
+		writeError(w, r, http.StatusServiceUnavailable, "notification.realtime_unavailable", "notification realtime is unavailable", nil)
+		return
+	}
+	defer unsub()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(ev)
+			if err != nil {
+				h.log.Error("failed to marshal realtime event", "event_id", ev.EventID, "error", err)
+				continue
+			}
+			if err := stream.WriteEvent(sse.Event{
+				Event: "notification.message",
+				ID:    ev.EventID,
+				Data:  string(data),
+			}); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (h *notificationHTTP) streamMyNotifications(w http.ResponseWriter, r *http.Request) {
+	if h.realtime == nil || !h.realtime.Healthy() {
+		writeError(w, r, http.StatusServiceUnavailable, "notification.realtime_unavailable", "notification realtime is unavailable", nil)
+		return
+	}
+
+	userID, _ := r.Context().Value(ctxUserID).(string)
+	if userID == "" {
+		writeError(w, r, http.StatusUnauthorized, "auth.invalid_token", "authentication required", nil)
+		return
+	}
+
+	stream, err := sse.New(w, r, sse.Options{HeartbeatInterval: sse.DefaultHeartbeatInterval})
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal.error", "streaming is not supported", nil)
+		return
+	}
+	defer stream.Close()
+
+	_ = stream.WriteEvent(sse.Event{Event: "connected", Data: "notification stream connected"})
+
+	ch, unsub, err := h.realtime.SubscribeUser(r.Context(), userID)
+	if err != nil {
+		h.log.Warn("failed to subscribe to user notification stream", "user_id", userID, "error", err)
+		writeError(w, r, http.StatusServiceUnavailable, "notification.realtime_unavailable", "notification realtime is unavailable", nil)
+		return
+	}
+	defer unsub()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(ev)
+			if err != nil {
+				h.log.Error("failed to marshal realtime event", "event_id", ev.EventID, "error", err)
+				continue
+			}
+			if err := stream.WriteEvent(sse.Event{
+				Event: "notification.message",
+				ID:    ev.EventID,
+				Data:  string(data),
+			}); err != nil {
+				return
+			}
+		}
+	}
 }
 
 func writeNotificationErr(w http.ResponseWriter, r *http.Request, err error) {

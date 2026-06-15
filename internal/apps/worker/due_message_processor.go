@@ -15,6 +15,7 @@ type DueMessageProcessor struct {
 	pollInterval time.Duration
 	batchSize    int
 	messageType  string
+	guard        *PollingGuard
 }
 
 func NewDueMessageProcessor(svc *deliveryapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int, messageType string) *DueMessageProcessor {
@@ -29,6 +30,7 @@ func newDueMessageProcessor(name string, svc *deliveryapp.Service, log *slog.Log
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
 		messageType:  messageType,
+		guard:        NewPollingGuard(name, pollInterval, 0, pollInterval, log),
 	}
 }
 
@@ -41,27 +43,10 @@ func (p *DueMessageProcessor) RunnerKey() string {
 }
 
 func (p *DueMessageProcessor) Run(ctx context.Context) error {
-	p.log.Info("starting due message processor",
-		"poll_interval", p.pollInterval,
-		"batch_size", p.batchSize,
-		"message_type", p.messageType,
-	)
-
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			p.log.Info("due message processor stopped")
-			return nil
-		case <-ticker.C:
-			p.processOnce(ctx)
-		}
-	}
+	return p.guard.Run(ctx, p)
 }
 
-func (p *DueMessageProcessor) processOnce(ctx context.Context) {
+func (p *DueMessageProcessor) Poll(ctx context.Context) (bool, error) {
 	workspaces, err := p.svc.ProcessDueMessagesAllWorkspaces(ctx, deliveryapp.ProcessDueMessagesAllInput{
 		MessageType: p.messageType,
 		Limit:       p.batchSize,
@@ -69,10 +54,11 @@ func (p *DueMessageProcessor) processOnce(ctx context.Context) {
 	})
 	if err != nil {
 		p.log.Error("failed to process due messages", "error", err)
-		return
+		return false, err
 	}
 
 	if workspaces > 0 {
 		p.log.Debug("processed due messages across workspaces", "workspaces_processed", workspaces)
 	}
+	return workspaces > 0, nil
 }

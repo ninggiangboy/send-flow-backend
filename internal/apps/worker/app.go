@@ -244,7 +244,15 @@ func Run(ctx context.Context) error {
 			"marketing",
 			50,
 		)
-		if err := registry.Register(dueMsgScheduler); err != nil {
+		dueMsgLock := postgres.NewAdvisoryLock(pgClient.WritePool(), "scheduler:delivery.due_messages")
+		electedDueMsgScheduler := NewElectedSchedulerRunner(
+			dueMsgScheduler.Name(),
+			dueMsgScheduler,
+			dueMsgLock,
+			5*time.Second,
+			log,
+		)
+		if err := registry.Register(electedDueMsgScheduler); err != nil {
 			return err
 		}
 
@@ -364,7 +372,15 @@ func Run(ctx context.Context) error {
 			log,
 			50,
 		)
-		if err := registry.Register(dueNotifScheduler); err != nil {
+		dueNotifLock := postgres.NewAdvisoryLock(pgClient.WritePool(), "scheduler:notification.due_retries")
+		electedDueNotifScheduler := NewElectedSchedulerRunner(
+			dueNotifScheduler.Name(),
+			dueNotifScheduler,
+			dueNotifLock,
+			10*time.Second,
+			log,
+		)
+		if err := registry.Register(electedDueNotifScheduler); err != nil {
 			return err
 		}
 
@@ -434,7 +450,15 @@ func Run(ctx context.Context) error {
 			log,
 			50,
 		)
-		if err := registry.Register(dueWebhookScheduler); err != nil {
+		dueWebhookLock := postgres.NewAdvisoryLock(pgClient.WritePool(), "scheduler:webhooks.due_deliveries")
+		electedDueWebhookScheduler := NewElectedSchedulerRunner(
+			dueWebhookScheduler.Name(),
+			dueWebhookScheduler,
+			dueWebhookLock,
+			10*time.Second,
+			log,
+		)
+		if err := registry.Register(electedDueWebhookScheduler); err != nil {
 			return err
 		}
 

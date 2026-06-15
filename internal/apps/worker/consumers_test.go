@@ -47,6 +47,10 @@ func (m *mockMessageWrite) CreateMany(ctx context.Context, messages []domain.Mes
 
 func (m *mockMessageWrite) Update(ctx context.Context, message domain.Message) error { return nil }
 
+func (m *mockMessageWrite) ClaimDueMessages(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error) {
+	return nil, nil
+}
+
 func (m *mockMessageWrite) MarkProcessing(ctx context.Context, workspaceID, messageID string, now time.Time) error {
 	return nil
 }

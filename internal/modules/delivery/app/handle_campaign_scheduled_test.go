@@ -37,6 +37,10 @@ func (m *mockMessageWriteRepository) Update(_ context.Context, _ domain.Message)
 	return nil
 }
 
+func (m *mockMessageWriteRepository) ClaimDueMessages(_ context.Context, _ ports.DueMessageQuery, _ time.Time) ([]domain.Message, error) {
+	return nil, nil
+}
+
 func (m *mockMessageWriteRepository) MarkProcessing(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }

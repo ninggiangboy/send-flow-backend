@@ -15,6 +15,7 @@ type DueWebhookDeliveryProcessor struct {
 	pollInterval time.Duration
 	batchSize    int
 	recordOp     OperationsEventRecorder
+	guard        *PollingGuard
 }
 
 func NewDueWebhookDeliveryProcessor(svc *webhooksapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int) *DueWebhookDeliveryProcessor {
@@ -28,6 +29,7 @@ func newDueWebhookDeliveryProcessor(name string, svc *webhooksapp.Service, log *
 		log:          log.With("worker", name),
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
+		guard:        NewPollingGuard(name, pollInterval, 0, pollInterval, log),
 	}
 }
 
@@ -44,31 +46,15 @@ func (p *DueWebhookDeliveryProcessor) RunnerKey() string {
 }
 
 func (p *DueWebhookDeliveryProcessor) Run(ctx context.Context) error {
-	p.log.Info("starting due webhook delivery processor",
-		"poll_interval", p.pollInterval,
-		"batch_size", p.batchSize,
-	)
-
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			p.log.Info("due webhook delivery processor stopped")
-			return nil
-		case <-ticker.C:
-			p.processOnce(ctx)
-		}
-	}
+	return p.guard.Run(ctx, p)
 }
 
-func (p *DueWebhookDeliveryProcessor) processOnce(ctx context.Context) {
+func (p *DueWebhookDeliveryProcessor) Poll(ctx context.Context) (bool, error) {
 	now := time.Now().UTC()
 	deliveries, err := p.svc.ClaimDueDeliveries(ctx, p.batchSize, now)
 	if err != nil {
 		p.log.Error("failed to claim due deliveries", "error", err)
-		return
+		return false, err
 	}
 
 	for _, delivery := range deliveries {
@@ -96,4 +82,5 @@ func (p *DueWebhookDeliveryProcessor) processOnce(ctx context.Context) {
 			p.recordOp(ctx, "webhooks", "webhook.delivery", opType, status, delivery.WorkspaceID, "", "webhooks.process_due_deliveries", delivery.TargetURL, time.Now())
 		}
 	}
+	return len(deliveries) > 0, nil
 }
