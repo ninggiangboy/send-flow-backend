@@ -511,6 +511,7 @@ func Run(ctx context.Context) error {
 	if objectStorageClient != nil {
 		audienceContactsRead := audiencepostgres.NewContactReadRepository(pgReadPool)
 		audienceContactsWrite := audiencepostgres.NewContactWriteRepository(pgWritePool)
+		audienceSegmentsRead := audiencepostgres.NewSegmentReadRepository(pgReadPool)
 		audienceImportJobsWrite := audiencepostgres.NewImportJobWriteRepository(pgWritePool)
 		audienceExportJobsWrite := audiencepostgres.NewExportJobWriteRepository(pgWritePool)
 		audienceOutboxRepo := audiencepostgres.NewOutboxRepository(pgWritePool)
@@ -533,6 +534,7 @@ func Run(ctx context.Context) error {
 		exportProcessor := NewAudienceExportProcessor(
 			audienceExportJobsWrite,
 			audienceContactsRead,
+			audienceSegmentsRead,
 			audienceOutboxRepo,
 			transaction.NewManager(pgWritePool),
 			objectStorageClient,

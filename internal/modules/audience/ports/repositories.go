@@ -112,6 +112,7 @@ type ExportJobWriteRepository interface {
 	UpdateExportJob(ctx context.Context, job domain.AudienceExportJob) error
 	ClaimQueuedExportJobs(ctx context.Context, limit int, now time.Time) ([]domain.AudienceExportJob, error)
 	MarkExportJobRunning(ctx context.Context, workspaceID, jobID string, now time.Time) error
+	UpdateExportJobProgress(ctx context.Context, workspaceID, jobID string, processedCount int64, now time.Time) error
 	MarkExportJobCompleted(ctx context.Context, workspaceID, jobID string, artifactURI string, now time.Time) error
 	MarkExportJobFailed(ctx context.Context, workspaceID, jobID string, errorSummary string, now time.Time) error
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
@@ -351,6 +352,96 @@ func TestQueueCampaignMessages_Success(t *testing.T) {
 	}
 	if saveCount != 2 {
 		t.Errorf("expected outbox save called 2 times, got %d", saveCount)
+	}
+}
+
+func TestQueueCampaignMessages_PagesAndWritesBatches(t *testing.T) {
+	opts := newTestOpts()
+
+	idCounter := 0
+	opts.IDGen = func() (string, error) {
+		idCounter++
+		return fmt.Sprintf("id_%d", idCounter), nil
+	}
+
+	firstPage := make([]ports.CampaignCandidate, 500)
+	for i := range firstPage {
+		firstPage[i] = ports.CampaignCandidate{
+			ID:              "cand_first",
+			WorkspaceID:     "ws_1",
+			CampaignID:      "camp_1",
+			ContactID:       "contact_first",
+			EmailNormalized: "first@example.com",
+			RecipientSnapshot: json.RawMessage(
+				`{"contact_id":"contact_first","email":"first@example.com","email_normalized":"first@example.com"}`,
+			),
+		}
+	}
+	secondPage := []ports.CampaignCandidate{{
+		ID:              "cand_last",
+		WorkspaceID:     "ws_1",
+		CampaignID:      "camp_1",
+		ContactID:       "contact_last",
+		EmailNormalized: "last@example.com",
+		RecipientSnapshot: json.RawMessage(
+			`{"contact_id":"contact_last","email":"last@example.com","email_normalized":"last@example.com"}`,
+		),
+	}}
+
+	var cursors []string
+	campaign := opts.CampaignReader.(*mockCampaignReader)
+	campaign.countCandidates = func(ctx context.Context, workspaceID, campaignID string) (int64, error) {
+		return 501, nil
+	}
+	campaign.listCandidates = func(ctx context.Context, workspaceID, campaignID string, limit int, cursor string) ([]ports.CampaignCandidate, string, error) {
+		if limit != 500 {
+			t.Fatalf("expected page size 500, got %d", limit)
+		}
+		cursors = append(cursors, cursor)
+		switch cursor {
+		case "":
+			return firstPage, "next", nil
+		case "next":
+			return secondPage, "", nil
+		default:
+			t.Fatalf("unexpected cursor %q", cursor)
+			return nil, "", nil
+		}
+	}
+
+	var batchSizes []int
+	write := opts.MessagesWrite.(*mockMessageWriteRepo)
+	write.createMany = func(ctx context.Context, messages []domain.Message) ([]string, error) {
+		batchSizes = append(batchSizes, len(messages))
+		ids := make([]string, len(messages))
+		for i, m := range messages {
+			ids[i] = m.ID
+		}
+		return ids, nil
+	}
+
+	svc := NewService(opts)
+	result, err := svc.QueueCampaignMessages(context.Background(), QueueCampaignMessagesInput{
+		WorkspaceID:       "ws_1",
+		CampaignID:        "camp_1",
+		TemplateID:        "tmpl_1",
+		TemplateVersionID: "tv_1",
+		SenderDomainID:    "sd_1",
+		MessageType:       "marketing",
+		ScheduledAt:       time.Now().Add(time.Hour),
+		Now:               time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.CandidateCount != 501 || result.QueuedCount != 501 {
+		t.Fatalf("expected 501 candidates and queued messages, got candidates=%d queued=%d", result.CandidateCount, result.QueuedCount)
+	}
+	if len(cursors) != 2 || cursors[0] != "" || cursors[1] != "next" {
+		t.Fatalf("unexpected cursors: %#v", cursors)
+	}
+	if len(batchSizes) != 2 || batchSizes[0] != 500 || batchSizes[1] != 1 {
+		t.Fatalf("unexpected batch sizes: %#v", batchSizes)
 	}
 }
 

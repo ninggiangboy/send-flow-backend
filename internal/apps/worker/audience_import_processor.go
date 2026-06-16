@@ -14,6 +14,7 @@ import (
 	audiencecontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
 	audienceports "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/batching"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/objectstorage"
@@ -208,40 +209,35 @@ func (p *AudienceImportProcessor) processCSV(ctx context.Context, job domain.Aud
 	}
 
 	var counts audienceports.ImportCounts
-	chunk := make([]map[string]string, 0, importChunkSize)
-
-	for {
-		record, err := csvReader.Read()
-		if err == io.EOF {
-			if len(chunk) > 0 {
-				if err := p.processImportChunk(ctx, job, chunk, &counts, now); err != nil {
-					return counts, err
+	var parseFailedCount int64
+	err = p.processImportRows(ctx, job, &counts, now, batching.ItemReaderFunc[map[string]string](
+		func(ctx context.Context, shardID, totalShards int) (map[string]string, bool, error) {
+			for {
+				if err := ctx.Err(); err != nil {
+					return nil, false, err
 				}
-			}
-			break
-		}
-		if err != nil {
-			counts.FailedCount++
-			continue
-		}
 
-		row := make(map[string]string)
-		for i, val := range record {
-			if i < len(headers) {
-				row[headers[i]] = val
-			}
-		}
-		chunk = append(chunk, row)
+				record, err := csvReader.Read()
+				if err == io.EOF {
+					return nil, false, nil
+				}
+				if err != nil {
+					parseFailedCount++
+					continue
+				}
 
-		if len(chunk) >= importChunkSize {
-			if err := p.processImportChunk(ctx, job, chunk, &counts, now); err != nil {
-				return counts, err
+				row := make(map[string]string, len(headers))
+				for i, val := range record {
+					if i < len(headers) {
+						row[headers[i]] = val
+					}
+				}
+				return row, true, nil
 			}
-			chunk = make([]map[string]string, 0, importChunkSize)
-		}
-	}
-
-	return counts, nil
+		},
+	))
+	counts.FailedCount += parseFailedCount
+	return counts, err
 }
 
 func (p *AudienceImportProcessor) processJSON(ctx context.Context, job domain.AudienceImportJob, reader io.ReadCloser, now time.Time) (audienceports.ImportCounts, error) {
@@ -257,53 +253,80 @@ func (p *AudienceImportProcessor) processJSON(ctx context.Context, job domain.Au
 	}
 
 	var counts audienceports.ImportCounts
-	var chunks [][]map[string]string
-	chunk := make([]map[string]string, 0, importChunkSize)
+	arrayClosed := false
 
-	for decoder.More() {
-		var row map[string]any
-		if err := decoder.Decode(&row); err != nil {
-			return counts, fmt.Errorf("decode json row: %w", err)
-		}
+	err = p.processImportRows(ctx, job, &counts, now, batching.ItemReaderFunc[map[string]string](
+		func(ctx context.Context, shardID, totalShards int) (map[string]string, bool, error) {
+			if err := ctx.Err(); err != nil {
+				return nil, false, err
+			}
+			if !decoder.More() {
+				if arrayClosed {
+					return nil, false, nil
+				}
+				closing, err := decoder.Token()
+				if err != nil {
+					return nil, false, fmt.Errorf("read json array end: %w", err)
+				}
+				if delim, ok := closing.(json.Delim); !ok || delim != ']' {
+					return nil, false, fmt.Errorf("expected json array end ']', got %v", closing)
+				}
+				arrayClosed = true
+				// Ensure no content follows the closing ]
+				if trailing, err := decoder.Token(); err == nil {
+					return nil, false, fmt.Errorf("unexpected content after JSON array: %v", trailing)
+				} else if !errors.Is(err, io.EOF) {
+					return nil, false, fmt.Errorf("unexpected content after JSON array: %w", err)
+				}
+				return nil, false, nil
+			}
+			if arrayClosed {
+				return nil, false, fmt.Errorf("unexpected content after JSON array")
+			}
 
-		strRow := make(map[string]string)
-		for k, v := range row {
-			strRow[k] = fmt.Sprintf("%v", v)
-		}
-		chunk = append(chunk, strRow)
+			var row map[string]any
+			if err := decoder.Decode(&row); err != nil {
+				return nil, false, fmt.Errorf("decode json row: %w", err)
+			}
 
-		if len(chunk) >= importChunkSize {
-			chunks = append(chunks, chunk)
-			chunk = make([]map[string]string, 0, importChunkSize)
-		}
-	}
-
-	closing, err := decoder.Token()
-	if err != nil {
-		return counts, fmt.Errorf("read json array end: %w", err)
-	}
-	if delim, ok := closing.(json.Delim); !ok || delim != ']' {
-		return counts, fmt.Errorf("expected json array end ']', got %v", closing)
-	}
-
-	if decoder.More() {
-		return counts, errors.New("unexpected data after json array")
-	}
-
-	if len(chunk) > 0 {
-		chunks = append(chunks, chunk)
-	}
-
-	for _, c := range chunks {
-		if err := p.processImportChunk(ctx, job, c, &counts, now); err != nil {
-			return counts, err
-		}
-	}
-
-	return counts, nil
+			strRow := make(map[string]string, len(row))
+			for k, v := range row {
+				strRow[k] = fmt.Sprintf("%v", v)
+			}
+			return strRow, true, nil
+		},
+	))
+	return counts, err
 }
 
-func (p *AudienceImportProcessor) processImportChunk(ctx context.Context, job domain.AudienceImportJob, rows []map[string]string, counts *audienceports.ImportCounts, now time.Time) error {
+func (p *AudienceImportProcessor) processImportRows(
+	ctx context.Context,
+	job domain.AudienceImportJob,
+	counts *audienceports.ImportCounts,
+	now time.Time,
+	reader batching.ItemReader[map[string]string],
+) error {
+	processor := batching.ItemProcessorFunc[map[string]string, map[string]string](
+		func(ctx context.Context, row map[string]string) (map[string]string, bool, error) {
+			return row, true, nil
+		},
+	)
+	writer := batching.ItemWriterFunc[map[string]string](
+		func(ctx context.Context, rows []map[string]string) error {
+			return p.processImportBatch(ctx, job, rows, counts, now)
+		},
+	)
+
+	_, err := batching.ExecuteWithOptions(ctx, 1, reader, processor, writer, batching.Options{
+		BufferedItemsSize:    importChunkSize * 10,
+		WriteBatchSize:       importChunkSize,
+		ProcessorConcurrency: 1,
+		MaxInflight:          importChunkSize * 10,
+	})
+	return err
+}
+
+func (p *AudienceImportProcessor) processImportBatch(ctx context.Context, job domain.AudienceImportJob, rows []map[string]string, counts *audienceports.ImportCounts, now time.Time) error {
 	return p.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		for _, row := range rows {
 			if err := p.processContactRow(txCtx, job, row, counts, now); err != nil {

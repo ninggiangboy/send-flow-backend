@@ -210,37 +210,50 @@ type ImportJobListResult struct {
 // --- Export Job DTOs ---
 
 type ExportJobDTO struct {
-	ID             string
-	WorkspaceID    string
-	FiltersJSON    map[string]any
-	SelectedFields []string
-	Format         string
-	Status         string
-	ArtifactURI    string
-	ErrorSummary   string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CompletedAt    *time.Time
+	ID                  string
+	WorkspaceID         string
+	FiltersJSON         map[string]any
+	SelectedFields      []string
+	Format              string
+	ZipOutput           bool
+	Status              string
+	ProcessedCount      int64
+	EstimatedTotalCount int64
+	ArtifactURI         string
+	DownloadURL         string
+	DownloadURLTTL      *time.Time
+	ErrorSummary        string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	CompletedAt         *time.Time
 }
 
 func exportJobToDTO(j domain.AudienceExportJob) ExportJobDTO {
 	return ExportJobDTO{
-		ID:             j.ID,
-		WorkspaceID:    j.WorkspaceID,
-		FiltersJSON:    j.FiltersJSON,
-		SelectedFields: j.SelectedFields,
-		Format:         string(j.Format),
-		Status:         string(j.Status),
-		ArtifactURI:    j.ArtifactURI,
-		ErrorSummary:   j.ErrorSummary,
-		CreatedAt:      j.CreatedAt,
-		UpdatedAt:      j.UpdatedAt,
-		CompletedAt:    j.CompletedAt,
+		ID:                  j.ID,
+		WorkspaceID:         j.WorkspaceID,
+		FiltersJSON:         j.FiltersJSON,
+		SelectedFields:      j.SelectedFields,
+		Format:              string(j.Format),
+		ZipOutput:           j.ZipOutput,
+		Status:              string(j.Status),
+		ProcessedCount:      j.ProcessedCount,
+		EstimatedTotalCount: j.EstimatedTotalCount,
+		ArtifactURI:         j.ArtifactURI,
+		ErrorSummary:        j.ErrorSummary,
+		CreatedAt:           j.CreatedAt,
+		UpdatedAt:           j.UpdatedAt,
+		CompletedAt:         j.CompletedAt,
 	}
 }
 
 type ExportJobResult struct {
 	Job ExportJobDTO
+}
+
+type ExportJobListResult struct {
+	Jobs       []ExportJobDTO
+	NextCursor string
 }
 
 // --- Audience Selection types ---

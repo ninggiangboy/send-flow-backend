@@ -9,6 +9,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/batching"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 )
 
@@ -76,20 +77,42 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 
 	var totalQueued int
 	var cursor string
+	var pending []ports.CampaignCandidate
+	exhausted := false
 	pageSize := 500
 
-	for {
-		candidates, nextCursor, err := h.campaignReader.ListCandidates(ctx, input.WorkspaceID, input.CampaignID, pageSize, cursor)
-		if err != nil {
-			log.Error("failed to list candidates", "cursor", cursor, "error", err)
-			return nil, err
-		}
-		if len(candidates) == 0 {
-			break
-		}
+	pipeline, err := batching.NewPipeline[ports.CampaignCandidate, domain.Message](batching.Config[ports.CampaignCandidate, domain.Message]{
+		Options: batching.Options{
+			BufferedItemsSize:    pageSize,
+			WriteBatchSize:       pageSize,
+			ProcessorConcurrency: 1,
+			MaxInflight:          pageSize,
+		},
+		Reader: batching.ItemReaderFunc[ports.CampaignCandidate](func(ctx context.Context, _ int, _ int) (ports.CampaignCandidate, bool, error) {
+			for len(pending) == 0 {
+				if exhausted {
+					return ports.CampaignCandidate{}, false, nil
+				}
+				candidates, nextCursor, err := h.campaignReader.ListCandidates(ctx, input.WorkspaceID, input.CampaignID, pageSize, cursor)
+				if err != nil {
+					log.Error("failed to list candidates", "cursor", cursor, "error", err)
+					return ports.CampaignCandidate{}, false, err
+				}
+				if len(candidates) == 0 {
+					return ports.CampaignCandidate{}, false, nil
+				}
+				pending = candidates
+				if nextCursor == "" {
+					exhausted = true
+				}
+				cursor = nextCursor
+			}
 
-		messages := make([]domain.Message, 0, len(candidates))
-		for _, c := range candidates {
+			candidate := pending[0]
+			pending = pending[1:]
+			return candidate, true, nil
+		}),
+		Processor: batching.ItemProcessorFunc[ports.CampaignCandidate, domain.Message](func(ctx context.Context, c ports.CampaignCandidate) (domain.Message, bool, error) {
 			var snapshot domain.RecipientSnapshot
 			if len(c.RecipientSnapshot) > 0 {
 				if err := json.Unmarshal(c.RecipientSnapshot, &snapshot); err != nil {
@@ -100,10 +123,10 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 			msgID, err := h.idGen()
 			if err != nil {
 				log.Error("failed to generate message ID", "error", err)
-				return nil, err
+				return domain.Message{}, false, err
 			}
 
-			messages = append(messages, domain.Message{
+			return domain.Message{
 				ID:                       msgID,
 				WorkspaceID:              input.WorkspaceID,
 				CampaignID:               input.CampaignID,
@@ -121,89 +144,91 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 				QueuedAt:                 &input.Now,
 				CreatedAt:                input.Now,
 				UpdatedAt:                input.Now,
-			})
-		}
+			}, true, nil
+		}),
+		Writer: batching.ItemWriterFunc[domain.Message](func(ctx context.Context, messages []domain.Message) error {
+			var pageQueued int
+			if err := h.txManager.WithinTx(ctx, func(txCtx context.Context) error {
+				insertedIDs, err := h.messagesWrite.CreateMany(txCtx, messages)
+				if err != nil {
+					return err
+				}
+				pageQueued = len(insertedIDs)
 
-		var pageQueued int
-		if err := h.txManager.WithinTx(ctx, func(txCtx context.Context) error {
-			insertedIDs, err := h.messagesWrite.CreateMany(txCtx, messages)
-			if err != nil {
+				insertedSet := make(map[string]struct{}, len(insertedIDs))
+				for _, id := range insertedIDs {
+					insertedSet[id] = struct{}{}
+				}
+
+				for _, msg := range messages {
+					if _, ok := insertedSet[msg.ID]; !ok {
+						continue
+					}
+
+					eventID, err := h.idGen()
+					if err != nil {
+						return err
+					}
+
+					var scheduledAt string
+					if msg.ScheduledAt != nil {
+						scheduledAt = msg.ScheduledAt.Format(time.RFC3339)
+					}
+
+					payload := contracts.MessageQueuedPayload{
+						MessageID:           msg.ID,
+						WorkspaceID:         msg.WorkspaceID,
+						CampaignID:          msg.CampaignID,
+						CampaignCandidateID: msg.CampaignCandidateID,
+						TemplateID:          msg.TemplateID,
+						TemplateVersionID:   msg.TemplateVersionID,
+						SenderDomainID:      msg.SenderDomainID,
+						MessageType:         msg.MessageType,
+						SourceType:          msg.SourceType,
+						ScheduledAt:         scheduledAt,
+					}
+					envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
+						EventID:       eventID,
+						EventType:     contracts.EventDeliveryMessageQueuedV1,
+						EventVersion:  1,
+						AggregateType: "message",
+						AggregateID:   msg.ID,
+						WorkspaceID:   msg.WorkspaceID,
+						OccurredAt:    input.Now,
+					}, payload)
+					if err != nil {
+						return err
+					}
+					payloadBytes, err := events.Marshal(envelope)
+					if err != nil {
+						return err
+					}
+					if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
+						ID:            envelope.EventID,
+						AggregateType: "message",
+						AggregateID:   msg.ID,
+						EventType:     contracts.EventDeliveryMessageQueuedV1,
+						Payload:       payloadBytes,
+						WorkspaceID:   msg.WorkspaceID,
+						OccurredAt:    input.Now,
+					}); err != nil {
+						return err
+					}
+				}
+				return nil
+			}); err != nil {
+				log.Error("failed to queue messages page", "error", err)
 				return err
 			}
-			pageQueued = len(insertedIDs)
-
-			insertedSet := make(map[string]struct{}, len(insertedIDs))
-			for _, id := range insertedIDs {
-				insertedSet[id] = struct{}{}
-			}
-
-			for _, msg := range messages {
-				if _, ok := insertedSet[msg.ID]; !ok {
-					continue
-				}
-
-				eventID, err := h.idGen()
-				if err != nil {
-					return err
-				}
-
-				var scheduledAt string
-				if msg.ScheduledAt != nil {
-					scheduledAt = msg.ScheduledAt.Format(time.RFC3339)
-				}
-
-				payload := contracts.MessageQueuedPayload{
-					MessageID:           msg.ID,
-					WorkspaceID:         msg.WorkspaceID,
-					CampaignID:          msg.CampaignID,
-					CampaignCandidateID: msg.CampaignCandidateID,
-					TemplateID:          msg.TemplateID,
-					TemplateVersionID:   msg.TemplateVersionID,
-					SenderDomainID:      msg.SenderDomainID,
-					MessageType:         msg.MessageType,
-					SourceType:          msg.SourceType,
-					ScheduledAt:         scheduledAt,
-				}
-				envelope, err := events.NewEnvelope(events.NewEnvelopeOptions{
-					EventID:       eventID,
-					EventType:     contracts.EventDeliveryMessageQueuedV1,
-					EventVersion:  1,
-					AggregateType: "message",
-					AggregateID:   msg.ID,
-					WorkspaceID:   msg.WorkspaceID,
-					OccurredAt:    input.Now,
-				}, payload)
-				if err != nil {
-					return err
-				}
-				payloadBytes, err := events.Marshal(envelope)
-				if err != nil {
-					return err
-				}
-				if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
-					ID:            envelope.EventID,
-					AggregateType: "message",
-					AggregateID:   msg.ID,
-					EventType:     contracts.EventDeliveryMessageQueuedV1,
-					Payload:       payloadBytes,
-					WorkspaceID:   msg.WorkspaceID,
-					OccurredAt:    input.Now,
-				}); err != nil {
-					return err
-				}
-			}
-			return nil
-		}); err != nil {
-			log.Error("failed to queue messages page", "error", err)
-			return nil, err
-		} else {
 			totalQueued += pageQueued
-		}
-
-		if nextCursor == "" {
-			break
-		}
-		cursor = nextCursor
+			return nil
+		}),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := pipeline.Run(ctx); err != nil {
+		return nil, err
 	}
 
 	log.Info("campaign messages queued",

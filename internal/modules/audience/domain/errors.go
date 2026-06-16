@@ -7,6 +7,7 @@ var (
 	ErrWriteDenied                  = errors.New("audience write denied")
 	ErrImportDenied                 = errors.New("audience import denied")
 	ErrExportDenied                 = errors.New("audience export denied")
+	ErrExportUnavailable            = errors.New("audience export unavailable")
 	ErrContactNotFound              = errors.New("contact not found")
 	ErrListNotFound                 = errors.New("audience list not found")
 	ErrSegmentNotFound              = errors.New("segment not found")

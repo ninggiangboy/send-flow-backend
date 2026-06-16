@@ -107,17 +107,20 @@ type AudienceImportJob struct {
 }
 
 type AudienceExportJob struct {
-	ID             string
-	WorkspaceID    string
-	FiltersJSON    map[string]any
-	SelectedFields []string
-	Format         ExportFormat
-	Status         JobStatus
-	ArtifactURI    string
-	ErrorSummary   string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CompletedAt    *time.Time
+	ID                  string
+	WorkspaceID         string
+	FiltersJSON         map[string]any
+	SelectedFields      []string
+	Format              ExportFormat
+	ZipOutput           bool
+	Status              JobStatus
+	ProcessedCount      int64
+	EstimatedTotalCount int64
+	ArtifactURI         string
+	ErrorSummary        string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	CompletedAt         *time.Time
 }
 
 type MembershipUpdateResult struct {

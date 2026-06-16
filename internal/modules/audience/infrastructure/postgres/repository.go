@@ -820,9 +820,9 @@ func (r *ExportJobReadRepository) FindExportJobByID(ctx context.Context, workspa
 	var j domain.AudienceExportJob
 	var filtersJSON, fieldsJSON []byte
 	err := r.db.QueryRow(ctx,
-		`SELECT id, workspace_id, filters_json, selected_fields, format, status, COALESCE(artifact_uri, ''), COALESCE(error_summary, ''), created_at, updated_at, completed_at FROM audience_export_jobs WHERE id = $1 AND workspace_id = $2`,
+		`SELECT id, workspace_id, filters_json, selected_fields, format, zip_output, status, processed_count, estimated_total_count, COALESCE(artifact_uri, ''), COALESCE(error_summary, ''), created_at, updated_at, completed_at FROM audience_export_jobs WHERE id = $1 AND workspace_id = $2`,
 		jobID, workspaceID,
-	).Scan(&j.ID, &j.WorkspaceID, &filtersJSON, &fieldsJSON, &j.Format, &j.Status, &j.ArtifactURI, &j.ErrorSummary, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt)
+	).Scan(&j.ID, &j.WorkspaceID, &filtersJSON, &fieldsJSON, &j.Format, &j.ZipOutput, &j.Status, &j.ProcessedCount, &j.EstimatedTotalCount, &j.ArtifactURI, &j.ErrorSummary, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrExportJobNotFound
@@ -863,7 +863,7 @@ func (r *ExportJobReadRepository) ListExportJobs(ctx context.Context, query port
 	args = append(args, limit+1)
 
 	rows, err := r.db.Query(ctx,
-		`SELECT id, workspace_id, filters_json, selected_fields, format, status, COALESCE(artifact_uri, ''), COALESCE(error_summary, ''), created_at, updated_at, completed_at FROM audience_export_jobs `+where, args...)
+		`SELECT id, workspace_id, filters_json, selected_fields, format, zip_output, status, processed_count, estimated_total_count, COALESCE(artifact_uri, ''), COALESCE(error_summary, ''), created_at, updated_at, completed_at FROM audience_export_jobs `+where, args...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -873,7 +873,7 @@ func (r *ExportJobReadRepository) ListExportJobs(ctx context.Context, query port
 	for rows.Next() {
 		var j domain.AudienceExportJob
 		var filtersJSON, fieldsJSON []byte
-		if err := rows.Scan(&j.ID, &j.WorkspaceID, &filtersJSON, &fieldsJSON, &j.Format, &j.Status, &j.ArtifactURI, &j.ErrorSummary, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt); err != nil {
+		if err := rows.Scan(&j.ID, &j.WorkspaceID, &filtersJSON, &fieldsJSON, &j.Format, &j.ZipOutput, &j.Status, &j.ProcessedCount, &j.EstimatedTotalCount, &j.ArtifactURI, &j.ErrorSummary, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt); err != nil {
 			return nil, "", err
 		}
 		if err := json.Unmarshal(filtersJSON, &j.FiltersJSON); err != nil {
@@ -911,8 +911,8 @@ func (w *ExportJobWriteRepository) CreateExportJob(ctx context.Context, j domain
 		return err
 	}
 	_, err = w.db.Exec(ctx,
-		`INSERT INTO audience_export_jobs (id, workspace_id, filters_json, selected_fields, format, status, artifact_uri, error_summary, created_at, updated_at, completed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		j.ID, j.WorkspaceID, filtersJSON, fieldsJSON, string(j.Format), string(j.Status), platformpostgres.Nullable(j.ArtifactURI), platformpostgres.Nullable(j.ErrorSummary), j.CreatedAt, j.UpdatedAt, j.CompletedAt,
+		`INSERT INTO audience_export_jobs (id, workspace_id, filters_json, selected_fields, format, zip_output, status, processed_count, estimated_total_count, artifact_uri, error_summary, created_at, updated_at, completed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+		j.ID, j.WorkspaceID, filtersJSON, fieldsJSON, string(j.Format), j.ZipOutput, string(j.Status), j.ProcessedCount, j.EstimatedTotalCount, platformpostgres.Nullable(j.ArtifactURI), platformpostgres.Nullable(j.ErrorSummary), j.CreatedAt, j.UpdatedAt, j.CompletedAt,
 	)
 	return err
 }
@@ -927,8 +927,8 @@ func (w *ExportJobWriteRepository) UpdateExportJob(ctx context.Context, j domain
 		return err
 	}
 	tag, err := w.db.Exec(ctx,
-		`UPDATE audience_export_jobs SET filters_json=$1, selected_fields=$2, format=$3, status=$4, artifact_uri=$5, error_summary=$6, updated_at=$7, completed_at=$8 WHERE id=$9 AND workspace_id=$10`,
-		filtersJSON, fieldsJSON, string(j.Format), string(j.Status), platformpostgres.Nullable(j.ArtifactURI), platformpostgres.Nullable(j.ErrorSummary), j.UpdatedAt, j.CompletedAt, j.ID, j.WorkspaceID,
+		`UPDATE audience_export_jobs SET filters_json=$1, selected_fields=$2, format=$3, zip_output=$4, status=$5, processed_count=$6, estimated_total_count=$7, artifact_uri=$8, error_summary=$9, updated_at=$10, completed_at=$11 WHERE id=$12 AND workspace_id=$13`,
+		filtersJSON, fieldsJSON, string(j.Format), j.ZipOutput, string(j.Status), j.ProcessedCount, j.EstimatedTotalCount, platformpostgres.Nullable(j.ArtifactURI), platformpostgres.Nullable(j.ErrorSummary), j.UpdatedAt, j.CompletedAt, j.ID, j.WorkspaceID,
 	)
 	if err != nil {
 		return err
@@ -943,7 +943,7 @@ func (w *ExportJobWriteRepository) ClaimQueuedExportJobs(ctx context.Context, li
 	rows, err := w.db.Query(ctx,
 		`UPDATE audience_export_jobs SET status='running', updated_at=$1
 		 WHERE id IN (SELECT id FROM audience_export_jobs WHERE status='queued' ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED)
-		 RETURNING id, workspace_id, filters_json, selected_fields, format, status, COALESCE(artifact_uri, ''), COALESCE(error_summary, ''), created_at, updated_at, completed_at`,
+		 RETURNING id, workspace_id, filters_json, selected_fields, format, zip_output, status, processed_count, estimated_total_count, COALESCE(artifact_uri, ''), COALESCE(error_summary, ''), created_at, updated_at, completed_at`,
 		now, limit,
 	)
 	if err != nil {
@@ -955,7 +955,7 @@ func (w *ExportJobWriteRepository) ClaimQueuedExportJobs(ctx context.Context, li
 	for rows.Next() {
 		var j domain.AudienceExportJob
 		var filtersJSON, fieldsJSON []byte
-		if err := rows.Scan(&j.ID, &j.WorkspaceID, &filtersJSON, &fieldsJSON, &j.Format, &j.Status, &j.ArtifactURI, &j.ErrorSummary, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt); err != nil {
+		if err := rows.Scan(&j.ID, &j.WorkspaceID, &filtersJSON, &fieldsJSON, &j.Format, &j.ZipOutput, &j.Status, &j.ProcessedCount, &j.EstimatedTotalCount, &j.ArtifactURI, &j.ErrorSummary, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(filtersJSON, &j.FiltersJSON); err != nil {
@@ -979,6 +979,20 @@ func (w *ExportJobWriteRepository) MarkExportJobRunning(ctx context.Context, wor
 	tag, err := w.db.Exec(ctx,
 		`UPDATE audience_export_jobs SET status='running', updated_at=$1 WHERE id=$2 AND workspace_id=$3 AND status='queued'`,
 		now, jobID, workspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrExportJobNotFound
+	}
+	return nil
+}
+
+func (w *ExportJobWriteRepository) UpdateExportJobProgress(ctx context.Context, workspaceID, jobID string, processedCount int64, now time.Time) error {
+	tag, err := w.db.Exec(ctx,
+		`UPDATE audience_export_jobs SET processed_count=$1, updated_at=$2 WHERE id=$3 AND workspace_id=$4 AND status='running'`,
+		processedCount, now, jobID, workspaceID,
 	)
 	if err != nil {
 		return err

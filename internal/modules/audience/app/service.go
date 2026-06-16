@@ -12,6 +12,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/getaudienceexport"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/getaudienceimport"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/getcontact"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listaudienceexports"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listaudienceimports"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listcontacts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listlists"
@@ -23,6 +24,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatecontact"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatelistmemberships"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatesegment"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
@@ -39,11 +41,21 @@ type Options struct {
 	ExportJobsRead  ports.ExportJobReadRepository
 	ExportJobsWrite ports.ExportJobWriteRepository
 	AccessChecker   ports.WorkspaceAccessChecker
+	ExportEnabled   bool
+	ArtifactSigner  ExportArtifactSigner
+	DownloadURLTTL  time.Duration
 	IDGen           func() (string, error)
 	Logger          *slog.Logger
 }
 
+type ExportArtifactSigner interface {
+	PresignGetObject(ctx context.Context, key string, expiry time.Duration) (string, error)
+}
+
 type Service struct {
+	log                        *slog.Logger
+	artifactSigner             ExportArtifactSigner
+	downloadURLTTL             time.Duration
 	createContactH             *createcontact.Handler
 	getContactH                *getcontact.Handler
 	listContactsH              *listcontacts.Handler
@@ -59,6 +71,7 @@ type Service struct {
 	listAudienceImportsH       *listaudienceimports.Handler
 	getAudienceImportH         *getaudienceimport.Handler
 	startAudienceExportH       *startaudienceexport.Handler
+	listAudienceExportsH       *listaudienceexports.Handler
 	getAudienceExportH         *getaudienceexport.Handler
 	resolveAudienceSelectionH  *resolveaudienceselection.Handler
 	resolveAudienceRecipientsH *resolveaudiencerecipients.Handler
@@ -71,7 +84,13 @@ func NewService(opts Options) *Service {
 	if opts.IDGen == nil {
 		opts.IDGen = id.NewUUIDGenerator().New
 	}
+	if opts.DownloadURLTTL <= 0 {
+		opts.DownloadURLTTL = 15 * time.Minute
+	}
 	return &Service{
+		log:            opts.Logger,
+		artifactSigner: opts.ArtifactSigner,
+		downloadURLTTL: opts.DownloadURLTTL,
 		createContactH: createcontact.New(createcontact.Options{
 			ContactsRead:  opts.ContactsRead,
 			ContactsWrite: opts.ContactsWrite,
@@ -153,9 +172,17 @@ func NewService(opts Options) *Service {
 		}),
 		startAudienceExportH: startaudienceexport.New(startaudienceexport.Options{
 			ExportJobsWrite: opts.ExportJobsWrite,
+			ContactsRead:    opts.ContactsRead,
+			SegmentsRead:    opts.SegmentsRead,
 			AccessChecker:   opts.AccessChecker,
+			ExportEnabled:   opts.ExportEnabled,
 			IDGen:           opts.IDGen,
 			Logger:          opts.Logger,
+		}),
+		listAudienceExportsH: listaudienceexports.New(listaudienceexports.Options{
+			ExportJobsRead: opts.ExportJobsRead,
+			AccessChecker:  opts.AccessChecker,
+			Logger:         opts.Logger,
 		}),
 		getAudienceExportH: getaudienceexport.New(getaudienceexport.Options{
 			ExportJobsRead: opts.ExportJobsRead,
@@ -394,11 +421,12 @@ func (s *Service) GetAudienceImport(ctx context.Context, workspaceID, jobID, use
 
 // --- Export facade methods ---
 
-func (s *Service) StartAudienceExport(ctx context.Context, workspaceID, userID, format string, filters map[string]any, selectedFields []string, now time.Time) (*ExportJobResult, error) {
+func (s *Service) StartAudienceExport(ctx context.Context, workspaceID, userID, format string, zipOutput bool, filters map[string]any, selectedFields []string, now time.Time) (*ExportJobResult, error) {
 	job, err := s.startAudienceExportH.Execute(ctx, startaudienceexport.Command{
 		WorkspaceID:    workspaceID,
 		UserID:         userID,
 		Format:         format,
+		ZipOutput:      zipOutput,
 		Filters:        filters,
 		SelectedFields: selectedFields,
 		Now:            now,
@@ -406,7 +434,28 @@ func (s *Service) StartAudienceExport(ctx context.Context, workspaceID, userID, 
 	if err != nil {
 		return nil, err
 	}
-	return &ExportJobResult{Job: exportJobToDTO(*job)}, nil
+	dto := exportJobToDTO(*job)
+	return &ExportJobResult{Job: dto}, nil
+}
+
+func (s *Service) ListAudienceExports(ctx context.Context, workspaceID, userID, status string, limit int, cursor string) (*ExportJobListResult, error) {
+	jobs, nextCursor, err := s.listAudienceExportsH.Execute(ctx, listaudienceexports.Command{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		Status:      status,
+		Limit:       limit,
+		Cursor:      cursor,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ExportJobDTO, 0, len(jobs))
+	for _, job := range jobs {
+		dto := exportJobToDTO(job)
+		s.enrichExportJob(ctx, &dto)
+		result = append(result, dto)
+	}
+	return &ExportJobListResult{Jobs: result, NextCursor: nextCursor}, nil
 }
 
 func (s *Service) GetAudienceExport(ctx context.Context, workspaceID, jobID, userID string) (*ExportJobResult, error) {
@@ -418,7 +467,9 @@ func (s *Service) GetAudienceExport(ctx context.Context, workspaceID, jobID, use
 	if err != nil {
 		return nil, err
 	}
-	return &ExportJobResult{Job: exportJobToDTO(*job)}, nil
+	dto := exportJobToDTO(*job)
+	s.enrichExportJob(ctx, &dto)
+	return &ExportJobResult{Job: dto}, nil
 }
 
 // --- Audience resolution facade methods ---
@@ -431,6 +482,22 @@ func (s *Service) ResolveAudienceSelection(ctx context.Context, workspaceID, use
 		SegmentID:   ref.SegmentID,
 		ContactIDs:  ref.ContactIDs,
 	})
+}
+
+func (s *Service) enrichExportJob(ctx context.Context, job *ExportJobDTO) {
+	if job == nil || s.artifactSigner == nil || job.Status != string(domain.JobStatusCompleted) || job.ArtifactURI == "" {
+		return
+	}
+
+	url, err := s.artifactSigner.PresignGetObject(ctx, job.ArtifactURI, s.downloadURLTTL)
+	if err != nil {
+		s.log.Error("failed to presign export artifact", "artifact_uri", job.ArtifactURI, "error", err)
+		return
+	}
+
+	expiresAt := time.Now().UTC().Add(s.downloadURLTTL)
+	job.DownloadURL = url
+	job.DownloadURLTTL = &expiresAt
 }
 
 func (s *Service) EstimateAudienceSize(ctx context.Context, workspaceID, userID string, ref AudienceSelectionRef) (int, error) {

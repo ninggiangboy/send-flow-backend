@@ -130,15 +130,20 @@ type audienceImportJobDoc struct {
 }
 
 type audienceExportJobDoc struct {
-	ID           string     `json:"id"`
-	WorkspaceID  string     `json:"workspace_id"`
-	Format       string     `json:"format"`
-	Status       string     `json:"status"`
-	ArtifactURI  string     `json:"artifact_uri"`
-	ErrorSummary string     `json:"error_summary"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
-	CompletedAt  *time.Time `json:"completed_at"`
+	ID                   string     `json:"id"`
+	WorkspaceID          string     `json:"workspace_id"`
+	Format               string     `json:"format"`
+	ZipOutput            bool       `json:"zip_output"`
+	Status               string     `json:"status"`
+	ProcessedCount       int64      `json:"processed_count"`
+	EstimatedTotalCount  int64      `json:"estimated_total_count"`
+	ArtifactURI          string     `json:"artifact_uri"`
+	DownloadURL          string     `json:"download_url,omitempty"`
+	DownloadURLExpiresAt *time.Time `json:"download_url_expires_at,omitempty"`
+	ErrorSummary         string     `json:"error_summary"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	CompletedAt          *time.Time `json:"completed_at"`
 }
 
 type listMembershipUpdateDoc struct {
@@ -205,14 +210,19 @@ func newImportJobResponse(j audienceapp.ImportJobDTO) audienceImportJobDoc {
 
 func newExportJobResponse(j audienceapp.ExportJobDTO) audienceExportJobDoc {
 	return audienceExportJobDoc{
-		ID:           j.ID,
-		WorkspaceID:  j.WorkspaceID,
-		Format:       j.Format,
-		Status:       j.Status,
-		ArtifactURI:  j.ArtifactURI,
-		ErrorSummary: j.ErrorSummary,
-		CreatedAt:    j.CreatedAt,
-		UpdatedAt:    j.UpdatedAt,
-		CompletedAt:  j.CompletedAt,
+		ID:                   j.ID,
+		WorkspaceID:          j.WorkspaceID,
+		Format:               j.Format,
+		ZipOutput:            j.ZipOutput,
+		Status:               j.Status,
+		ProcessedCount:       j.ProcessedCount,
+		EstimatedTotalCount:  j.EstimatedTotalCount,
+		ArtifactURI:          j.ArtifactURI,
+		DownloadURL:          j.DownloadURL,
+		DownloadURLExpiresAt: j.DownloadURLTTL,
+		ErrorSummary:         j.ErrorSummary,
+		CreatedAt:            j.CreatedAt,
+		UpdatedAt:            j.UpdatedAt,
+		CompletedAt:          j.CompletedAt,
 	}
 }

@@ -1236,9 +1236,17 @@ type startAudienceExportInput struct {
 	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
 	Body        struct {
 		Format         string         `json:"format,omitempty" example:"csv" doc:"Export format."`
+		ZipOutput      bool           `json:"zip_output,omitempty" example:"false" doc:"Compress the exported artifact into a ZIP file."`
 		Filters        map[string]any `json:"filters,omitempty" doc:"Export filters."`
 		SelectedFields []string       `json:"selected_fields,omitempty" example:"email,first_name" doc:"Fields to export."`
 	} `required:"true" nameHint:"StartAudienceExportRequest"`
+}
+
+type listAudienceExportsInput struct {
+	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
+	Status      string `query:"status" example:"completed" doc:"Filter by job status."`
+	Limit       int    `query:"limit" example:"50" doc:"Maximum number of entries to return (1-100)."`
+	Cursor      string `query:"cursor" doc:"Pagination cursor from previous response."`
 }
 
 type createTemplateInput struct {
@@ -1511,6 +1519,18 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 	}, authMiddleware), func(ctx context.Context, input *startAudienceExportInput) (*emptyOutput, error) {
 		_ = input
 		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.startAudienceExport)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "list-audience-exports",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/audience/exports",
+		Tags:        []string{"Audience"},
+		Summary:     "List audience exports",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *listAudienceExportsInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, audience.listAudienceExports)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{

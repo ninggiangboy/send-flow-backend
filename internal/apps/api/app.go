@@ -256,6 +256,8 @@ func Run(ctx context.Context) error {
 		ExportJobsRead:  audienceExportJobsRead,
 		ExportJobsWrite: audienceExportJobsWrite,
 		AccessChecker:   newWorkspaceAccessAdapter(authSvc),
+		ExportEnabled:   cfg.ObjectStorageEnabled(),
+		ArtifactSigner:  objectStorageClient,
 		IDGen:           id.NewUUIDGenerator().New,
 		Logger:          log,
 	})

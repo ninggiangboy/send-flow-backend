@@ -143,6 +143,32 @@ func (m *mockExportJobWrite) CreateExportJob(ctx context.Context, job domain.Aud
 	return m.create(ctx, job)
 }
 
+func (m *mockExportJobWrite) UpdateExportJobProgress(ctx context.Context, workspaceID, jobID string, processedCount int64, now time.Time) error {
+	return nil
+}
+
+type mockExportJobRead struct {
+	ports.ExportJobReadRepository
+	findByID func(ctx context.Context, workspaceID, jobID string) (*domain.AudienceExportJob, error)
+	list     func(ctx context.Context, query ports.ExportJobListQuery) ([]domain.AudienceExportJob, string, error)
+}
+
+func (m *mockExportJobRead) FindExportJobByID(ctx context.Context, workspaceID, jobID string) (*domain.AudienceExportJob, error) {
+	return m.findByID(ctx, workspaceID, jobID)
+}
+
+func (m *mockExportJobRead) ListExportJobs(ctx context.Context, query ports.ExportJobListQuery) ([]domain.AudienceExportJob, string, error) {
+	return m.list(ctx, query)
+}
+
+type mockArtifactSigner struct {
+	presign func(ctx context.Context, key string, expiry time.Duration) (string, error)
+}
+
+func (m *mockArtifactSigner) PresignGetObject(ctx context.Context, key string, expiry time.Duration) (string, error) {
+	return m.presign(ctx, key, expiry)
+}
+
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
@@ -397,6 +423,22 @@ func TestStartAudienceImport(t *testing.T) {
 func TestStartAudienceExport(t *testing.T) {
 	created := false
 	svc := NewService(Options{
+		ContactsRead: &mockContactRead{
+			list: func(ctx context.Context, query ports.ContactListQuery) ([]domain.Contact, string, error) {
+				return []domain.Contact{
+					{ID: "ct_1", Status: domain.ContactStatusActive},
+					{ID: "ct_2", Status: domain.ContactStatusActive},
+				}, "", nil
+			},
+		},
+		SegmentsRead: &mockSegmentRead{
+			findByID: func(ctx context.Context, workspaceID, segmentID string) (*domain.Segment, error) {
+				return nil, domain.ErrSegmentNotFound
+			},
+			list: func(ctx context.Context, query ports.SegmentListQuery) ([]domain.Segment, string, error) {
+				return nil, "", nil
+			},
+		},
 		ExportJobsWrite: &mockExportJobWrite{
 			create: func(ctx context.Context, job domain.AudienceExportJob) error {
 				created = true
@@ -406,11 +448,12 @@ func TestStartAudienceExport(t *testing.T) {
 		AccessChecker: &mockAccessChecker{
 			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
 		},
-		IDGen:  func() (string, error) { return "id_1", nil },
-		Logger: testLogger(),
+		ExportEnabled: true,
+		IDGen:         func() (string, error) { return "id_1", nil },
+		Logger:        testLogger(),
 	})
 
-	result, err := svc.StartAudienceExport(context.Background(), "ws_1", "user_1", "csv", map[string]any{"list_id": "list_1"}, nil, time.Now())
+	result, err := svc.StartAudienceExport(context.Background(), "ws_1", "user_1", "csv", true, map[string]any{"list_id": "list_1"}, nil, time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -419,6 +462,86 @@ func TestStartAudienceExport(t *testing.T) {
 	}
 	if string(result.Job.Format) != "csv" {
 		t.Errorf("expected format csv, got %s", result.Job.Format)
+	}
+	if !result.Job.ZipOutput {
+		t.Error("expected zip output to be persisted")
+	}
+	if result.Job.EstimatedTotalCount != 2 {
+		t.Errorf("expected estimated total count 2, got %d", result.Job.EstimatedTotalCount)
+	}
+}
+
+func TestStartAudienceExportUnavailable(t *testing.T) {
+	svc := NewService(Options{
+		ContactsRead: &mockContactRead{
+			list: func(ctx context.Context, query ports.ContactListQuery) ([]domain.Contact, string, error) {
+				return []domain.Contact{}, "", nil
+			},
+		},
+		SegmentsRead: &mockSegmentRead{
+			findByID: func(ctx context.Context, workspaceID, segmentID string) (*domain.Segment, error) {
+				return nil, domain.ErrSegmentNotFound
+			},
+			list: func(ctx context.Context, query ports.SegmentListQuery) ([]domain.Segment, string, error) {
+				return nil, "", nil
+			},
+		},
+		ExportJobsWrite: &mockExportJobWrite{
+			create: func(ctx context.Context, job domain.AudienceExportJob) error { return nil },
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		Logger: testLogger(),
+	})
+
+	_, err := svc.StartAudienceExport(context.Background(), "ws_1", "user_1", "csv", false, nil, nil, time.Now())
+	if !errors.Is(err, domain.ErrExportUnavailable) {
+		t.Fatalf("expected ErrExportUnavailable, got %v", err)
+	}
+}
+
+func TestGetAudienceExportAddsDownloadURL(t *testing.T) {
+	svc := NewService(Options{
+		ExportJobsRead: &mockExportJobRead{
+			findByID: func(ctx context.Context, workspaceID, jobID string) (*domain.AudienceExportJob, error) {
+				return &domain.AudienceExportJob{
+					ID:                  jobID,
+					WorkspaceID:         workspaceID,
+					Format:              domain.ExportFormatCSV,
+					Status:              domain.JobStatusCompleted,
+					ProcessedCount:      10,
+					EstimatedTotalCount: 12,
+					ArtifactURI:         "exports/ws_1/job_1/job_1.csv",
+				}, nil
+			},
+		},
+		AccessChecker: &mockAccessChecker{
+			requirePermission: func(ctx context.Context, workspaceID, userID, permission string) error { return nil },
+		},
+		ArtifactSigner: &mockArtifactSigner{
+			presign: func(ctx context.Context, key string, expiry time.Duration) (string, error) {
+				if key != "exports/ws_1/job_1/job_1.csv" {
+					t.Fatalf("unexpected key %s", key)
+				}
+				return "https://download.example/export.csv", nil
+			},
+		},
+		Logger: testLogger(),
+	})
+
+	result, err := svc.GetAudienceExport(context.Background(), "ws_1", "job_1", "user_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Job.DownloadURL == "" {
+		t.Fatal("expected download URL to be populated")
+	}
+	if result.Job.DownloadURLTTL == nil {
+		t.Fatal("expected download URL expiry to be populated")
+	}
+	if result.Job.EstimatedTotalCount != 12 {
+		t.Fatalf("expected estimated total count 12, got %d", result.Job.EstimatedTotalCount)
 	}
 }
 

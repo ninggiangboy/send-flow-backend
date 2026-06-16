@@ -13,6 +13,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/batching"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 )
 
@@ -173,23 +174,52 @@ func (h *Handler) ProcessDueMessages(ctx context.Context, input ProcessDueMessag
 		SelectedCount: len(messages),
 	}
 
-	for _, msg := range messages {
-		status, err := h.processMessage(ctx, msg, input.Now)
-		if err != nil {
-			log.Error("failed to process message",
-				"message_id", msg.ID,
-				"error", err,
-			)
-			continue
-		}
-		switch status {
-		case messageStatusAccepted:
-			result.AcceptedCount++
-		case messageStatusFailed:
-			result.FailedCount++
-		case messageStatusRetryScheduled:
-			result.RetryScheduledCount++
-		}
+	idx := 0
+	pipeline, err := batching.NewPipeline[domain.Message, messageStatus](batching.Config[domain.Message, messageStatus]{
+		Options: batching.Options{
+			BufferedItemsSize:    limit,
+			WriteBatchSize:       limit,
+			ProcessorConcurrency: 1,
+			MaxInflight:          limit,
+		},
+		Reader: batching.ItemReaderFunc[domain.Message](func(ctx context.Context, _ int, _ int) (domain.Message, bool, error) {
+			if idx >= len(messages) {
+				return domain.Message{}, false, nil
+			}
+			msg := messages[idx]
+			idx++
+			return msg, true, nil
+		}),
+		Processor: batching.ItemProcessorFunc[domain.Message, messageStatus](func(ctx context.Context, msg domain.Message) (messageStatus, bool, error) {
+			status, err := h.processMessage(ctx, msg, input.Now)
+			if err != nil {
+				log.Error("failed to process message",
+					"message_id", msg.ID,
+					"error", err,
+				)
+				return 0, false, nil
+			}
+			return status, true, nil
+		}),
+		Writer: batching.ItemWriterFunc[messageStatus](func(ctx context.Context, statuses []messageStatus) error {
+			for _, status := range statuses {
+				switch status {
+				case messageStatusAccepted:
+					result.AcceptedCount++
+				case messageStatusFailed:
+					result.FailedCount++
+				case messageStatusRetryScheduled:
+					result.RetryScheduledCount++
+				}
+			}
+			return nil
+		}),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := pipeline.Run(ctx); err != nil {
+		return nil, err
 	}
 
 	log.Info("due messages processed",

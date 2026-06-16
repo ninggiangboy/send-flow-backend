@@ -302,6 +302,74 @@ func TestProcessDueMessages_ProviderTemporaryFailure(t *testing.T) {
 	}
 }
 
+func TestProcessDueMessages_AggregatesPipelineOutcomes(t *testing.T) {
+	opts := newTestOpts()
+
+	accepted := dueMessage()
+	accepted.ID = "msg_accepted"
+	accepted.RecipientSnapshot.Email = "accepted@example.com"
+	accepted.RecipientEmailNormalized = "accepted@example.com"
+
+	failed := dueMessage()
+	failed.ID = "msg_failed"
+	failed.RecipientSnapshot.Email = "failed@example.com"
+	failed.RecipientEmailNormalized = "failed@example.com"
+
+	retry := dueMessage()
+	retry.ID = "msg_retry"
+	retry.RecipientSnapshot.Email = "retry@example.com"
+	retry.RecipientEmailNormalized = "retry@example.com"
+
+	write := opts.MessagesWrite.(*mockMessageWriteRepo)
+	write.claimDueMessages = func(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error) {
+		return []domain.Message{accepted, failed, retry}, nil
+	}
+	write.markAccepted = func(ctx context.Context, message domain.Message) error { return nil }
+	write.markFailed = func(ctx context.Context, message domain.Message) error { return nil }
+	write.update = func(ctx context.Context, message domain.Message) error { return nil }
+
+	attemptRead := opts.AttemptsRead.(*mockAttemptReadRepo)
+	attemptRead.nextAttemptNumber = func(ctx context.Context, workspaceID, messageID string) (int, error) {
+		return 1, nil
+	}
+	attemptWrite := opts.AttemptsWrite.(*mockAttemptWriteRepo)
+	attemptWrite.create = func(ctx context.Context, attempt domain.DeliveryAttempt) error { return nil }
+	attemptWrite.update = func(ctx context.Context, attempt domain.DeliveryAttempt) error { return nil }
+
+	retryWrite := opts.RetryStatesWrite.(*mockRetryStateWriteRepo)
+	retryWrite.create = func(ctx context.Context, state domain.RetryState) error { return nil }
+
+	sup := opts.SuppressionChecker.(*mockSuppressionChecker)
+	sup.checkSuppression = func(ctx context.Context, workspaceID, emailNormalized, scope string) (*ports.SuppressionDecision, error) {
+		if emailNormalized == "failed@example.com" {
+			return &ports.SuppressionDecision{Suppressed: true, Reason: "manual_block", Scope: "workspace"}, nil
+		}
+		return &ports.SuppressionDecision{Suppressed: false}, nil
+	}
+
+	provider := opts.EmailProvider.(*mockEmailProvider)
+	provider.sendEmail = func(ctx context.Context, request ports.ProviderSendRequest) (*ports.ProviderSendResult, error) {
+		if request.To == "retry@example.com" {
+			return nil, errors.New("temporary provider error")
+		}
+		return &ports.ProviderSendResult{Provider: "test", ProviderMessageID: "prov_" + request.To, AcceptedAt: time.Now()}, nil
+	}
+
+	svc := NewService(opts)
+	result, err := svc.ProcessDueMessages(context.Background(), ProcessDueMessagesInput{
+		WorkspaceID: "ws_1",
+		MessageType: "marketing",
+		Limit:       10,
+		Now:         time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.SelectedCount != 3 || result.AcceptedCount != 1 || result.FailedCount != 1 || result.RetryScheduledCount != 1 {
+		t.Fatalf("unexpected result counts: %#v", result)
+	}
+}
+
 func TestProcessDueMessages_NoMessages(t *testing.T) {
 	opts := newTestOpts()
 

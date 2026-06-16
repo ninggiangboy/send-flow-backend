@@ -371,12 +371,40 @@ func (h *audienceHTTP) getAudienceImport(w http.ResponseWriter, r *http.Request)
 	writeEnvelope(w, r, http.StatusOK, newImportJobResponse(result.Job))
 }
 
+func (h *audienceHTTP) listAudienceExports(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspace_id")
+	userID, _ := r.Context().Value(ctxUserID).(string)
+
+	q := r.URL.Query()
+	limit := parseLimitParam(q.Get("limit"), constants.DefaultPageSize, 100)
+	if limit > 100 {
+		limit = 100
+	}
+
+	result, err := h.svc.ListAudienceExports(r.Context(), workspaceID, userID, q.Get("status"), limit, q.Get("cursor"))
+	if err != nil {
+		writeAudienceErr(w, r, err)
+		return
+	}
+
+	out := make([]audienceExportJobDoc, 0, len(result.Jobs))
+	for _, j := range result.Jobs {
+		out = append(out, newExportJobResponse(j))
+	}
+
+	if result.NextCursor != "" {
+		w.Header().Set("X-Next-Cursor", result.NextCursor)
+	}
+	writeEnvelope(w, r, http.StatusOK, out)
+}
+
 func (h *audienceHTTP) startAudienceExport(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspace_id")
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	var req struct {
 		Format         string         `json:"format"`
+		ZipOutput      bool           `json:"zip_output"`
 		Filters        map[string]any `json:"filters"`
 		SelectedFields []string       `json:"selected_fields"`
 	}
@@ -384,7 +412,7 @@ func (h *audienceHTTP) startAudienceExport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	result, err := h.svc.StartAudienceExport(r.Context(), workspaceID, userID, req.Format, req.Filters, req.SelectedFields, time.Now().UTC())
+	result, err := h.svc.StartAudienceExport(r.Context(), workspaceID, userID, req.Format, req.ZipOutput, req.Filters, req.SelectedFields, time.Now().UTC())
 	if err != nil {
 		writeAudienceErr(w, r, err)
 		return
@@ -419,6 +447,8 @@ func writeAudienceErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusForbidden, "audience.import_denied", err.Error(), nil)
 	case errors.Is(err, domain.ErrExportDenied):
 		writeError(w, r, http.StatusForbidden, "audience.export_denied", err.Error(), nil)
+	case errors.Is(err, domain.ErrExportUnavailable):
+		writeError(w, r, http.StatusServiceUnavailable, "audience.export_unavailable", err.Error(), nil)
 	case errors.Is(err, domain.ErrContactNotFound):
 		writeError(w, r, http.StatusNotFound, "audience.contact_not_found", err.Error(), nil)
 	case errors.Is(err, domain.ErrListNotFound):

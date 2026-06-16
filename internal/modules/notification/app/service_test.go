@@ -233,3 +233,62 @@ func TestServiceProcessRetryBatch_DelegatesToHandler(t *testing.T) {
 		t.Fatalf("expected 0 processed, got %d", count)
 	}
 }
+
+func TestServiceProcessRetryBatch_SkipsSendFlowErrors(t *testing.T) {
+	svc := NewService(Options{
+		MessagesRead: &mockMessageReadRepo{},
+		MessagesWrite: &mockMessageWriteRepo{
+			create: func(ctx context.Context, msg domain.NotificationMessage) error { return nil },
+			update: func(ctx context.Context, msg domain.NotificationMessage) error {
+				if msg.ID == "msg_skip" {
+					return errors.New("database unavailable")
+				}
+				return nil
+			},
+			claimRetryingMessages: func(ctx context.Context, limit int) ([]domain.NotificationMessage, error) {
+				return []domain.NotificationMessage{
+					{
+						ID:             "msg_skip",
+						Type:           domain.NotificationTypeWelcomeEmail,
+						Status:         domain.NotificationStatusRetrying,
+						RecipientEmail: "skip@example.com",
+						Subject:        "Retry",
+						BodyText:       "Body",
+						MaxAttempts:    3,
+					},
+					{
+						ID:             "msg_ok",
+						Type:           domain.NotificationTypeWelcomeEmail,
+						Status:         domain.NotificationStatusRetrying,
+						RecipientEmail: "ok@example.com",
+						Subject:        "Retry",
+						BodyText:       "Body",
+						MaxAttempts:    3,
+					},
+				}, nil
+			},
+		},
+		AttemptsWrite: &mockAttemptWriteRepo{
+			create: func(ctx context.Context, attempt domain.NotificationAttempt) error { return nil },
+		},
+		OutboxWriter: &mockOutbox{
+			save: func(ctx context.Context, event ports.OutboxEvent) error { return nil },
+		},
+		TxManager: &mockTxManager{},
+		EmailSender: &mockEmailSender{
+			sendNotificationEmail: func(ctx context.Context, to []string, subject, textBody, htmlBody string) error {
+				return nil
+			},
+		},
+		IDGen:  func() (string, error) { return "attempt_1", nil },
+		Logger: testLogger(),
+	})
+
+	count, err := svc.ProcessRetryBatch(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 processed retry, got %d", count)
+	}
+}
