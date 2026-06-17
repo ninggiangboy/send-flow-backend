@@ -17,7 +17,9 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/observability"
 )
 
 type Options struct {
@@ -41,12 +43,19 @@ type Options struct {
 	IDGen               func() (string, error)
 	Logger              *slog.Logger
 	RedisCache          *deliveryredis.Cache
+	EventRepo           ports.MessageEventRepository
+	AttachmentRepo      ports.AttachmentRepository
+	ObjectStorage       ports.ObjectStorage
+	AttachmentMetrics   *observability.AttachmentMetrics
 }
 
 type Service struct {
-	commands CommandBus
-	queries  QueryBus
-	log      *slog.Logger
+	commands     CommandBus
+	queries      QueryBus
+	log          *slog.Logger
+	eventRepo    ports.MessageEventRepository
+	messagesRead ports.MessageReadRepository
+	attemptsRead ports.AttemptReadRepository
 }
 
 func NewService(opts Options) *Service {
@@ -65,11 +74,15 @@ func NewService(opts Options) *Service {
 		opts.SenderChecker,
 		opts.ContentRenderer,
 		opts.SuppressionChecker,
+		opts.AttachmentRepo,
+		opts.EventRepo,
+		opts.ObjectStorage,
 		opts.OutboxWriter,
 		opts.TxManager,
 		opts.IDGen,
 		opts.Logger,
 		opts.RedisCache,
+		opts.AttachmentMetrics,
 	)
 
 	queueCampaignH := queuecampaignmessages.New(
@@ -86,11 +99,13 @@ func NewService(opts Options) *Service {
 	handleProviderH := handleproviderevent.New(
 		opts.MessagesRead,
 		opts.MessagesWrite,
+		opts.TxRequestsWrite,
 		opts.RecipientSuppressor,
 		opts.OutboxWriter,
 		opts.TxManager,
 		opts.IDGen,
 		opts.Logger,
+		opts.EventRepo,
 	)
 
 	processDueMsgsH := processduemessages.New(
@@ -106,9 +121,13 @@ func NewService(opts Options) *Service {
 		opts.EmailProvider,
 		opts.OutboxWriter,
 		opts.TxManager,
+		opts.TxRequestsWrite,
 		opts.IDGen,
 		opts.Logger,
 		opts.RedisCache,
+		opts.EventRepo,
+		opts.AttachmentRepo,
+		opts.ObjectStorage,
 	)
 
 	listMessagesH := listmessages.New(opts.MessagesRead, opts.AccessChecker, opts.Logger)
@@ -128,7 +147,10 @@ func NewService(opts Options) *Service {
 			getMessageH,
 			getTransactionalH,
 		),
-		log: opts.Logger.With("module", "delivery"),
+		log:          opts.Logger.With("module", "delivery"),
+		eventRepo:    opts.EventRepo,
+		messagesRead: opts.MessagesRead,
+		attemptsRead: opts.AttemptsRead,
 	}
 }
 
@@ -156,6 +178,9 @@ type ListMessagesInput struct {
 	CampaignID               string
 	TransactionalRequestID   string
 	Status                   string
+	MessageType              string
+	Mode                     string
+	Provider                 string
 	RecipientEmailNormalized string
 	ProviderMessageID        string
 	From                     *time.Time
@@ -179,20 +204,29 @@ type AcceptTransactionalSendInput struct {
 	WorkspaceID       string
 	APIKeyID          string
 	IdempotencyKey    string
-	RecipientEmail    string
-	RecipientName     string
+	Mode              string
 	SenderDomainID    string
+	SenderName        string
+	Subject           string
 	TemplateID        string
 	TemplateVersionID string
 	TemplateData      map[string]any
+	TextBody          string
+	HTMLBody          string
+	ReplyTo           string
+	To                []domain.RecipientTarget
+	CC                []domain.RecipientTarget
+	BCC               []domain.RecipientTarget
 	Metadata          map[string]any
 	Tags              []string
+	Headers           map[string]string
+	Attachments       []accepttransactionalsend.AttachmentStream
 	Now               time.Time
 }
 
 type AcceptTransactionalSendResult struct {
-	MessageID  string
 	RequestID  string
+	MessageIDs []string
 	Status     string
 	AcceptedAt time.Time
 }
@@ -240,6 +274,38 @@ type HandleProviderEventResult struct {
 	NewStatus          string
 	SuppressionCreated bool
 	SuppressionEntryID string
+}
+
+type ListMessageEventsInput struct {
+	WorkspaceID string
+	MessageID   string
+	Limit       int
+	Cursor      string
+}
+
+type ListMessageEventsResult struct {
+	Events     []domain.MessageEvent
+	NextCursor string
+}
+
+type ListRequestMessagesInput struct {
+	WorkspaceID string
+	RequestID   string
+	Limit       int
+	Cursor      string
+}
+
+type ListRequestMessagesResult struct {
+	Messages []domain.Message
+}
+
+type ListAttemptsInput struct {
+	WorkspaceID string
+	MessageID   string
+}
+
+type ListAttemptsResult struct {
+	Attempts []domain.DeliveryAttempt
 }
 
 type ProcessDueMessagesAllInput struct {
@@ -301,6 +367,42 @@ func (s *Service) HandleProviderEvent(ctx context.Context, input HandleProviderE
 
 func (s *Service) ProcessDueMessagesAllWorkspaces(ctx context.Context, input ProcessDueMessagesAllInput) (int, error) {
 	return s.commands.ProcessDueMessagesAllWorkspaces(ctx, input)
+}
+
+func (s *Service) ListMessageEvents(ctx context.Context, input ListMessageEventsInput) (*ListMessageEventsResult, error) {
+	limit := input.Limit
+	if limit <= 0 {
+		limit = constants.DefaultPageSize
+	}
+
+	events, cursor, err := s.eventRepo.ListByMessage(ctx, input.WorkspaceID, input.MessageID, limit, input.Cursor)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ListMessageEventsResult{
+		Events:     events,
+		NextCursor: cursor,
+	}, nil
+}
+
+func (s *Service) ListRequestMessages(ctx context.Context, input ListRequestMessagesInput) (*ListRequestMessagesResult, error) {
+	messages, _, err := s.messagesRead.List(ctx, ports.MessageListQuery{
+		WorkspaceID:            input.WorkspaceID,
+		TransactionalRequestID: input.RequestID,
+		Limit:                  input.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &ListRequestMessagesResult{
+		Messages: messages,
+	}, nil
+}
+
+func (s *Service) ListAttempts(ctx context.Context, input ListAttemptsInput) ([]domain.DeliveryAttempt, error) {
+	return s.attemptsRead.ListByMessage(ctx, input.WorkspaceID, input.MessageID)
 }
 
 func (s *Service) ProcessDueMessages(ctx context.Context, input ProcessDueMessagesInput) (*ProcessDueMessagesResult, error) {

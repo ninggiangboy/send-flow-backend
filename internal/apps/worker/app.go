@@ -150,6 +150,8 @@ func Run(ctx context.Context) error {
 	deliveryRetryWriteRepo := deliverypostgres.NewRetryStateWriteRepository(pgWritePool)
 	deliveryTxReqReadRepo := deliverypostgres.NewTransactionalRequestReadRepository(pgReadPool)
 	deliveryTxReqWriteRepo := deliverypostgres.NewTransactionalRequestWriteRepository(pgWritePool)
+	deliveryEventRepo := deliverypostgres.NewMessageEventRepository(pgWritePool)
+	deliveryAttachmentRepo := deliverypostgres.NewAttachmentRepository(pgWritePool)
 
 	suppressionReadRepo, suppressionWriteRepo := shared.NewSuppressionRepos(pgReadPool, pgWritePool)
 	suppressionSvc := shared.NewSuppressionService(suppressionReadRepo, suppressionWriteRepo, nil, log)
@@ -199,6 +201,9 @@ func Run(ctx context.Context) error {
 		IDGen:               id.NewUUIDGenerator().New,
 		Logger:              log,
 		RedisCache:          deliveryCache,
+		EventRepo:           deliveryEventRepo,
+		AttachmentRepo:      deliveryAttachmentRepo,
+		ObjectStorage:       deliveryObjectStorageAdapter{objectStorageClient},
 	})
 
 	consumer := NewCampaignScheduledConsumer(
@@ -266,6 +271,26 @@ func Run(ctx context.Context) error {
 			return err
 		}
 
+		// Transactional due-message scheduler (parallel to marketing)
+		txDueMsgScheduler := NewDueMessageScheduler(
+			deliveryMsgReadRepo.ListDistinctWorkspacesWithDue,
+			schedulerProducer,
+			log,
+			"transactional",
+			50,
+		)
+		txDueMsgLock := postgres.NewAdvisoryLock(pgClient.WritePool(), "scheduler:delivery.due_messages_tx")
+		electedTxDueMsgScheduler := NewElectedSchedulerRunner(
+			txDueMsgScheduler.Name(),
+			txDueMsgScheduler,
+			txDueMsgLock,
+			5*time.Second,
+			log,
+		)
+		if err := registry.Register(electedTxDueMsgScheduler); err != nil {
+			return err
+		}
+
 		dueMsgConsumer := NewDueMessageConsumer(
 			deliverySvc,
 			log,
@@ -297,6 +322,30 @@ func Run(ctx context.Context) error {
 			"marketing",
 		)
 		if err := registry.Register(dueMsgSchedulerFallback); err != nil {
+			return err
+		}
+
+		// Transactional due-message processors (parallel to marketing)
+		txDueMsgProcessor := NewDueMessageProcessor(
+			deliverySvc,
+			log,
+			5*time.Second,
+			50,
+			"transactional",
+		)
+		if err := registry.Register(txDueMsgProcessor); err != nil {
+			return err
+		}
+
+		txDueMsgSchedulerFallback := newDueMessageProcessor(
+			"delivery.due_message_scheduler_tx",
+			deliverySvc,
+			log,
+			5*time.Second,
+			50,
+			"transactional",
+		)
+		if err := registry.Register(txDueMsgSchedulerFallback); err != nil {
 			return err
 		}
 

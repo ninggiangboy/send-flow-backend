@@ -13,10 +13,10 @@ import (
 )
 
 type deliveryHTTP struct {
-	svc *deliveryapp.Service
+	svc deliveryService
 }
 
-func newDeliveryHTTP(svc *deliveryapp.Service) *deliveryHTTP {
+func newDeliveryHTTP(svc deliveryService) *deliveryHTTP {
 	return &deliveryHTTP{svc: svc}
 }
 
@@ -48,6 +48,9 @@ func (h *deliveryHTTP) listMessages(w http.ResponseWriter, r *http.Request) {
 		CampaignID:               q.Get("campaign_id"),
 		TransactionalRequestID:   q.Get("transactional_request_id"),
 		Status:                   q.Get("status"),
+		MessageType:              q.Get("message_type"),
+		Mode:                     q.Get("mode"),
+		Provider:                 q.Get("provider"),
 		RecipientEmailNormalized: q.Get("recipient_email"),
 		ProviderMessageID:        q.Get("provider_message_id"),
 		From:                     from,

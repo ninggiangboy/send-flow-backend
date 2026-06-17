@@ -64,31 +64,89 @@ type Result struct {
 type Handler struct {
 	messagesRead        ports.MessageReadRepository
 	messagesWrite       ports.MessageWriteRepository
+	txRequestsWrite     ports.TransactionalRequestWriteRepository
 	recipientSuppressor RecipientSuppressor
 	outboxWriter        ports.OutboxWriter
 	txManager           ports.UnitOfWork
 	idGen               func() (string, error)
 	log                 *slog.Logger
+	eventRepo           ports.MessageEventRepository
 }
 
 func New(
 	messagesRead ports.MessageReadRepository,
 	messagesWrite ports.MessageWriteRepository,
+	txRequestsWrite ports.TransactionalRequestWriteRepository,
 	recipientSuppressor RecipientSuppressor,
 	outboxWriter ports.OutboxWriter,
 	txManager ports.UnitOfWork,
 	idGen func() (string, error),
 	logger *slog.Logger,
+	eventRepo ports.MessageEventRepository,
 ) *Handler {
 	return &Handler{
 		messagesRead:        messagesRead,
 		messagesWrite:       messagesWrite,
+		txRequestsWrite:     txRequestsWrite,
 		recipientSuppressor: recipientSuppressor,
 		outboxWriter:        outboxWriter,
 		txManager:           txManager,
 		idGen:               idGen,
 		log:                 logger.With("usecase", "handle_provider_event"),
+		eventRepo:           eventRepo,
 	}
+}
+
+func (h *Handler) writeEvent(ctx context.Context, msg domain.Message, eventType, reasonCode, reasonMessage string, now time.Time) {
+	if h.eventRepo == nil {
+		return
+	}
+	eventID, err := h.idGen()
+	if err != nil {
+		h.log.Error("failed to generate event id", "error", err)
+		return
+	}
+	evt := domain.MessageEvent{
+		ID:                     eventID,
+		WorkspaceID:            msg.WorkspaceID,
+		MessageID:              msg.ID,
+		TransactionalRequestID: msg.TransactionalRequestID,
+		EventType:              eventType,
+		Status:                 msg.Status,
+		ReasonCode:             reasonCode,
+		ReasonMessage:          reasonMessage,
+		OccurredAt:             now,
+		CreatedAt:              now,
+	}
+	if err := h.eventRepo.Create(ctx, evt); err != nil {
+		h.log.Error("failed to write message event",
+			"message_id", msg.ID,
+			"event_type", eventType,
+			"error", err,
+		)
+	}
+}
+func (h *Handler) writeMessageEvent(ctx context.Context, msg domain.Message, targetStatus string, now time.Time) {
+	var eventType, reasonCode string
+	switch targetStatus {
+	case domain.MessageStatusDelivered:
+		eventType = domain.MessageEventDelivered
+	case domain.MessageStatusBounced:
+		eventType = domain.MessageEventBounced
+		reasonCode = "provider_bounce"
+	case domain.MessageStatusComplained:
+		eventType = domain.MessageEventComplained
+		reasonCode = "provider_complaint"
+	case domain.MessageStatusDelayed:
+		eventType = "delayed"
+		reasonCode = "provider_delayed"
+	case domain.MessageStatusFailed:
+		eventType = domain.MessageEventFailed
+		reasonCode = "provider_rejected"
+	default:
+		return
+	}
+	h.writeEvent(ctx, msg, eventType, reasonCode, "", now)
 }
 
 func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
@@ -299,6 +357,16 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 		if err := h.messagesWrite.Update(txCtx, updated); err != nil {
 			log.Error("failed to update message status", "error", err)
 			return err
+		}
+		h.writeMessageEvent(txCtx, updated, targetStatus, now)
+
+		// Update parent transactional request aggregate counters when
+		// a recipient message reaches a terminal state.
+		if updated.TransactionalRequestID != "" && updated.IsTerminal() {
+			isSuccess := updated.Status == domain.MessageStatusDelivered
+			if aggErr := h.txRequestsWrite.UpdateAggregates(txCtx, updated.WorkspaceID, updated.TransactionalRequestID, true, isSuccess, now); aggErr != nil {
+				log.Warn("failed to update request aggregates", "error", aggErr)
+			}
 		}
 
 		if suppressionInput != nil && h.recipientSuppressor != nil {

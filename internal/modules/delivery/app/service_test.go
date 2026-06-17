@@ -255,6 +255,42 @@ func (m *mockEmailProvider) SendEmail(ctx context.Context, request ports.Provide
 	return m.sendEmail(ctx, request)
 }
 
+type mockMessageEventRepo struct {
+	ports.MessageEventRepository
+	create        func(ctx context.Context, event domain.MessageEvent) error
+	createMany    func(ctx context.Context, events []domain.MessageEvent) error
+	listByMessage func(ctx context.Context, workspaceID, messageID string, limit int, cursor string) ([]domain.MessageEvent, string, error)
+	listByRequest func(ctx context.Context, workspaceID, requestID string, limit int, cursor string) ([]domain.MessageEvent, string, error)
+}
+
+func (m *mockMessageEventRepo) Create(ctx context.Context, event domain.MessageEvent) error {
+	if m.create == nil {
+		return nil
+	}
+	return m.create(ctx, event)
+}
+
+func (m *mockMessageEventRepo) CreateMany(ctx context.Context, events []domain.MessageEvent) error {
+	if m.createMany == nil {
+		return nil
+	}
+	return m.createMany(ctx, events)
+}
+
+func (m *mockMessageEventRepo) ListByMessage(ctx context.Context, workspaceID, messageID string, limit int, cursor string) ([]domain.MessageEvent, string, error) {
+	if m.listByMessage == nil {
+		return nil, "", nil
+	}
+	return m.listByMessage(ctx, workspaceID, messageID, limit, cursor)
+}
+
+func (m *mockMessageEventRepo) ListByRequest(ctx context.Context, workspaceID, requestID string, limit int, cursor string) ([]domain.MessageEvent, string, error) {
+	if m.listByRequest == nil {
+		return nil, "", nil
+	}
+	return m.listByRequest(ctx, workspaceID, requestID, limit, cursor)
+}
+
 func newTestOpts() Options {
 	return Options{
 		MessagesRead:  &mockMessageReadRepo{},
@@ -298,8 +334,9 @@ func newTestOpts() Options {
 				return &ports.ProviderSendResult{Provider: "test", ProviderMessageID: "prov_msg_1", AcceptedAt: time.Now()}, nil
 			},
 		},
-		IDGen:  func() (string, error) { return "test_id_1", nil },
-		Logger: slog.Default(),
+		IDGen:     func() (string, error) { return "test_id_1", nil },
+		Logger:    slog.Default(),
+		EventRepo: &mockMessageEventRepo{},
 	}
 }
 

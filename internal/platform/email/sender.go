@@ -5,15 +5,29 @@ import (
 	"fmt"
 )
 
+// Attachment represents a file attached to an email message.
+type Attachment struct {
+	Filename    string
+	ContentType string
+	ContentID   string
+	Disposition string
+	Data        []byte
+}
+
 type Message struct {
-	To      []string
-	Subject string
-	Text    string
-	HTML    string
+	To          []string
+	CC          []string
+	BCC         []string
+	Subject     string
+	Text        string
+	HTML        string
+	SenderName  string
+	Headers     map[string]string
+	Attachments []Attachment
 }
 
 func (m Message) Validate() error {
-	if len(m.To) == 0 {
+	if len(m.To) == 0 && len(m.CC) == 0 && len(m.BCC) == 0 {
 		return fmt.Errorf("email recipient is required")
 	}
 	if m.Subject == "" {

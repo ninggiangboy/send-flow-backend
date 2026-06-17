@@ -18,6 +18,7 @@ import (
 
 type ObjectStorage interface {
 	PutObject(ctx context.Context, key string, body io.Reader, contentType string) error
+	DeleteObject(ctx context.Context, key string) error
 	GetObject(ctx context.Context, key string) (io.ReadCloser, error)
 	PresignGetObject(ctx context.Context, key string, expiry time.Duration) (string, error)
 	EnsureBucket(ctx context.Context) error
@@ -59,6 +60,18 @@ func (c *Client) PutObject(ctx context.Context, key string, body io.Reader, cont
 	_, err := c.s3.PutObject(ctx, input)
 	if err != nil {
 		return fmt.Errorf("put object %s: %w", key, err)
+	}
+	return nil
+}
+
+func (c *Client) DeleteObject(ctx context.Context, key string) error {
+	input := &s3.DeleteObjectInput{
+		Bucket: &c.bucket,
+		Key:    &key,
+	}
+	_, err := c.s3.DeleteObject(ctx, input)
+	if err != nil {
+		return fmt.Errorf("delete object %s: %w", key, err)
 	}
 	return nil
 }

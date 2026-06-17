@@ -2,13 +2,16 @@ package worker
 
 import (
 	"context"
+	"io"
 	"time"
 
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
+	deliverydomain "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	deliveryports "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/objectstorage"
 )
 
 type suppressionAdapter struct {
@@ -98,9 +101,35 @@ func (a *recipientSuppressorAdapter) SuppressFromSignal(ctx context.Context, inp
 	return &deliveryapp.SuppressFromSignalResult{EntryID: entry.ID, Created: created}, nil
 }
 
+type deliveryObjectStorageAdapter struct {
+	client objectstorage.ObjectStorage
+}
+
+func (a deliveryObjectStorageAdapter) PutObject(ctx context.Context, key string, body io.Reader, contentType string) error {
+	if a.client == nil {
+		return deliverydomain.ErrObjectStorageDisabled
+	}
+	return a.client.PutObject(ctx, key, body, contentType)
+}
+
+func (a deliveryObjectStorageAdapter) GetObject(ctx context.Context, key string) (io.ReadCloser, error) {
+	if a.client == nil {
+		return nil, deliverydomain.ErrObjectStorageDisabled
+	}
+	return a.client.GetObject(ctx, key)
+}
+
+func (a deliveryObjectStorageAdapter) DeleteObject(ctx context.Context, key string) error {
+	if a.client == nil {
+		return deliverydomain.ErrObjectStorageDisabled
+	}
+	return a.client.DeleteObject(ctx, key)
+}
+
 var (
 	_ deliveryports.SuppressionChecker     = (*suppressionAdapter)(nil)
 	_ deliveryports.ContentRenderer        = (*contentRendererAdapter)(nil)
 	_ deliveryports.SenderReadinessChecker = (*senderReadinessAdapter)(nil)
 	_ deliveryapp.RecipientSuppressor      = (*recipientSuppressorAdapter)(nil)
+	_ deliveryports.ObjectStorage          = deliveryObjectStorageAdapter{}
 )

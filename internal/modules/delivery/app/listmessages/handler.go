@@ -17,6 +17,9 @@ type Input struct {
 	CampaignID               string
 	TransactionalRequestID   string
 	Status                   string
+	MessageType              string
+	Mode                     string
+	Provider                 string
 	RecipientEmailNormalized string
 	ProviderMessageID        string
 	From                     *time.Time
@@ -62,6 +65,9 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 		CampaignID:               input.CampaignID,
 		TransactionalRequestID:   input.TransactionalRequestID,
 		Status:                   input.Status,
+		MessageType:              input.MessageType,
+		Mode:                     input.Mode,
+		Provider:                 input.Provider,
 		RecipientEmailNormalized: emailNormalized,
 		ProviderMessageID:        input.ProviderMessageID,
 		From:                     input.From,

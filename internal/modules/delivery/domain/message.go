@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"time"
@@ -48,6 +50,36 @@ const (
 	TxRequestStatusProcessing = "processing"
 	TxRequestStatusCompleted  = "completed"
 	TxRequestStatusFailed     = "failed"
+)
+
+const (
+	MessageModeTemplate = "template"
+	MessageModeRaw      = "raw"
+)
+
+const (
+	RecipientRoleTo  = "to"
+	RecipientRoleCC  = "cc"
+	RecipientRoleBCC = "bcc"
+)
+
+const (
+	MessageEventRequestAccepted   = "request_accepted"
+	MessageEventQueued            = "queued"
+	MessageEventProcessingStarted = "processing_started"
+	MessageEventProviderAccepted  = "provider_accepted"
+	MessageEventDelivered         = "delivered"
+	MessageEventBounced           = "bounced"
+	MessageEventComplained        = "complained"
+	MessageEventRetryScheduled    = "retry_scheduled"
+	MessageEventFailed            = "failed"
+	MessageEventSuppressed        = "suppressed"
+	MessageEventRequestCompleted  = "request_completed"
+)
+
+const (
+	AttachmentDispositionAttachment = "attachment"
+	AttachmentDispositionInline     = "inline"
 )
 
 func ClassifyProviderEvent(providerEventType string) (string, bool) {
@@ -105,6 +137,88 @@ type RecipientSnapshot struct {
 	TemplateData    map[string]any `json:"template_data,omitempty"`
 }
 
+type RecipientTarget struct {
+	Email string `json:"email"`
+	Name  string `json:"name,omitempty"`
+}
+
+type FilePart struct {
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256"`
+	Disposition string `json:"disposition,omitempty"`
+	ContentID   string `json:"content_id,omitempty"`
+}
+
+type CanonicalSendRequest struct {
+	Mode              string            `json:"mode"`
+	WorkspaceID       string            `json:"workspace_id"`
+	APIKeyID          string            `json:"api_key_id"`
+	IdempotencyKey    string            `json:"idempotency_key,omitempty"`
+	SenderDomainID    string            `json:"sender_domain_id"`
+	SenderName        string            `json:"sender_name,omitempty"`
+	Subject           string            `json:"subject,omitempty"`
+	TemplateID        string            `json:"template_id,omitempty"`
+	TemplateVersionID string            `json:"template_version_id,omitempty"`
+	TemplateData      map[string]any    `json:"template_data,omitempty"`
+	TextBody          string            `json:"text_body,omitempty"`
+	HTMLBody          string            `json:"html_body,omitempty"`
+	ReplyTo           string            `json:"reply_to,omitempty"`
+	To                []RecipientTarget `json:"to"`
+	CC                []RecipientTarget `json:"cc,omitempty"`
+	BCC               []RecipientTarget `json:"bcc,omitempty"`
+	Metadata          map[string]any    `json:"metadata,omitempty"`
+	Tags              []string          `json:"tags,omitempty"`
+	Headers           map[string]string `json:"headers,omitempty"`
+	Attachments       []FilePart        `json:"attachments,omitempty"`
+	Now               time.Time         `json:"-"`
+}
+
+// ComputeHash returns a SHA-256 hex digest of the canonical request
+// including attachment digests. Used for idempotency comparison.
+func (c *CanonicalSendRequest) ComputeHash() (string, error) {
+	h := sha256.New()
+	enc := json.NewEncoder(h)
+	// Encode everything except Now and Attachment data
+	if err := enc.Encode(c); err != nil {
+		return "", err
+	}
+	// Include attachment SHA256 digests in order
+	for _, att := range c.Attachments {
+		h.Write([]byte(att.SHA256))
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+type MessageEvent struct {
+	ID                     string          `json:"id"`
+	WorkspaceID            string          `json:"workspace_id"`
+	MessageID              string          `json:"message_id"`
+	TransactionalRequestID string          `json:"transactional_request_id,omitempty"`
+	EventType              string          `json:"event_type"`
+	Status                 string          `json:"status"`
+	ReasonCode             string          `json:"reason_code,omitempty"`
+	ReasonMessage          string          `json:"reason_message,omitempty"`
+	Metadata               json.RawMessage `json:"metadata,omitempty"`
+	OccurredAt             time.Time       `json:"occurred_at"`
+	CreatedAt              time.Time       `json:"created_at"`
+}
+
+type AttachmentManifest struct {
+	ID                     string    `json:"id"`
+	WorkspaceID            string    `json:"workspace_id"`
+	TransactionalRequestID string    `json:"transactional_request_id"`
+	StorageKey             string    `json:"storage_key"`
+	OriginalFilename       string    `json:"original_filename"`
+	ContentType            string    `json:"content_type"`
+	ByteSize               int64     `json:"byte_size"`
+	SHA256Digest           string    `json:"sha256_digest"`
+	Disposition            string    `json:"disposition"`
+	ContentID              string    `json:"content_id,omitempty"`
+	CreatedAt              time.Time `json:"created_at"`
+}
+
 type Message struct {
 	ID                       string
 	WorkspaceID              string
@@ -117,6 +231,14 @@ type Message struct {
 	TemplateID               string
 	TemplateVersionID        string
 	SenderDomainID           string
+	Subject                  string
+	SenderName               string
+	TextBody                 string
+	HTMLBody                 string
+	ReplyTo                  string
+	Headers                  map[string]string
+	RecipientRole            string
+	SourceAPIKeyID           string
 	MessageType              string
 	SourceType               string
 	Status                   string
@@ -194,15 +316,21 @@ type RetryState struct {
 }
 
 type TransactionalSendRequest struct {
-	ID             string
-	WorkspaceID    string
-	IdempotencyKey *string
-	Status         string
-	RequestPayload json.RawMessage
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CompletedAt    *time.Time
-	FailedAt       *time.Time
+	ID              string
+	WorkspaceID     string
+	IdempotencyKey  *string
+	Status          string
+	RequestPayload  json.RawMessage
+	Mode            string
+	Subject         string
+	SenderName      string
+	SourceAPIKeyID  string
+	RequestHash     string
+	TotalRecipients int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	CompletedAt     *time.Time
+	FailedAt        *time.Time
 }
 
 func ValidMessageStatus(s string) bool {
@@ -233,6 +361,30 @@ func ValidMessageType(s string) bool {
 	default:
 		return false
 	}
+}
+
+func ValidMessageMode(s string) bool {
+	return s == MessageModeTemplate || s == MessageModeRaw
+}
+
+func ValidRecipientRole(s string) bool {
+	return s == RecipientRoleTo || s == RecipientRoleCC || s == RecipientRoleBCC
+}
+
+func ValidMessageEventType(s string) bool {
+	switch s {
+	case MessageEventRequestAccepted, MessageEventQueued, MessageEventProcessingStarted,
+		MessageEventProviderAccepted, MessageEventDelivered, MessageEventBounced,
+		MessageEventComplained, MessageEventRetryScheduled, MessageEventFailed,
+		MessageEventSuppressed, MessageEventRequestCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
+func ValidAttachmentDisposition(s string) bool {
+	return s == AttachmentDispositionAttachment || s == AttachmentDispositionInline
 }
 
 func ValidAttemptStatus(s string) bool {
@@ -272,8 +424,8 @@ func ValidateQueuedMessage(msg Message) error {
 	if err := ValidateRecipientSnapshot(msg.RecipientSnapshot); err != nil {
 		return err
 	}
-	if msg.TemplateID == "" {
-		return ErrPayloadInvalid
+	if msg.TemplateID == "" && msg.MessageType == MessageTypeTransactional && msg.SourceType == MessageSourceTransactional {
+		// TemplateID can be empty for raw mode transactional sends
 	}
 	if msg.SenderDomainID == "" {
 		return ErrPayloadInvalid
@@ -282,6 +434,9 @@ func ValidateQueuedMessage(msg Message) error {
 		return ErrPayloadInvalid
 	}
 	if !ValidMessageSourceType(msg.SourceType) {
+		return ErrPayloadInvalid
+	}
+	if msg.RecipientRole != "" && !ValidRecipientRole(msg.RecipientRole) {
 		return ErrPayloadInvalid
 	}
 	return nil

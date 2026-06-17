@@ -1,10 +1,12 @@
 package processduemessages
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"math/rand"
@@ -65,9 +67,13 @@ type Handler struct {
 	emailProvider      ports.EmailProvider
 	outboxWriter       ports.OutboxWriter
 	txManager          ports.UnitOfWork
+	txRequestsWrite    ports.TransactionalRequestWriteRepository
+	attachmentRepo     ports.AttachmentRepository
+	objectStorage      ports.ObjectStorage
 	idGen              func() (string, error)
 	log                *slog.Logger
 	cache              *deliveryredis.Cache
+	eventRepo          ports.MessageEventRepository
 }
 
 func New(
@@ -83,9 +89,13 @@ func New(
 	emailProvider ports.EmailProvider,
 	outboxWriter ports.OutboxWriter,
 	txManager ports.UnitOfWork,
+	txRequestsWrite ports.TransactionalRequestWriteRepository,
 	idGen func() (string, error),
 	logger *slog.Logger,
 	cache *deliveryredis.Cache,
+	eventRepo ports.MessageEventRepository,
+	attachmentRepo ports.AttachmentRepository,
+	objectStorage ports.ObjectStorage,
 ) *Handler {
 	return &Handler{
 		messagesRead:       messagesRead,
@@ -100,9 +110,13 @@ func New(
 		emailProvider:      emailProvider,
 		outboxWriter:       outboxWriter,
 		txManager:          txManager,
+		txRequestsWrite:    txRequestsWrite,
+		attachmentRepo:     attachmentRepo,
+		objectStorage:      objectStorage,
 		idGen:              idGen,
 		log:                logger.With("usecase", "process_due_messages"),
 		cache:              cache,
+		eventRepo:          eventRepo,
 	}
 }
 
@@ -245,6 +259,8 @@ func (h *Handler) processMessage(ctx context.Context, msg domain.Message, now ti
 
 	now = now.UTC()
 
+	h.writeEvent(ctx, msg, domain.MessageEventProcessingStarted, domain.MessageStatusProcessing, "", "", now)
+
 	if h.cache != nil {
 		token, acquired, err := h.cache.AcquireMessageLock(ctx, msg.ID, 30*time.Second)
 		if err != nil {
@@ -286,13 +302,25 @@ func (h *Handler) processMessage(ctx context.Context, msg domain.Message, now ti
 		return messageStatusFailed, nil
 	}
 
-	renderData := buildRenderData(msg.RecipientSnapshot)
+	var subject, htmlBody, textBody string
 
-	rendered, err := h.contentRenderer.RenderForMessage(ctx, msg.WorkspaceID, msg.TemplateID, msg.TemplateVersionID, renderData)
-	if err != nil {
-		log.Warn("template render failed", "template_id", msg.TemplateID, "template_version_id", msg.TemplateVersionID, "error", err)
-		h.failMessage(ctx, msg, now, "template_render_failed", "template render failed")
-		return messageStatusFailed, nil
+	if msg.TemplateID != "" {
+		// Template mode: render from template
+		renderData := buildRenderData(msg.RecipientSnapshot)
+		rendered, err := h.contentRenderer.RenderForMessage(ctx, msg.WorkspaceID, msg.TemplateID, msg.TemplateVersionID, renderData)
+		if err != nil {
+			log.Warn("template render failed", "template_id", msg.TemplateID, "template_version_id", msg.TemplateVersionID, "error", err)
+			h.failMessage(ctx, msg, now, "template_render_failed", "template render failed")
+			return messageStatusFailed, nil
+		}
+		subject = rendered.Subject
+		htmlBody = rendered.HTMLBody
+		textBody = rendered.TextBody
+	} else {
+		// Raw mode: use stored body directly
+		subject = msg.Subject
+		htmlBody = msg.HTMLBody
+		textBody = msg.TextBody
 	}
 
 	attemptNo, err := h.attemptsRead.NextAttemptNumber(ctx, msg.WorkspaceID, msg.ID)
@@ -328,11 +356,27 @@ func (h *Handler) processMessage(ctx context.Context, msg domain.Message, now ti
 		return messageStatusFailed, nil
 	}
 
+	attachments, attErr := h.loadAttachments(ctx, msg)
+	if attErr != nil {
+		log.Error("failed to load attachments", "error", attErr)
+		h.failMessage(ctx, msg, now, "attachment_load_failed", attErr.Error())
+		return messageStatusFailed, nil
+	}
+
+	var replyToList []string
+	if msg.ReplyTo != "" {
+		replyToList = []string{msg.ReplyTo}
+	}
+
 	providerResult, providerErr := h.emailProvider.SendEmail(ctx, ports.ProviderSendRequest{
-		To:       msg.RecipientSnapshot.Email,
-		Subject:  rendered.Subject,
-		HTMLBody: rendered.HTMLBody,
-		TextBody: rendered.TextBody,
+		To:          []string{msg.RecipientSnapshot.Email},
+		Subject:     subject,
+		HTMLBody:    htmlBody,
+		TextBody:    textBody,
+		SenderName:  msg.SenderName,
+		ReplyTo:     replyToList,
+		Headers:     msg.Headers,
+		Attachments: attachments,
 	})
 
 	if providerErr != nil {
@@ -381,6 +425,7 @@ func (h *Handler) processMessage(ctx context.Context, msg domain.Message, now ti
 		msg.LastErrorClass = "accepted_state_persistence_failed"
 		msg.LastErrorMessage = err.Error()
 		msg.UpdatedAt = now
+		h.writeEvent(context.Background(), msg, domain.MessageEventFailed, domain.MessageStatusFailed, "accepted_state_persistence_failed", err.Error(), now)
 
 		if dlqErr := h.messagesWrite.Update(context.Background(), msg); dlqErr != nil {
 			log.Error("failed to move message to dlq after accepted save failure", "dlq_error", dlqErr)
@@ -393,6 +438,36 @@ func (h *Handler) processMessage(ctx context.Context, msg domain.Message, now ti
 		"provider_message_id", providerResult.ProviderMessageID,
 	)
 	return messageStatusAccepted, nil
+}
+
+func (h *Handler) writeEvent(ctx context.Context, msg domain.Message, eventType, status, reasonCode, reasonMessage string, now time.Time) {
+	if h.eventRepo == nil {
+		return
+	}
+	eventID, err := h.idGen()
+	if err != nil {
+		h.log.Error("failed to generate event id", "error", err)
+		return
+	}
+	evt := domain.MessageEvent{
+		ID:                     eventID,
+		WorkspaceID:            msg.WorkspaceID,
+		MessageID:              msg.ID,
+		TransactionalRequestID: msg.TransactionalRequestID,
+		EventType:              eventType,
+		Status:                 status,
+		ReasonCode:             reasonCode,
+		ReasonMessage:          reasonMessage,
+		OccurredAt:             now,
+		CreatedAt:              now,
+	}
+	if err := h.eventRepo.Create(ctx, evt); err != nil {
+		h.log.Error("failed to write message event",
+			"message_id", msg.ID,
+			"event_type", eventType,
+			"error", err,
+		)
+	}
 }
 
 func buildRenderData(snapshot domain.RecipientSnapshot) map[string]any {
@@ -433,7 +508,16 @@ func (h *Handler) failMessage(ctx context.Context, msg domain.Message, now time.
 	msg.UpdatedAt = now
 
 	if err := h.txManager.WithinTx(ctx, func(txCtx context.Context) error {
-		return h.messagesWrite.MarkFailed(txCtx, msg)
+		if err := h.messagesWrite.MarkFailed(txCtx, msg); err != nil {
+			return err
+		}
+		if msg.TransactionalRequestID != "" {
+			if err := h.txRequestsWrite.UpdateAggregates(txCtx, msg.WorkspaceID, msg.TransactionalRequestID, true, false, now); err != nil {
+				return err
+			}
+		}
+		h.writeEvent(txCtx, msg, domain.MessageEventFailed, domain.MessageStatusFailed, errorClass, errorMessage, now)
+		return nil
 	}); err != nil {
 		h.log.Error("failed to mark message failed",
 			"message_id", msg.ID,
@@ -458,7 +542,16 @@ func (h *Handler) failMessageWithAttempt(ctx context.Context, msg domain.Message
 		if err := h.attemptsWrite.Update(txCtx, attempt); err != nil {
 			return err
 		}
-		return h.messagesWrite.MarkFailed(txCtx, msg)
+		if err := h.messagesWrite.MarkFailed(txCtx, msg); err != nil {
+			return err
+		}
+		if msg.TransactionalRequestID != "" {
+			if err := h.txRequestsWrite.UpdateAggregates(txCtx, msg.WorkspaceID, msg.TransactionalRequestID, true, false, now); err != nil {
+				return err
+			}
+		}
+		h.writeEvent(txCtx, msg, domain.MessageEventFailed, domain.MessageStatusFailed, errorClass, errorMessage, now)
+		return nil
 	}); err != nil {
 		h.log.Error("failed to mark message failed with attempt",
 			"message_id", msg.ID,
@@ -550,7 +643,11 @@ func (h *Handler) handleTemporaryFailure(ctx context.Context, msg domain.Message
 				return err
 			}
 		}
-		return h.saveRetryScheduledEvent(txCtx, msg, retryState, now)
+		h.writeEvent(txCtx, msg, domain.MessageEventRetryScheduled, domain.MessageStatusQueued, "provider_temporary_failure", providerErr.Error(), now)
+		if err := h.saveRetryScheduledEvent(txCtx, msg, retryState, now); err != nil {
+			return err
+		}
+		return nil
 	}); err != nil {
 		log.Error("failed to save retry state", "error", err)
 		return
@@ -609,6 +706,8 @@ func (h *Handler) persistAcceptedState(ctx context.Context, msg domain.Message, 
 }
 
 func (h *Handler) saveAcceptedEvent(ctx context.Context, msg domain.Message, providerResult *ports.ProviderSendResult, now time.Time, eventID string) error {
+	h.writeEvent(ctx, msg, domain.MessageEventProviderAccepted, domain.MessageStatusAccepted, "", "", now)
+
 	payload := contracts.MessageAcceptedPayload{
 		MessageID:              msg.ID,
 		WorkspaceID:            msg.WorkspaceID,
@@ -695,4 +794,48 @@ func (h *Handler) saveRetryScheduledEvent(ctx context.Context, msg domain.Messag
 		WorkspaceID:   msg.WorkspaceID,
 		OccurredAt:    now,
 	})
+
+}
+
+func (h *Handler) loadAttachments(ctx context.Context, msg domain.Message) ([]ports.AttachmentPart, error) {
+	if msg.TransactionalRequestID == "" || h.attachmentRepo == nil || h.objectStorage == nil {
+		return nil, nil
+	}
+
+	manifests, err := h.attachmentRepo.ListByRequest(ctx, msg.WorkspaceID, msg.TransactionalRequestID)
+	if err != nil {
+		return nil, fmt.Errorf("list attachment manifests: %w", err)
+	}
+	if len(manifests) == 0 {
+		return nil, nil
+	}
+
+	parts := make([]ports.AttachmentPart, 0, len(manifests))
+	for _, m := range manifests {
+		rc, err := h.objectStorage.GetObject(ctx, m.StorageKey)
+		if err != nil {
+			return nil, fmt.Errorf("get attachment %s (key=%s): %w", m.OriginalFilename, m.StorageKey, err)
+		}
+		defer rc.Close()
+
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			return nil, fmt.Errorf("read attachment %s: %w", m.OriginalFilename, err)
+		}
+
+		disp := m.Disposition
+		if disp == "" {
+			disp = domain.AttachmentDispositionAttachment
+		}
+
+		parts = append(parts, ports.AttachmentPart{
+			Filename:    m.OriginalFilename,
+			ContentType: m.ContentType,
+			ContentID:   m.ContentID,
+			Disposition: disp,
+			Data:        bytes.NewReader(data),
+		})
+	}
+
+	return parts, nil
 }

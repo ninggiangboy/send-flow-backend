@@ -3,6 +3,7 @@ package email
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -43,13 +44,55 @@ func (s *SESSender) Send(ctx context.Context, msg Message) error {
 		return err
 	}
 
+	// Check if we need raw MIME — needed when there are attachments or
+	// custom headers that don't fit in the Simple format (anything beyond Reply-To).
+	needsRaw := len(msg.Attachments) > 0
+	if !needsRaw {
+		for k := range msg.Headers {
+			if !strings.EqualFold(k, "Reply-To") && !strings.HasPrefix(k, "Content-") && !strings.HasPrefix(k, "MIME-") {
+				needsRaw = true
+				break
+			}
+		}
+	}
+
+	if needsRaw {
+		return s.sendRaw(ctx, msg)
+	}
+	return s.sendSimple(ctx, msg)
+}
+
+func (s *SESSender) sendSimple(ctx context.Context, msg Message) error {
+	fromAddr := s.from
+	if msg.SenderName != "" {
+		fromAddr = fmt.Sprintf("%s <%s>", msg.SenderName, s.from)
+	}
+
 	input := &sesv2.SendEmailInput{
-		FromEmailAddress: &s.from,
-		Destination:      &types.Destination{ToAddresses: msg.To},
+		FromEmailAddress: &fromAddr,
+		Destination: &types.Destination{
+			ToAddresses:  msg.To,
+			CcAddresses:  msg.CC,
+			BccAddresses: msg.BCC,
+		},
 		Content: &types.EmailContent{Simple: &types.Message{
 			Subject: &types.Content{Data: &msg.Subject},
 			Body:    &types.Body{},
 		}},
+	}
+
+	// Reply-To from headers.
+	if replyTo, ok := msg.Headers["Reply-To"]; ok {
+		parts := strings.Split(replyTo, ",")
+		addrs := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if addr := strings.TrimSpace(p); addr != "" {
+				addrs = append(addrs, addr)
+			}
+		}
+		if len(addrs) > 0 {
+			input.ReplyToAddresses = addrs
+		}
 	}
 
 	if msg.Text != "" {
@@ -58,6 +101,48 @@ func (s *SESSender) Send(ctx context.Context, msg Message) error {
 	if msg.HTML != "" {
 		input.Content.Simple.Body.Html = &types.Content{Data: &msg.HTML}
 	}
+	if s.configurationSet != "" {
+		input.ConfigurationSetName = &s.configurationSet
+	}
+
+	if _, err := s.client.SendEmail(ctx, input); err != nil {
+		return fmt.Errorf("send ses email: %w", err)
+	}
+	return nil
+}
+
+func (s *SESSender) sendRaw(ctx context.Context, msg Message) error {
+	mimeBytes, err := buildMIMEMessage(s.from, msg)
+	if err != nil {
+		return fmt.Errorf("build mime message: %w", err)
+	}
+
+	input := &sesv2.SendEmailInput{
+		FromEmailAddress: &s.from,
+		Destination: &types.Destination{
+			ToAddresses:  msg.To,
+			CcAddresses:  msg.CC,
+			BccAddresses: msg.BCC,
+		},
+		Content: &types.EmailContent{
+			Raw: &types.RawMessage{Data: mimeBytes},
+		},
+	}
+
+	// Also pass Reply-To at the SES API level so it's available to SES features (bounces, etc.).
+	if replyTo, ok := msg.Headers["Reply-To"]; ok {
+		parts := strings.Split(replyTo, ",")
+		addrs := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if addr := strings.TrimSpace(p); addr != "" {
+				addrs = append(addrs, addr)
+			}
+		}
+		if len(addrs) > 0 {
+			input.ReplyToAddresses = addrs
+		}
+	}
+
 	if s.configurationSet != "" {
 		input.ConfigurationSetName = &s.configurationSet
 	}

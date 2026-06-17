@@ -63,14 +63,23 @@ func (b *commandBus) AcceptTransactionalSend(ctx context.Context, input AcceptTr
 		WorkspaceID:       input.WorkspaceID,
 		APIKeyID:          input.APIKeyID,
 		IdempotencyKey:    input.IdempotencyKey,
-		RecipientEmail:    input.RecipientEmail,
-		RecipientName:     input.RecipientName,
+		Mode:              input.Mode,
 		SenderDomainID:    input.SenderDomainID,
+		SenderName:        input.SenderName,
+		Subject:           input.Subject,
 		TemplateID:        input.TemplateID,
 		TemplateVersionID: input.TemplateVersionID,
 		TemplateData:      input.TemplateData,
+		TextBody:          input.TextBody,
+		HTMLBody:          input.HTMLBody,
+		ReplyTo:           input.ReplyTo,
+		To:                input.To,
+		CC:                input.CC,
+		BCC:               input.BCC,
 		Metadata:          input.Metadata,
 		Tags:              input.Tags,
+		Headers:           input.Headers,
+		Attachments:       input.Attachments,
 		Now:               input.Now,
 	})
 	if err != nil {
@@ -78,8 +87,8 @@ func (b *commandBus) AcceptTransactionalSend(ctx context.Context, input AcceptTr
 		return nil, err
 	}
 	return &AcceptTransactionalSendResult{
-		MessageID:  result.MessageID,
 		RequestID:  result.RequestID,
+		MessageIDs: result.MessageIDs,
 		Status:     result.Status,
 		AcceptedAt: result.AcceptedAt,
 	}, nil
@@ -214,6 +223,9 @@ func (b *queryBus) ListMessages(ctx context.Context, input ListMessagesInput) (*
 		CampaignID:               input.CampaignID,
 		TransactionalRequestID:   input.TransactionalRequestID,
 		Status:                   input.Status,
+		MessageType:              input.MessageType,
+		Mode:                     input.Mode,
+		Provider:                 input.Provider,
 		RecipientEmailNormalized: input.RecipientEmailNormalized,
 		ProviderMessageID:        input.ProviderMessageID,
 		From:                     input.From,

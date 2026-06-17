@@ -37,7 +37,7 @@ const (
 
 func openAPIConfig() huma.Config {
 	cfg := huma.DefaultConfig("Sendflow API", "1.0.0")
-	cfg.Info.Description = "HTTP API for send-flow authentication, workspace management, health, and operations."
+	cfg.Info.Description = "Sendflow API provides workspace management, authentication, email delivery (campaign and transactional), workspace mail-log inspection, API key management, and webhook ingestion."
 	cfg.OpenAPIPath = ""
 	cfg.DocsPath = ""
 	cfg.SchemasPath = ""
@@ -109,8 +109,12 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, deps *RouterDeps) {
 		delivery := newDeliveryHTTP(deps.DeliverySvc)
 		registerDeliveryOperations(api, delivery, authMiddleware)
 
-		transactional := newTransactionalHTTP(deps.DeliverySvc)
+		transactional := newTransactionalHTTP(deps.DeliverySvc, auditRecorder)
 		registerTransactionalOperations(api, transactional, deps.AccessSvc, deps.APIKeyMetrics, deps.AuthRateLimiter)
+		registerTransactionalMailLogsOperations(api, transactional, deps.AccessSvc, deps.APIKeyMetrics, deps.AuthRateLimiter)
+
+		mailLogs := newMailLogsHTTP(deps.DeliverySvc)
+		registerMailLogsOperations(api, mailLogs, authMiddleware, deps.AccessSvc, deps.APIKeyMetrics, deps.AuthRateLimiter)
 	}
 	if deps.IngestionSvc != nil {
 		ingestion := newIngestionHTTP(deps.IngestionSvc)
@@ -392,6 +396,9 @@ func senderErrorCodes(_ *huma.Operation) map[int][]string {
 		http.StatusBadRequest: {
 			"auth.invalid_request_body",
 		},
+		http.StatusUnsupportedMediaType: {
+			"delivery.request_body_invalid",
+		},
 		http.StatusUnauthorized: {
 			"auth.invalid_token",
 		},
@@ -414,6 +421,7 @@ func senderErrorCodes(_ *huma.Operation) map[int][]string {
 		},
 		http.StatusInternalServerError: {
 			"internal.error",
+			"delivery.attachment_storage_failed",
 		},
 	}
 }
@@ -2167,6 +2175,7 @@ func registerTransactionalOperations(api huma.API, transactional *transactionalH
 		Path:          "/api/v1/transactional/send",
 		Tags:          []string{"Delivery"},
 		Summary:       "Send a transactional email",
+		Description:   "Accepts a transactional email send request. Supports two modes: template (JSON with template_id and template_data) and raw (multipart/form-data with subject, text_body/html_body, and optional attachments). Recipients are exploded into one message per recipient email. Returns 202 Accepted with request_id and message_ids. Requires API key with transactional.send scope. Limits: max 50 recipients, 25 MB per attachment, 32 MB total body.",
 		DefaultStatus: http.StatusAccepted,
 		Errors:        documentedErrorStatuses(),
 	}, accessSvc, "transactional.send", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
@@ -2179,11 +2188,156 @@ func registerTransactionalOperations(api huma.API, transactional *transactionalH
 		Path:        "/api/v1/transactional/messages/{message_id}",
 		Tags:        []string{"Delivery"},
 		Summary:     "Get transactional message status",
+		Description: "Returns the current status and provider metadata for a transactional message by message ID. Requires API key with transactional.read scope.",
 		Errors:      documentedErrorStatuses(),
 	}, accessSvc, "transactional.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *transactionalMessagePathInput) (*emptyOutput, error) {
 		_ = input
 		return delegateHTTP[emptyOutput](ctx, nil, transactional.getMessage)
 	})
+}
+
+func registerTransactionalMailLogsOperations(api huma.API, transactional *transactionalHTTP, accessSvc *accessapp.Service, apiKeyMetrics *observability.APIKeyMetrics, apiKeyRateLimiter ratelimit.Service) {
+	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
+		OperationID: "listMessageEvents",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/transactional/messages/{message_id}/events",
+		Tags:        []string{"Delivery"},
+		Summary:     "List events for a transactional message (mail log timeline)",
+		Description: "Returns the immutable timeline of events for a transactional message, including queued, processing_started, provider_accepted, delivered, bounced, complained, failed, retry_scheduled, and suppressed events. Requires API key with mail_logs.read scope.",
+		Errors:      documentedErrorStatuses(),
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *transactionalMessagePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, transactional.listMessageEvents)
+	})
+
+	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
+		OperationID: "listTransactionalRequestMessages",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/transactional/requests/{request_id}/messages",
+		Tags:        []string{"Delivery"},
+		Summary:     "List messages for a transactional request",
+		Description: "Returns all per-recipient messages created for a transactional send request. Requires API key with mail_logs.read scope.",
+		Errors:      documentedErrorStatuses(),
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *transactionalRequestPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, transactional.listRequestMessages)
+	})
+}
+
+type mailLogPathInput struct {
+	MessageID string `path:"message_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Message ID."`
+}
+
+func registerMailLogsOperations(api huma.API, mailLogs *mailLogsHTTP, authMiddleware func(huma.Context, func(huma.Context)), accessSvc *accessapp.Service, apiKeyMetrics *observability.APIKeyMetrics, apiKeyRateLimiter ratelimit.Service) {
+	// Session-auth routes (workspace operators)
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "listMailLogs",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/mail-logs",
+		Tags:        []string{"Delivery"},
+		Summary:     "List workspace mail logs",
+		Description: "Returns a paginated, filterable list of workspace mail-log entries (all tracked email messages including campaign and transactional). Supports filters: status, message_type, mode, recipient_email, provider, provider_message_id, campaign_id, transactional_request_id, date range (from/to), and cursor-based pagination. Supports session-auth (workspace operators) and API-key auth with mail_logs.read scope.",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogs)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "getMailLog",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/mail-logs/{message_id}",
+		Tags:        []string{"Delivery"},
+		Summary:     "Get mail log detail",
+		Description: "Returns full detail for a single mail-log entry, including recipient snapshot, sender domain, template info, timestamps, and last error details. Does not return raw attachment bytes.",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.getMailLog)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "listMailLogAttempts",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/mail-logs/{message_id}/attempts",
+		Tags:        []string{"Delivery"},
+		Summary:     "List delivery attempts for a mail log entry",
+		Description: "Returns all delivery attempts for a single message, ordered by attempt number descending. Each attempt includes provider, status, error details, and request/response snapshots.",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogAttempts)
+	})
+
+	huma.Register(api, protectedOperation(huma.Operation{
+		OperationID: "listMailLogEvents",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/mail-logs/{message_id}/events",
+		Tags:        []string{"Delivery"},
+		Summary:     "List timeline events for a mail log entry",
+		Description: "Returns the immutable timeline of events for a message, including queued, processing_started, provider_accepted, delivered, bounced, complained, failed, retry_scheduled, and suppressed events. Events are ordered by occurred_at descending with cursor-based pagination.",
+		Errors:      documentedErrorStatuses(),
+	}, authMiddleware), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogEvents)
+	})
+
+	// API-key auth routes (same paths, scope: mail_logs.read)
+	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
+		OperationID: "listMailLogsApiKey",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/mail-logs",
+		Tags:        []string{"Delivery"},
+		Summary:     "List workspace mail logs (API key)",
+		Description: "Returns a paginated, filterable list of workspace mail-log entries using API-key auth. Supports the same filters as the session-auth variant. Requires API key with mail_logs.read scope.",
+		Errors:      documentedErrorStatuses(),
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogs)
+	})
+
+	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
+		OperationID: "getMailLogApiKey",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/mail-logs/{message_id}",
+		Tags:        []string{"Delivery"},
+		Summary:     "Get mail log detail (API key)",
+		Description: "Returns full detail for a single mail-log entry using API-key auth. Same response as the session-auth variant. Requires API key with mail_logs.read scope.",
+		Errors:      documentedErrorStatuses(),
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.getMailLog)
+	})
+
+	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
+		OperationID: "listMailLogAttemptsApiKey",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/mail-logs/{message_id}/attempts",
+		Tags:        []string{"Delivery"},
+		Summary:     "List delivery attempts for a mail log entry (API key)",
+		Description: "Returns all delivery attempts for a single message using API-key auth. Same response as the session-auth variant. Requires API key with mail_logs.read scope.",
+		Errors:      documentedErrorStatuses(),
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogAttempts)
+	})
+
+	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
+		OperationID: "listMailLogEventsApiKey",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workspaces/{workspace_id}/mail-logs/{message_id}/events",
+		Tags:        []string{"Delivery"},
+		Summary:     "List timeline events for a mail log entry (API key)",
+		Description: "Returns the immutable timeline of events for a message using API-key auth. Same response as the session-auth variant. Requires API key with mail_logs.read scope.",
+		Errors:      documentedErrorStatuses(),
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+		_ = input
+		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogEvents)
+	})
+}
+
+type transactionalRequestPathInput struct {
+	RequestID string `path:"request_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Transactional request ID."`
 }
 
 func deliveryErrorCodes() map[int][]string {
@@ -2199,21 +2353,34 @@ func deliveryErrorCodes() map[int][]string {
 		http.StatusForbidden: {
 			"delivery.read_denied",
 			"api_key.scope_denied",
+			"api_key.manage_denied",
 		},
 		http.StatusNotFound: {
 			"delivery.message_not_found",
+			"delivery.transactional_request_not_found",
 			"sender.domain_not_found",
 			"template.not_found",
+			"api_key.not_found",
 		},
 		http.StatusConflict: {
 			"delivery.idempotency_key_conflict",
+			"api_key.rotate_conflict",
 		},
 		http.StatusUnprocessableEntity: {
 			"delivery.query_invalid",
 			"delivery.recipient_invalid",
+			"delivery.mode_invalid",
+			"delivery.raw_body_required",
+			"delivery.subject_required",
+			"delivery.attachment_too_large",
+			"delivery.attachment_not_supported",
+			"delivery.object_storage_disabled",
+			"delivery.duplicate_recipient",
 			"template.render_payload_invalid",
 			"sender.domain_not_verified",
 			"delivery.recipient_suppressed",
+			"api_key.scope_invalid",
+			"api_key.config_invalid",
 		},
 		http.StatusTooManyRequests: {
 			"delivery.request_rate_limited",
@@ -2234,6 +2401,7 @@ func registerAPIKeyOperations(api huma.API, apiKey *apiKeyHTTP, authMiddleware f
 		Path:        "/api/v1/workspaces/{workspace_id}/api-keys",
 		Tags:        []string{"Access"},
 		Summary:     "List API keys",
+		Description: "Lists API keys for the workspace. Session-auth only. Supports cursor-based pagination and status filtering.",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
 		_ = input
@@ -2246,6 +2414,7 @@ func registerAPIKeyOperations(api huma.API, apiKey *apiKeyHTTP, authMiddleware f
 		Path:          "/api/v1/workspaces/{workspace_id}/api-keys",
 		Tags:          []string{"Access"},
 		Summary:       "Create API key",
+		Description:   "Creates a new API key for the workspace. Supported scopes: transactional.send, transactional.read, mail_logs.read. The secret is returned only at creation time. Recording an audit entry.",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
@@ -2259,6 +2428,7 @@ func registerAPIKeyOperations(api huma.API, apiKey *apiKeyHTTP, authMiddleware f
 		Path:        "/api/v1/workspaces/{workspace_id}/api-keys/{api_key_id}",
 		Tags:        []string{"Access"},
 		Summary:     "Update or rotate API key",
+		Description: "Updates API key name, scopes, or expiration. Set rotate=true to generate a new secret. Recording an audit entry.",
 		Errors:      documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *apiKeyPathInput) (*emptyOutput, error) {
 		_ = input
@@ -2271,6 +2441,7 @@ func registerAPIKeyOperations(api huma.API, apiKey *apiKeyHTTP, authMiddleware f
 		Path:          "/api/v1/workspaces/{workspace_id}/api-keys/{api_key_id}",
 		Tags:          []string{"Access"},
 		Summary:       "Revoke API key",
+		Description:   "Revokes an API key immediately. The key can no longer be used for authentication. Recording an audit entry.",
 		DefaultStatus: http.StatusNoContent,
 		Errors:        documentedErrorStatuses(),
 	}, authMiddleware), func(ctx context.Context, input *apiKeyPathInput) (*emptyOutput, error) {

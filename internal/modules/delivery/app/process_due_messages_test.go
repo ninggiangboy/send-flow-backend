@@ -349,10 +349,14 @@ func TestProcessDueMessages_AggregatesPipelineOutcomes(t *testing.T) {
 
 	provider := opts.EmailProvider.(*mockEmailProvider)
 	provider.sendEmail = func(ctx context.Context, request ports.ProviderSendRequest) (*ports.ProviderSendResult, error) {
-		if request.To == "retry@example.com" {
+		if len(request.To) > 0 && request.To[0] == "retry@example.com" {
 			return nil, errors.New("temporary provider error")
 		}
-		return &ports.ProviderSendResult{Provider: "test", ProviderMessageID: "prov_" + request.To, AcceptedAt: time.Now()}, nil
+		to := ""
+		if len(request.To) > 0 {
+			to = request.To[0]
+		}
+		return &ports.ProviderSendResult{Provider: "test", ProviderMessageID: "prov_" + to, AcceptedAt: time.Now()}, nil
 	}
 
 	svc := NewService(opts)

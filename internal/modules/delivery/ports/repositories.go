@@ -12,8 +12,13 @@ type MessageListQuery struct {
 	CampaignID               string
 	TransactionalRequestID   string
 	Status                   string
+	MessageType              string
+	Mode                     string // "template" or "raw" — filters by template_id presence
+	Provider                 string
 	RecipientEmailNormalized string
 	ProviderMessageID        string
+	RecipientRole            string
+	SourceAPIKeyID           string
 	From                     *time.Time
 	To                       *time.Time
 	Limit                    int
@@ -78,4 +83,22 @@ type TransactionalRequestReadRepository interface {
 type TransactionalRequestWriteRepository interface {
 	Create(ctx context.Context, request domain.TransactionalSendRequest) error
 	Update(ctx context.Context, request domain.TransactionalSendRequest) error
+	UpdateStatus(ctx context.Context, workspaceID, requestID, status string, now time.Time) error
+	// UpdateAggregates atomically increments recipient counters on the parent
+	// request when one of its messages reaches a terminal state. If all
+	// recipients are terminal the request status transitions to "completed".
+	UpdateAggregates(ctx context.Context, workspaceID, requestID string, isTerminal, isSuccess bool, now time.Time) error
+}
+
+type MessageEventRepository interface {
+	Create(ctx context.Context, event domain.MessageEvent) error
+	CreateMany(ctx context.Context, events []domain.MessageEvent) error
+	ListByMessage(ctx context.Context, workspaceID, messageID string, limit int, cursor string) ([]domain.MessageEvent, string, error)
+	ListByRequest(ctx context.Context, workspaceID, requestID string, limit int, cursor string) ([]domain.MessageEvent, string, error)
+}
+
+type AttachmentRepository interface {
+	Create(ctx context.Context, attachment domain.AttachmentManifest) error
+	CreateMany(ctx context.Context, attachments []domain.AttachmentManifest) error
+	ListByRequest(ctx context.Context, workspaceID, requestID string) ([]domain.AttachmentManifest, error)
 }

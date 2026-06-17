@@ -122,6 +122,10 @@ func (s *exportStorageStub) PutObject(ctx context.Context, key string, body io.R
 	return nil
 }
 
+func (s *exportStorageStub) DeleteObject(ctx context.Context, key string) error {
+	return nil
+}
+
 func (s *exportStorageStub) GetObject(ctx context.Context, key string) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader(s.content)), nil
 }

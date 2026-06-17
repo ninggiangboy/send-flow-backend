@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"io"
 
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
 	contentdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/content/domain"
@@ -11,6 +12,7 @@ import (
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	senderdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
 	suppressionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/objectstorage"
 )
 
 type transactionalContentRenderer struct {
@@ -107,3 +109,32 @@ func (a *transactionalSuppressionChecker) CheckSuppression(ctx context.Context, 
 		Scope:      result.Scope,
 	}, nil
 }
+
+// deliveryObjectStorageAdapter wraps the platform ObjectStorage into the
+// delivery module's ObjectStorage port.
+type deliveryObjectStorageAdapter struct {
+	client objectstorage.ObjectStorage
+}
+
+func (a deliveryObjectStorageAdapter) PutObject(ctx context.Context, key string, body io.Reader, contentType string) error {
+	if a.client == nil {
+		return deliverydomain.ErrObjectStorageDisabled
+	}
+	return a.client.PutObject(ctx, key, body, contentType)
+}
+
+func (a deliveryObjectStorageAdapter) GetObject(ctx context.Context, key string) (io.ReadCloser, error) {
+	if a.client == nil {
+		return nil, deliverydomain.ErrObjectStorageDisabled
+	}
+	return a.client.GetObject(ctx, key)
+}
+
+func (a deliveryObjectStorageAdapter) DeleteObject(ctx context.Context, key string) error {
+	if a.client == nil {
+		return deliverydomain.ErrObjectStorageDisabled
+	}
+	return a.client.DeleteObject(ctx, key)
+}
+
+var _ deliveryports.ObjectStorage = (*deliveryObjectStorageAdapter)(nil)

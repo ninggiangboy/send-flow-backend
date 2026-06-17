@@ -131,8 +131,9 @@ func TestHandleProviderEvent_Delivered(t *testing.T) {
 				return fn(ctx)
 			},
 		},
-		IDGen:  func() (string, error) { return "evt_out_1", nil },
-		Logger: testLogger(),
+		IDGen:     func() (string, error) { return "evt_out_1", nil },
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -213,8 +214,9 @@ func TestHandleProviderEvent_Bounced(t *testing.T) {
 				return fn(ctx)
 			},
 		},
-		IDGen:  func() (string, error) { return "evt_out_1", nil },
-		Logger: testLogger(),
+		IDGen:     func() (string, error) { return "evt_out_1", nil },
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -298,8 +300,9 @@ func TestHandleProviderEvent_Complained(t *testing.T) {
 				return fn(ctx)
 			},
 		},
-		IDGen:  func() (string, error) { return "evt_out_1", nil },
-		Logger: testLogger(),
+		IDGen:     func() (string, error) { return "evt_out_1", nil },
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -369,8 +372,9 @@ func TestHandleProviderEvent_ComplaintOnAccepted(t *testing.T) {
 				return fn(ctx)
 			},
 		},
-		IDGen:  func() (string, error) { return "evt_out_1", nil },
-		Logger: testLogger(),
+		IDGen:     func() (string, error) { return "evt_out_1", nil },
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -432,8 +436,9 @@ func TestHandleProviderEvent_BounceOnQueuedIsNoop(t *testing.T) {
 				return fn(ctx)
 			},
 		},
-		IDGen:  func() (string, error) { return "evt_out_1", nil },
-		Logger: testLogger(),
+		IDGen:     func() (string, error) { return "evt_out_1", nil },
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -468,7 +473,8 @@ func TestHandleProviderEvent_IgnoredEventType(t *testing.T) {
 	occurredAt := now.Add(-time.Minute)
 
 	svc := NewService(Options{
-		Logger: testLogger(),
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -502,7 +508,8 @@ func TestHandleProviderEvent_MissingMessageIsIgnored(t *testing.T) {
 				return nil, domain.ErrMessageNotFound
 			},
 		},
-		Logger: testLogger(),
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -549,7 +556,8 @@ func TestHandleProviderEvent_DuplicateTerminalIsNoop(t *testing.T) {
 				return nil
 			},
 		},
-		Logger: testLogger(),
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -600,7 +608,8 @@ func TestHandleProviderEvent_DeliveredDoesNotOverrideComplained(t *testing.T) {
 				return nil
 			},
 		},
-		Logger: testLogger(),
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -650,7 +659,8 @@ func TestHandleProviderEvent_BouncedDoesNotOverrideComplained(t *testing.T) {
 				return nil
 			},
 		},
-		Logger: testLogger(),
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -715,8 +725,9 @@ func TestHandleProviderEvent_AcceptedCanTransitionToBounced(t *testing.T) {
 				return fn(ctx)
 			},
 		},
-		IDGen:  func() (string, error) { return "evt_out_1", nil },
-		Logger: testLogger(),
+		IDGen:     func() (string, error) { return "evt_out_1", nil },
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -741,7 +752,8 @@ func TestHandleProviderEvent_AcceptedCanTransitionToBounced(t *testing.T) {
 
 func TestHandleProviderEvent_InvalidInput(t *testing.T) {
 	svc := NewService(Options{
-		Logger: testLogger(),
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	_, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -797,8 +809,9 @@ func TestHandleProviderEvent_ProviderMessageIDLookup(t *testing.T) {
 				return fn(ctx)
 			},
 		},
-		IDGen:  func() (string, error) { return "evt_out_1", nil },
-		Logger: testLogger(),
+		IDGen:     func() (string, error) { return "evt_out_1", nil },
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	result, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{
@@ -856,8 +869,9 @@ func TestHandleProviderEvent_OutboxFailureRollsBack(t *testing.T) {
 				return fn(ctx)
 			},
 		},
-		IDGen:  func() (string, error) { return "evt_out_1", nil },
-		Logger: testLogger(),
+		IDGen:     func() (string, error) { return "evt_out_1", nil },
+		EventRepo: &mockMessageEventRepo{},
+		Logger:    testLogger(),
 	})
 
 	_, err := svc.HandleProviderEvent(context.Background(), HandleProviderEventInput{

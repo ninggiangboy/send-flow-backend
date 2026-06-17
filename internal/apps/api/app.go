@@ -113,6 +113,11 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
+	attachmentMetrics, err := observability.NewAttachmentMetrics(nil)
+	if err != nil {
+		return err
+	}
+
 	redisMetrics, err := observability.NewRedisMetrics(nil)
 	if err != nil {
 		return err
@@ -317,6 +322,8 @@ func Run(ctx context.Context) error {
 	deliveryContentRenderer := newTransactionalContentRenderer(contentSvc)
 	deliverySenderChecker := newTransactionalSenderChecker(senderSvc)
 	deliverySuppressionChecker := newTransactionalSuppressionChecker(suppressionSvc)
+	deliveryEventRepo := deliverypostgres.NewMessageEventRepository(pgClient.WritePool())
+	deliveryAttachmentRepo := deliverypostgres.NewAttachmentRepository(pgClient.WritePool())
 	deliverySvc := deliveryapp.NewService(deliveryapp.Options{
 		MessagesRead:       deliveryMsgReadRepo,
 		MessagesWrite:      deliveryMsgWriteRepo,
@@ -335,6 +342,10 @@ func Run(ctx context.Context) error {
 		Logger:             log,
 		IDGen:              id.NewUUIDGenerator().New,
 		RedisCache:         deliveryCache,
+		EventRepo:          deliveryEventRepo,
+		AttachmentRepo:     deliveryAttachmentRepo,
+		ObjectStorage:      deliveryObjectStorageAdapter{objectStorageClient},
+		AttachmentMetrics:  attachmentMetrics,
 	})
 
 	accessAPIKeyRepo := accesspostgres.NewAPIKeyRepository(pgClient.ReadPool(), pgClient.WritePool())
@@ -456,6 +467,7 @@ func Run(ctx context.Context) error {
 		AuthMetrics:          authMetrics,
 		APIKeyMetrics:        apiKeyMetrics,
 		SenderMetrics:        senderMetrics,
+		AttachmentMetrics:    attachmentMetrics,
 		Log:                  log,
 	})
 
@@ -546,6 +558,7 @@ type RouterDeps struct {
 	AuthMetrics          *observability.AuthMetrics
 	APIKeyMetrics        *observability.APIKeyMetrics
 	SenderMetrics        *observability.SenderMetrics
+	AttachmentMetrics    *observability.AttachmentMetrics
 	Log                  *slog.Logger
 }
 

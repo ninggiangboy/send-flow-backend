@@ -16,11 +16,13 @@ const (
 const (
 	ScopeTransactionalSend = "transactional.send"
 	ScopeTransactionalRead = "transactional.read"
+	ScopeMailLogsRead      = "mail_logs.read"
 )
 
 var supportedScopes = []string{
 	ScopeTransactionalSend,
 	ScopeTransactionalRead,
+	ScopeMailLogsRead,
 }
 
 type APIKey struct {

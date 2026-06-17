@@ -21,7 +21,9 @@ type scannable interface {
 func scanMessageRow(row scannable) (*domain.Message, error) {
 	var msg domain.Message
 	var snapshotJSON []byte
+	var headersJSON []byte
 	var scheduledAt, queuedAt, processingStartedAt, acceptedAt, deliveredAt, bouncedAt, complainedAt, failedAt *time.Time
+	var subject, senderName, recipientRole, sourceAPIKeyID, textBody, htmlBody, replyTo *string
 
 	err := row.Scan(
 		&msg.ID, &msg.WorkspaceID, &msg.CampaignID, &msg.CampaignCandidateID, &msg.TransactionalRequestID,
@@ -32,6 +34,8 @@ func scanMessageRow(row scannable) (*domain.Message, error) {
 		&acceptedAt, &deliveredAt, &bouncedAt, &complainedAt, &failedAt,
 		&msg.LastErrorClass, &msg.LastErrorMessage, &msg.Provider, &msg.ProviderMessageID,
 		&msg.CreatedAt, &msg.UpdatedAt,
+		&subject, &senderName, &recipientRole, &sourceAPIKeyID, &textBody, &htmlBody,
+		&replyTo, &headersJSON,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -53,6 +57,35 @@ func scanMessageRow(row scannable) (*domain.Message, error) {
 	msg.BouncedAt = bouncedAt
 	msg.ComplainedAt = complainedAt
 	msg.FailedAt = failedAt
+
+	if subject != nil {
+		msg.Subject = *subject
+	}
+	if senderName != nil {
+		msg.SenderName = *senderName
+	}
+	if recipientRole != nil {
+		msg.RecipientRole = *recipientRole
+	} else {
+		msg.RecipientRole = "to"
+	}
+	if sourceAPIKeyID != nil {
+		msg.SourceAPIKeyID = *sourceAPIKeyID
+	}
+	if textBody != nil {
+		msg.TextBody = *textBody
+	}
+	if htmlBody != nil {
+		msg.HTMLBody = *htmlBody
+	}
+	if replyTo != nil {
+		msg.ReplyTo = *replyTo
+	}
+	if len(headersJSON) > 0 {
+		if err := json.Unmarshal(headersJSON, &msg.Headers); err != nil {
+			return nil, err
+		}
+	}
 
 	return &msg, nil
 }
@@ -115,7 +148,9 @@ func (r *MessageReadRepository) FindByID(ctx context.Context, workspaceID, messa
 		        scheduled_at, queued_at, processing_started_at,
 		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
 		        last_error_class, last_error_message, provider, provider_message_id,
-		        created_at, updated_at
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
 		 FROM messages WHERE id = $1 AND workspace_id = $2`,
 		messageID, workspaceID,
 	))
@@ -131,7 +166,9 @@ func (r *MessageReadRepository) FindByIDForUpdate(ctx context.Context, workspace
 		        scheduled_at, queued_at, processing_started_at,
 		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
 		        last_error_class, last_error_message, provider, provider_message_id,
-		        created_at, updated_at
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
 		 FROM messages WHERE id = $1 AND workspace_id = $2 FOR UPDATE`,
 		messageID, workspaceID,
 	))
@@ -147,7 +184,9 @@ func (r *MessageReadRepository) FindByTransactionalRequestID(ctx context.Context
 		        scheduled_at, queued_at, processing_started_at,
 		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
 		        last_error_class, last_error_message, provider, provider_message_id,
-		        created_at, updated_at
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
 		 FROM messages WHERE workspace_id = $1 AND transactional_request_id = $2`,
 		workspaceID, transactionalRequestID,
 	))
@@ -163,7 +202,9 @@ func (r *MessageReadRepository) FindByProviderMessageID(ctx context.Context, pro
 		        scheduled_at, queued_at, processing_started_at,
 		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
 		        last_error_class, last_error_message, provider, provider_message_id,
-		        created_at, updated_at
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
 		 FROM messages WHERE provider = $1 AND provider_message_id = $2`,
 		provider, providerMessageID,
 	))
@@ -188,6 +229,23 @@ func (r *MessageReadRepository) List(ctx context.Context, query ports.MessageLis
 	if query.Status != "" {
 		where += " AND status = $" + platformpostgres.Itoa(argIdx)
 		args = append(args, query.Status)
+		argIdx++
+	}
+	if query.MessageType != "" {
+		where += " AND message_type = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.MessageType)
+		argIdx++
+	}
+	if query.Mode != "" {
+		if query.Mode == "template" {
+			where += " AND template_id IS NOT NULL AND template_id != ''"
+		} else if query.Mode == "raw" {
+			where += " AND (template_id IS NULL OR template_id = '')"
+		}
+	}
+	if query.Provider != "" {
+		where += " AND provider = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Provider)
 		argIdx++
 	}
 	if query.RecipientEmailNormalized != "" {
@@ -234,7 +292,9 @@ func (r *MessageReadRepository) List(ctx context.Context, query ports.MessageLis
 		        scheduled_at, queued_at, processing_started_at,
 		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
 		        last_error_class, last_error_message, provider, provider_message_id,
-		        created_at, updated_at
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
 		 FROM messages `+where, args...)
 	if err != nil {
 		return nil, "", err
@@ -268,7 +328,9 @@ func (r *MessageReadRepository) ListDueQueued(ctx context.Context, query ports.D
 		        scheduled_at, queued_at, processing_started_at,
 		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
 		        last_error_class, last_error_message, provider, provider_message_id,
-		        created_at, updated_at
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
 		 FROM messages
 		 WHERE workspace_id = $1 AND status = 'queued' AND message_type = $2
 		   AND (scheduled_at IS NULL OR scheduled_at <= $3)
@@ -330,7 +392,7 @@ func (w *MessageWriteRepository) CreateMany(ctx context.Context, messages []doma
 	}
 
 	values := make([]string, 0, len(messages))
-	args := make([]any, 0, len(messages)*28)
+	args := make([]any, 0, len(messages)*36)
 	idx := 1
 
 	for _, msg := range messages {
@@ -338,8 +400,12 @@ func (w *MessageWriteRepository) CreateMany(ctx context.Context, messages []doma
 		if err != nil {
 			return nil, err
 		}
+		headersJSON, err := json.Marshal(msg.Headers)
+		if err != nil {
+			return nil, err
+		}
 		values = append(values, "($"+
-			platformpostgres.Itoa(idx)+",$"+platformpostgres.Itoa(idx+1)+",$"+platformpostgres.Itoa(idx+2)+",$"+platformpostgres.Itoa(idx+3)+",$"+platformpostgres.Itoa(idx+4)+",$"+platformpostgres.Itoa(idx+5)+",$"+platformpostgres.Itoa(idx+6)+",$"+platformpostgres.Itoa(idx+7)+",$"+platformpostgres.Itoa(idx+8)+",$"+platformpostgres.Itoa(idx+9)+",$"+platformpostgres.Itoa(idx+10)+",$"+platformpostgres.Itoa(idx+11)+",$"+platformpostgres.Itoa(idx+12)+",$"+platformpostgres.Itoa(idx+13)+",$"+platformpostgres.Itoa(idx+14)+",$"+platformpostgres.Itoa(idx+15)+",$"+platformpostgres.Itoa(idx+16)+",$"+platformpostgres.Itoa(idx+17)+",$"+platformpostgres.Itoa(idx+18)+",$"+platformpostgres.Itoa(idx+19)+",$"+platformpostgres.Itoa(idx+20)+",$"+platformpostgres.Itoa(idx+21)+",$"+platformpostgres.Itoa(idx+22)+",$"+platformpostgres.Itoa(idx+23)+",$"+platformpostgres.Itoa(idx+24)+",$"+platformpostgres.Itoa(idx+25)+",$"+platformpostgres.Itoa(idx+26)+",$"+platformpostgres.Itoa(idx+27)+",$"+platformpostgres.Itoa(idx+28)+")")
+			platformpostgres.Itoa(idx)+",$"+platformpostgres.Itoa(idx+1)+",$"+platformpostgres.Itoa(idx+2)+",$"+platformpostgres.Itoa(idx+3)+",$"+platformpostgres.Itoa(idx+4)+",$"+platformpostgres.Itoa(idx+5)+",$"+platformpostgres.Itoa(idx+6)+",$"+platformpostgres.Itoa(idx+7)+",$"+platformpostgres.Itoa(idx+8)+",$"+platformpostgres.Itoa(idx+9)+",$"+platformpostgres.Itoa(idx+10)+",$"+platformpostgres.Itoa(idx+11)+",$"+platformpostgres.Itoa(idx+12)+",$"+platformpostgres.Itoa(idx+13)+",$"+platformpostgres.Itoa(idx+14)+",$"+platformpostgres.Itoa(idx+15)+",$"+platformpostgres.Itoa(idx+16)+",$"+platformpostgres.Itoa(idx+17)+",$"+platformpostgres.Itoa(idx+18)+",$"+platformpostgres.Itoa(idx+19)+",$"+platformpostgres.Itoa(idx+20)+",$"+platformpostgres.Itoa(idx+21)+",$"+platformpostgres.Itoa(idx+22)+",$"+platformpostgres.Itoa(idx+23)+",$"+platformpostgres.Itoa(idx+24)+",$"+platformpostgres.Itoa(idx+25)+",$"+platformpostgres.Itoa(idx+26)+",$"+platformpostgres.Itoa(idx+27)+",$"+platformpostgres.Itoa(idx+28)+",$"+platformpostgres.Itoa(idx+29)+",$"+platformpostgres.Itoa(idx+30)+",$"+platformpostgres.Itoa(idx+31)+",$"+platformpostgres.Itoa(idx+32)+",$"+platformpostgres.Itoa(idx+33)+",$"+platformpostgres.Itoa(idx+34)+",$"+platformpostgres.Itoa(idx+35)+")")
 		args = append(args, msg.ID, msg.WorkspaceID,
 			platformpostgres.Nullable(msg.CampaignID), platformpostgres.Nullable(msg.CampaignCandidateID), platformpostgres.Nullable(msg.TransactionalRequestID),
 			platformpostgres.Nullable(msg.ContactID), msg.RecipientEmailNormalized, snapshotJSON,
@@ -348,14 +414,19 @@ func (w *MessageWriteRepository) CreateMany(ctx context.Context, messages []doma
 			msg.ScheduledAt, msg.QueuedAt, msg.ProcessingStartedAt,
 			msg.AcceptedAt, msg.DeliveredAt, msg.BouncedAt, msg.ComplainedAt, msg.FailedAt,
 			msg.LastErrorClass, msg.LastErrorMessage, msg.Provider, msg.ProviderMessageID,
+			msg.Subject, msg.SenderName, msg.RecipientRole, msg.SourceAPIKeyID,
+			msg.TextBody, msg.HTMLBody,
+			platformpostgres.Nullable(msg.ReplyTo), headersJSON,
 			msg.CreatedAt, msg.UpdatedAt)
-		idx += 28
+		idx += 36
 	}
 
 	rows, err := db.Query(ctx,
 		`INSERT INTO messages (id, workspace_id, campaign_id, campaign_candidate_id, transactional_request_id,
 		                       contact_id, recipient_email_normalized, recipient_snapshot,
 		                       template_id, template_version_id, sender_domain_id,
+		                       subject, sender_name, recipient_role, source_api_key_id,
+		                       text_body, html_body, reply_to, headers,
 		                       message_type, source_type, status,
 		                       scheduled_at, queued_at, processing_started_at,
 		                       accepted_at, delivered_at, bounced_at, complained_at, failed_at,
@@ -388,6 +459,10 @@ func (w *MessageWriteRepository) Update(ctx context.Context, message domain.Mess
 	if err != nil {
 		return err
 	}
+	headersJSON, err := json.Marshal(message.Headers)
+	if err != nil {
+		return err
+	}
 
 	tag, err := db.Exec(ctx,
 		`UPDATE messages SET
@@ -398,8 +473,11 @@ func (w *MessageWriteRepository) Update(ctx context.Context, message domain.Mess
 		        scheduled_at=$13, queued_at=$14, processing_started_at=$15,
 		        accepted_at=$16, delivered_at=$17, bounced_at=$18, complained_at=$19, failed_at=$20,
 		        last_error_class=$21, last_error_message=$22, provider=$23, provider_message_id=$24,
-		        updated_at=$25
-		 WHERE id=$26 AND workspace_id=$27`,
+		        subject=$25, sender_name=$26, recipient_role=$27, source_api_key_id=$28,
+		        text_body=$29, html_body=$30,
+		        reply_to=$31, headers=$32,
+		        updated_at=$33
+		 WHERE id=$34 AND workspace_id=$35`,
 		platformpostgres.Nullable(message.CampaignID), platformpostgres.Nullable(message.CampaignCandidateID), platformpostgres.Nullable(message.TransactionalRequestID),
 		platformpostgres.Nullable(message.ContactID), message.RecipientEmailNormalized, snapshotJSON,
 		platformpostgres.Nullable(message.TemplateID), platformpostgres.Nullable(message.TemplateVersionID), platformpostgres.Nullable(message.SenderDomainID),
@@ -407,6 +485,9 @@ func (w *MessageWriteRepository) Update(ctx context.Context, message domain.Mess
 		message.ScheduledAt, message.QueuedAt, message.ProcessingStartedAt,
 		message.AcceptedAt, message.DeliveredAt, message.BouncedAt, message.ComplainedAt, message.FailedAt,
 		message.LastErrorClass, message.LastErrorMessage, message.Provider, message.ProviderMessageID,
+		message.Subject, message.SenderName, message.RecipientRole, message.SourceAPIKeyID,
+		message.TextBody, message.HTMLBody,
+		platformpostgres.Nullable(message.ReplyTo), headersJSON,
 		message.UpdatedAt,
 		message.ID, message.WorkspaceID,
 	)
@@ -442,7 +523,9 @@ func (w *MessageWriteRepository) ClaimDueMessages(ctx context.Context, query por
 		           m.scheduled_at, m.queued_at, m.processing_started_at,
 		           m.accepted_at, m.delivered_at, m.bounced_at, m.complained_at, m.failed_at,
 		           m.last_error_class, m.last_error_message, m.provider, m.provider_message_id,
-		           m.created_at, m.updated_at`,
+		           m.created_at, m.updated_at,
+		           m.subject, m.sender_name, m.recipient_role, m.source_api_key_id, m.text_body, m.html_body,
+		           m.reply_to, m.headers`,
 		now, query.WorkspaceID, query.MessageType, query.Now, query.Limit,
 	)
 	if err != nil {
@@ -895,11 +978,15 @@ func (w *TransactionalRequestWriteRepository) Create(ctx context.Context, reques
 
 	_, err = db.Exec(ctx,
 		`INSERT INTO transactional_send_requests (id, workspace_id, idempotency_key, status,
-		                                          request_payload, created_at, updated_at,
+		                                          request_payload, mode, subject, sender_name,
+		                                          source_api_key_id, request_hash, total_recipients,
+		                                          created_at, updated_at,
 		                                          completed_at, failed_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
 		request.ID, request.WorkspaceID, request.IdempotencyKey, request.Status,
-		payloadJSON, request.CreatedAt, request.UpdatedAt,
+		payloadJSON, request.Mode, request.Subject, request.SenderName,
+		request.SourceAPIKeyID, request.RequestHash, request.TotalRecipients,
+		request.CreatedAt, request.UpdatedAt,
 		request.CompletedAt, request.FailedAt,
 	)
 	if platformpostgres.IsUniqueViolation(err) {
@@ -917,11 +1004,68 @@ func (w *TransactionalRequestWriteRepository) Update(ctx context.Context, reques
 
 	tag, err := db.Exec(ctx,
 		`UPDATE transactional_send_requests SET idempotency_key=$1, status=$2, request_payload=$3,
-		                                        updated_at=$4, completed_at=$5, failed_at=$6
-		 WHERE id=$7 AND workspace_id=$8`,
+		                                        mode=$4, subject=$5, sender_name=$6,
+		                                        source_api_key_id=$7, request_hash=$8, total_recipients=$9,
+		                                        updated_at=$10, completed_at=$11, failed_at=$12
+		 WHERE id=$13 AND workspace_id=$14`,
 		request.IdempotencyKey, request.Status, payloadJSON,
+		request.Mode, request.Subject, request.SenderName,
+		request.SourceAPIKeyID, request.RequestHash, request.TotalRecipients,
 		request.UpdatedAt, request.CompletedAt, request.FailedAt,
 		request.ID, request.WorkspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrTransactionalRequestNotFound
+	}
+	return nil
+}
+
+func (w *TransactionalRequestWriteRepository) UpdateStatus(ctx context.Context, workspaceID, requestID, status string, now time.Time) error {
+	db := w.getDB(ctx)
+	tag, err := db.Exec(ctx,
+		`UPDATE transactional_send_requests SET status=$1, updated_at=$2
+		 WHERE id=$3 AND workspace_id=$4`,
+		status, now, requestID, workspaceID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrTransactionalRequestNotFound
+	}
+	return nil
+}
+
+func (w *TransactionalRequestWriteRepository) UpdateAggregates(ctx context.Context, workspaceID, requestID string, isTerminal, isSuccess bool, now time.Time) error {
+	db := w.getDB(ctx)
+	if !isTerminal {
+		return nil
+	}
+	var successDelta, failureDelta int
+	if isSuccess {
+		successDelta = 1
+	} else {
+		failureDelta = 1
+	}
+	tag, err := db.Exec(ctx,
+		`UPDATE transactional_send_requests SET
+		         recipient_terminal_total = recipient_terminal_total + 1,
+		         recipient_success_total = recipient_success_total + $1,
+		         recipient_failure_total = recipient_failure_total + $2,
+		         status = CASE
+		             WHEN recipient_terminal_total + 1 >= total_recipients THEN 'completed'
+		             ELSE status
+		         END,
+		         completed_at = CASE
+		             WHEN recipient_terminal_total + 1 >= total_recipients THEN $3
+		             ELSE completed_at
+		         END,
+		         updated_at = $3
+		 WHERE id = $4 AND workspace_id = $5`,
+		successDelta, failureDelta, now, requestID, workspaceID,
 	)
 	if err != nil {
 		return err
