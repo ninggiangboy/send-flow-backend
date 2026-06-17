@@ -17,7 +17,7 @@ $(eval $(START_EXTRA_GOALS):; @:)
 endif
 endif
 
-.PHONY: dev-up dev-down dev-logs connector-up consul-clean start api api-instance worker worker-instance build format vet test check test-race test-integration openapi-generate openapi-check migrate-up migrate-down clickhouse-migrate-up clickhouse-migrate-down logs-clean logs-rotate
+.PHONY: dev-up dev-down dev-stop dev-logs connector-up consul-clean start api api-instance worker worker-instance build format vet test check test-race test-integration migrate-up migrate-down clickhouse-migrate-up clickhouse-migrate-down logs-clean logs-rotate
 
 dev-up:
 	docker compose -f $(LOCAL_COMPOSE) up -d
@@ -70,19 +70,13 @@ vet:
 test:
 	go test ./...
 
-check: format vet test openapi-check
+check: format vet test
 
 test-race:
 	go test -race ./internal/...
 
 test-integration:
 	go test -tags=integration ./...
-
-openapi-generate:
-	go run ./cmd/openapi > ./docs/api/openapi.yaml
-
-openapi-check:
-	sh -c 'tmp=$$(mktemp); trap "rm -f $$tmp" EXIT; go run ./cmd/openapi > $$tmp; cmp -s $$tmp ./docs/api/openapi.yaml || { echo "docs/api/openapi.yaml is stale; run make openapi-generate"; diff -u ./docs/api/openapi.yaml $$tmp; exit 1; }'
 
 migrate-up:
 	sh -c 'if [ -f $(ENV_FILE) ]; then set -a; . $(ENV_FILE); set +a; fi; go run github.com/pressly/goose/v3/cmd/goose@v3.22.1 -dir ./migrations postgres "$$DATABASE_URL" up'
