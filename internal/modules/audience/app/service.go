@@ -24,8 +24,8 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatecontact"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatelistmemberships"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatesegment"
-	audienceredis "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
+	audienceredis "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )

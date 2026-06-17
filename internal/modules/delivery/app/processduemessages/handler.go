@@ -10,9 +10,9 @@ import (
 	"math/rand"
 	"time"
 
-	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
+	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/batching"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"

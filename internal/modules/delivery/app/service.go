@@ -14,8 +14,8 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/processduemessages"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/queuecampaignmessages"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/usecase"
-	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
+	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )

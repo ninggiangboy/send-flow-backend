@@ -1374,6 +1374,11 @@ components:
           type:
             - array
             - "null"
+        zip_output:
+          description: Compress the exported artifact into a ZIP file.
+          examples:
+            - false
+          type: boolean
       type: object
     StartAudienceImportRequest:
       additionalProperties: false
@@ -2847,230 +2852,6 @@ paths:
       summary: Get readiness status
       tags:
         - Health
-  /api/v1/analytics/sync/{stream_name}/status:
-    get:
-      operationId: get-clickhouse-sync-status
-      parameters:
-        - description: ClickHouse sync stream name.
-          in: path
-          name: stream_name
-          required: true
-          schema:
-            description: ClickHouse sync stream name.
-            examples:
-              - analytics_email_events
-            type: string
-      responses:
-        "204":
-          description: No Content
-        "400":
-          content:
-            application/json:
-              examples:
-                analytics_query_invalid:
-                  summary: analytics.query_invalid
-                  value:
-                    error:
-                      code: analytics.query_invalid
-                      message: Bad Request
-                    meta:
-                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
-                auth_invalid_request_body:
-                  summary: auth.invalid_request_body
-                  value:
-                    error:
-                      code: auth.invalid_request_body
-                      message: Bad Request
-                    meta:
-                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
-              schema:
-                additionalProperties: false
-                properties:
-                  error:
-                    $ref: "#/components/schemas/ErrorBodyDoc"
-                    description: Error payload.
-                  meta:
-                    $ref: "#/components/schemas/RequestMetaDoc"
-                    description: Response metadata.
-                required:
-                  - error
-                  - meta
-                type: object
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: "Bad Request. Possible error.code values: auth.invalid_request_body, analytics.query_invalid."
-        "401":
-          content:
-            application/json:
-              examples:
-                auth_invalid_token:
-                  summary: auth.invalid_token
-                  value:
-                    error:
-                      code: auth.invalid_token
-                      message: Unauthorized
-                    meta:
-                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
-              schema:
-                additionalProperties: false
-                properties:
-                  error:
-                    $ref: "#/components/schemas/ErrorBodyDoc"
-                    description: Error payload.
-                  meta:
-                    $ref: "#/components/schemas/RequestMetaDoc"
-                    description: Response metadata.
-                required:
-                  - error
-                  - meta
-                type: object
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: "Unauthorized. Possible error.code values: auth.invalid_token."
-        "403":
-          content:
-            application/json:
-              examples:
-                analytics_read_denied:
-                  summary: analytics.read_denied
-                  value:
-                    error:
-                      code: analytics.read_denied
-                      message: Forbidden
-                    meta:
-                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
-              schema:
-                additionalProperties: false
-                properties:
-                  error:
-                    $ref: "#/components/schemas/ErrorBodyDoc"
-                    description: Error payload.
-                  meta:
-                    $ref: "#/components/schemas/RequestMetaDoc"
-                    description: Response metadata.
-                required:
-                  - error
-                  - meta
-                type: object
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: "Forbidden. Possible error.code values: analytics.read_denied."
-        "404":
-          content:
-            application/json:
-              examples:
-                analytics_projection_not_found:
-                  summary: analytics.projection_not_found
-                  value:
-                    error:
-                      code: analytics.projection_not_found
-                      message: Not Found
-                    meta:
-                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
-              schema:
-                additionalProperties: false
-                properties:
-                  error:
-                    $ref: "#/components/schemas/ErrorBodyDoc"
-                    description: Error payload.
-                  meta:
-                    $ref: "#/components/schemas/RequestMetaDoc"
-                    description: Response metadata.
-                required:
-                  - error
-                  - meta
-                type: object
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: "Not Found. Possible error.code values: analytics.projection_not_found."
-        "409":
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Conflict
-        "410":
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Gone
-        "422":
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Unprocessable Entity
-        "429":
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Too Many Requests
-        "500":
-          content:
-            application/json:
-              examples:
-                internal_error:
-                  summary: internal.error
-                  value:
-                    error:
-                      code: internal.error
-                      message: Internal Server Error
-                    meta:
-                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
-              schema:
-                additionalProperties: false
-                properties:
-                  error:
-                    $ref: "#/components/schemas/ErrorBodyDoc"
-                    description: Error payload.
-                  meta:
-                    $ref: "#/components/schemas/RequestMetaDoc"
-                    description: Response metadata.
-                required:
-                  - error
-                  - meta
-                type: object
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: "Internal Server Error. Possible error.code values: internal.error."
-        "503":
-          content:
-            application/json:
-              examples:
-                analytics_store_unavailable:
-                  summary: analytics.store_unavailable
-                  value:
-                    error:
-                      code: analytics.store_unavailable
-                      message: Service Unavailable
-                    meta:
-                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
-              schema:
-                additionalProperties: false
-                properties:
-                  error:
-                    $ref: "#/components/schemas/ErrorBodyDoc"
-                    description: Error payload.
-                  meta:
-                    $ref: "#/components/schemas/RequestMetaDoc"
-                    description: Response metadata.
-                required:
-                  - error
-                  - meta
-                type: object
-          description: "Service Unavailable. Possible error.code values: analytics.store_unavailable."
-      security:
-        - bearerAuth: []
-      summary: Get ClickHouse sync stream freshness and lag. This endpoint shows the sync cursor state for a given stream (e.g. analytics_email_events), including last_synced_at and lag in seconds.
-      tags:
-        - Analytics
   /api/v1/auth/email/verify:
     post:
       operationId: verify-email
@@ -9972,6 +9753,162 @@ paths:
       summary: Send a transactional email
       tags:
         - Delivery
+  /api/v1/users/me/notifications/stream:
+    get:
+      description: Opens an SSE connection for receiving realtime notification events for the authenticated user. No workspace permission required.
+      operationId: streamMyNotifications
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              examples:
+                auth_invalid_request_body:
+                  summary: auth.invalid_request_body
+                  value:
+                    error:
+                      code: auth.invalid_request_body
+                      message: Bad Request
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                notification_filter_invalid:
+                  summary: notification.filter_invalid
+                  value:
+                    error:
+                      code: notification.filter_invalid
+                      message: Bad Request
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Bad Request. Possible error.code values: auth.invalid_request_body, notification.filter_invalid."
+        "401":
+          content:
+            application/json:
+              examples:
+                auth_invalid_token:
+                  summary: auth.invalid_token
+                  value:
+                    error:
+                      code: auth.invalid_token
+                      message: Unauthorized
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Unauthorized. Possible error.code values: auth.invalid_token."
+        "403":
+          content:
+            application/json:
+              examples:
+                notification_read_denied:
+                  summary: notification.read_denied
+                  value:
+                    error:
+                      code: notification.read_denied
+                      message: Forbidden
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Forbidden. Possible error.code values: notification.read_denied."
+        "404":
+          content:
+            application/json:
+              examples:
+                notification_not_found:
+                  summary: notification.not_found
+                  value:
+                    error:
+                      code: notification.not_found
+                      message: Not Found
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Not Found. Possible error.code values: notification.not_found."
+        "500":
+          content:
+            application/json:
+              examples:
+                internal_error:
+                  summary: internal.error
+                  value:
+                    error:
+                      code: internal.error
+                      message: Internal Server Error
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Internal Server Error. Possible error.code values: internal.error."
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth: []
+      summary: Stream my notification events via SSE
+      tags:
+        - Notifications
   /api/v1/webhooks/providers/{provider}:
     post:
       operationId: ingest-provider-webhook
@@ -18446,6 +18383,395 @@ paths:
       tags:
         - Access
   /api/v1/workspaces/{workspace_id}/audience/exports:
+    get:
+      operationId: list-audience-exports
+      parameters:
+        - description: Workspace ID.
+          in: path
+          name: workspace_id
+          required: true
+          schema:
+            description: Workspace ID.
+            examples:
+              - 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+            type: string
+        - description: Filter by job status.
+          explode: false
+          in: query
+          name: status
+          schema:
+            description: Filter by job status.
+            examples:
+              - completed
+            type: string
+        - description: Maximum number of entries to return (1-100).
+          explode: false
+          in: query
+          name: limit
+          schema:
+            description: Maximum number of entries to return (1-100).
+            examples:
+              - 50
+            format: int64
+            type: integer
+        - description: Pagination cursor from previous response.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Pagination cursor from previous response.
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              examples:
+                auth_invalid_request_body:
+                  summary: auth.invalid_request_body
+                  value:
+                    error:
+                      code: auth.invalid_request_body
+                      message: Bad Request
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: "Bad Request. Possible error.code values: auth.invalid_request_body."
+        "401":
+          content:
+            application/json:
+              examples:
+                auth_invalid_token:
+                  summary: auth.invalid_token
+                  value:
+                    error:
+                      code: auth.invalid_token
+                      message: Unauthorized
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: "Unauthorized. Possible error.code values: auth.invalid_token."
+        "403":
+          content:
+            application/json:
+              examples:
+                audience_export_denied:
+                  summary: audience.export_denied
+                  value:
+                    error:
+                      code: audience.export_denied
+                      message: Forbidden
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_import_denied:
+                  summary: audience.import_denied
+                  value:
+                    error:
+                      code: audience.import_denied
+                      message: Forbidden
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_read_denied:
+                  summary: audience.read_denied
+                  value:
+                    error:
+                      code: audience.read_denied
+                      message: Forbidden
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_write_denied:
+                  summary: audience.write_denied
+                  value:
+                    error:
+                      code: audience.write_denied
+                      message: Forbidden
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: "Forbidden. Possible error.code values: audience.read_denied, audience.write_denied, audience.import_denied, audience.export_denied."
+        "404":
+          content:
+            application/json:
+              examples:
+                audience_contact_not_found:
+                  summary: audience.contact_not_found
+                  value:
+                    error:
+                      code: audience.contact_not_found
+                      message: Not Found
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_export_job_not_found:
+                  summary: audience.export_job_not_found
+                  value:
+                    error:
+                      code: audience.export_job_not_found
+                      message: Not Found
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_import_job_not_found:
+                  summary: audience.import_job_not_found
+                  value:
+                    error:
+                      code: audience.import_job_not_found
+                      message: Not Found
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_list_not_found:
+                  summary: audience.list_not_found
+                  value:
+                    error:
+                      code: audience.list_not_found
+                      message: Not Found
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_segment_not_found:
+                  summary: audience.segment_not_found
+                  value:
+                    error:
+                      code: audience.segment_not_found
+                      message: Not Found
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: "Not Found. Possible error.code values: audience.contact_not_found, audience.list_not_found, audience.segment_not_found, audience.import_job_not_found, audience.export_job_not_found."
+        "409":
+          content:
+            application/json:
+              examples:
+                audience_contact_email_conflict:
+                  summary: audience.contact_email_conflict
+                  value:
+                    error:
+                      code: audience.contact_email_conflict
+                      message: Conflict
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_import_duplicate_submission:
+                  summary: audience.import_duplicate_submission
+                  value:
+                    error:
+                      code: audience.import_duplicate_submission
+                      message: Conflict
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_list_name_conflict:
+                  summary: audience.list_name_conflict
+                  value:
+                    error:
+                      code: audience.list_name_conflict
+                      message: Conflict
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_segment_name_conflict:
+                  summary: audience.segment_name_conflict
+                  value:
+                    error:
+                      code: audience.segment_name_conflict
+                      message: Conflict
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: "Conflict. Possible error.code values: audience.contact_email_conflict, audience.list_name_conflict, audience.segment_name_conflict, audience.import_duplicate_submission."
+        "410":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Gone
+        "422":
+          content:
+            application/json:
+              examples:
+                audience_contact_payload_invalid:
+                  summary: audience.contact_payload_invalid
+                  value:
+                    error:
+                      code: audience.contact_payload_invalid
+                      message: Unprocessable Entity
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_contact_status_invalid:
+                  summary: audience.contact_status_invalid
+                  value:
+                    error:
+                      code: audience.contact_status_invalid
+                      message: Unprocessable Entity
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_export_filter_invalid:
+                  summary: audience.export_filter_invalid
+                  value:
+                    error:
+                      code: audience.export_filter_invalid
+                      message: Unprocessable Entity
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_export_format_invalid:
+                  summary: audience.export_format_invalid
+                  value:
+                    error:
+                      code: audience.export_format_invalid
+                      message: Unprocessable Entity
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_import_source_invalid:
+                  summary: audience.import_source_invalid
+                  value:
+                    error:
+                      code: audience.import_source_invalid
+                      message: Unprocessable Entity
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_list_membership_payload_invalid:
+                  summary: audience.list_membership_payload_invalid
+                  value:
+                    error:
+                      code: audience.list_membership_payload_invalid
+                      message: Unprocessable Entity
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                audience_segment_definition_invalid:
+                  summary: audience.segment_definition_invalid
+                  value:
+                    error:
+                      code: audience.segment_definition_invalid
+                      message: Unprocessable Entity
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: "Unprocessable Entity. Possible error.code values: audience.contact_payload_invalid, audience.contact_status_invalid, audience.segment_definition_invalid, audience.list_membership_payload_invalid, audience.import_source_invalid, audience.export_filter_invalid, audience.export_format_invalid."
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/json:
+              examples:
+                internal_error:
+                  summary: internal.error
+                  value:
+                    error:
+                      code: internal.error
+                      message: Internal Server Error
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: "Internal Server Error. Possible error.code values: internal.error."
+      security:
+        - bearerAuth: []
+      summary: List audience exports
+      tags:
+        - Audience
     post:
       operationId: start-audience-export
       parameters:
@@ -29469,6 +29795,172 @@ paths:
       summary: Send a system alert notification
       tags:
         - Notifications
+  /api/v1/workspaces/{workspace_id}/notifications/stream:
+    get:
+      description: Opens an SSE connection for receiving realtime notification events for the workspace. Requires notification.read permission.
+      operationId: streamWorkspaceNotifications
+      parameters:
+        - description: Workspace ID.
+          in: path
+          name: workspace_id
+          required: true
+          schema:
+            description: Workspace ID.
+            examples:
+              - 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              examples:
+                auth_invalid_request_body:
+                  summary: auth.invalid_request_body
+                  value:
+                    error:
+                      code: auth.invalid_request_body
+                      message: Bad Request
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+                notification_filter_invalid:
+                  summary: notification.filter_invalid
+                  value:
+                    error:
+                      code: notification.filter_invalid
+                      message: Bad Request
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Bad Request. Possible error.code values: auth.invalid_request_body, notification.filter_invalid."
+        "401":
+          content:
+            application/json:
+              examples:
+                auth_invalid_token:
+                  summary: auth.invalid_token
+                  value:
+                    error:
+                      code: auth.invalid_token
+                      message: Unauthorized
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Unauthorized. Possible error.code values: auth.invalid_token."
+        "403":
+          content:
+            application/json:
+              examples:
+                notification_read_denied:
+                  summary: notification.read_denied
+                  value:
+                    error:
+                      code: notification.read_denied
+                      message: Forbidden
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Forbidden. Possible error.code values: notification.read_denied."
+        "404":
+          content:
+            application/json:
+              examples:
+                notification_not_found:
+                  summary: notification.not_found
+                  value:
+                    error:
+                      code: notification.not_found
+                      message: Not Found
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Not Found. Possible error.code values: notification.not_found."
+        "500":
+          content:
+            application/json:
+              examples:
+                internal_error:
+                  summary: internal.error
+                  value:
+                    error:
+                      code: internal.error
+                      message: Internal Server Error
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Internal Server Error. Possible error.code values: internal.error."
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth: []
+      summary: Stream workspace notification events via SSE
+      tags:
+        - Notifications
   /api/v1/workspaces/{workspace_id}/notifications/{notification_id}:
     get:
       operationId: getNotificationStatus
@@ -34471,6 +34963,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: "Internal Server Error. Possible error.code values: internal.error."
+        "503":
+          content:
+            application/json:
+              examples:
+                notification_realtime_unavailable:
+                  summary: notification.realtime_unavailable
+                  value:
+                    error:
+                      code: notification.realtime_unavailable
+                      message: Service Unavailable
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Service Unavailable. Possible error.code values: notification.realtime_unavailable."
       security:
         - bearerAuth: []
       summary: List sender domains
@@ -34728,6 +35246,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: "Internal Server Error. Possible error.code values: internal.error."
+        "503":
+          content:
+            application/json:
+              examples:
+                notification_realtime_unavailable:
+                  summary: notification.realtime_unavailable
+                  value:
+                    error:
+                      code: notification.realtime_unavailable
+                      message: Service Unavailable
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Service Unavailable. Possible error.code values: notification.realtime_unavailable."
       security:
         - bearerAuth: []
       summary: Create sender domain
@@ -34989,6 +35533,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: "Internal Server Error. Possible error.code values: internal.error."
+        "503":
+          content:
+            application/json:
+              examples:
+                notification_realtime_unavailable:
+                  summary: notification.realtime_unavailable
+                  value:
+                    error:
+                      code: notification.realtime_unavailable
+                      message: Service Unavailable
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Service Unavailable. Possible error.code values: notification.realtime_unavailable."
       security:
         - bearerAuth: []
       summary: Get sender domain
@@ -35250,6 +35820,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: "Internal Server Error. Possible error.code values: internal.error."
+        "503":
+          content:
+            application/json:
+              examples:
+                notification_realtime_unavailable:
+                  summary: notification.realtime_unavailable
+                  value:
+                    error:
+                      code: notification.realtime_unavailable
+                      message: Service Unavailable
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Service Unavailable. Possible error.code values: notification.realtime_unavailable."
       security:
         - bearerAuth: []
       summary: Disable sender domain
@@ -35511,6 +36107,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: "Internal Server Error. Possible error.code values: internal.error."
+        "503":
+          content:
+            application/json:
+              examples:
+                notification_realtime_unavailable:
+                  summary: notification.realtime_unavailable
+                  value:
+                    error:
+                      code: notification.realtime_unavailable
+                      message: Service Unavailable
+                    meta:
+                      request_id: 018ff2d5-f49c-77f1-a3c5-5137560c97c8
+              schema:
+                additionalProperties: false
+                properties:
+                  error:
+                    $ref: "#/components/schemas/ErrorBodyDoc"
+                    description: Error payload.
+                  meta:
+                    $ref: "#/components/schemas/RequestMetaDoc"
+                    description: Response metadata.
+                required:
+                  - error
+                  - meta
+                type: object
+          description: "Service Unavailable. Possible error.code values: notification.realtime_unavailable."
       security:
         - bearerAuth: []
       summary: Verify sender domain DNS records

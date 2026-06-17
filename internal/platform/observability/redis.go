@@ -7,17 +7,17 @@ import (
 )
 
 type RedisMetrics struct {
-	cacheHits          *prometheus.CounterVec
-	cacheMisses        *prometheus.CounterVec
-	loadSuccesses      *prometheus.CounterVec
-	loadErrors         *prometheus.CounterVec
-	setErrors          *prometheus.CounterVec
-	deleteErrors       *prometheus.CounterVec
-	lockAcquired       *prometheus.CounterVec
-	lockContended      *prometheus.CounterVec
-	lockErrors         *prometheus.CounterVec
-	loadDuration       *prometheus.HistogramVec
-	lockDuration       *prometheus.HistogramVec
+	cacheHits     *prometheus.CounterVec
+	cacheMisses   *prometheus.CounterVec
+	loadSuccesses *prometheus.CounterVec
+	loadErrors    *prometheus.CounterVec
+	setErrors     *prometheus.CounterVec
+	deleteErrors  *prometheus.CounterVec
+	lockAcquired  *prometheus.CounterVec
+	lockContended *prometheus.CounterVec
+	lockErrors    *prometheus.CounterVec
+	loadDuration  *prometheus.HistogramVec
+	lockDuration  *prometheus.HistogramVec
 }
 
 func NewRedisMetrics(reg prometheus.Registerer) (*RedisMetrics, error) {

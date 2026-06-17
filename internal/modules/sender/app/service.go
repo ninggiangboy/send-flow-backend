@@ -45,9 +45,9 @@ type Readiness struct {
 }
 
 type Service struct {
-	commands    CommandBus
-	queries     QueryBus
-	cacheAside  *platformredis.CacheAside
+	commands   CommandBus
+	queries    QueryBus
+	cacheAside *platformredis.CacheAside
 }
 
 func NewService(opts Options) *Service {

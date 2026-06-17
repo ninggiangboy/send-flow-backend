@@ -5,8 +5,8 @@ import (
 	"errors"
 	"log/slog"
 
-	audienceredis "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
+	audienceredis "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/ports"
 )
 

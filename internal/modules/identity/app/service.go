@@ -12,7 +12,6 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/getme"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/getworkspace"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/getworkspaceaccess"
-	identityrediscache "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/inviteworkspacemember"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/listproviders"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/listsessions"
@@ -37,6 +36,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/verifyemail"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
+	identityrediscache "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
 

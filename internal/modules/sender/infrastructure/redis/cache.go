@@ -9,13 +9,13 @@ import (
 
 // Domain represents a sender domain configuration.
 type Domain struct {
-	ID                string `json:"id"`
-	Domain            string `json:"domain"`
-	Status            string `json:"status"`
-	DNSVerified       bool   `json:"dns_verified"`
-	DKIMVerified      bool   `json:"dkim_verified"`
-	SPFVerified       bool   `json:"spf_verified"`
-	TrackingVerified  bool   `json:"tracking_verified"`
+	ID               string `json:"id"`
+	Domain           string `json:"domain"`
+	Status           string `json:"status"`
+	DNSVerified      bool   `json:"dns_verified"`
+	DKIMVerified     bool   `json:"dkim_verified"`
+	SPFVerified      bool   `json:"spf_verified"`
+	TrackingVerified bool   `json:"tracking_verified"`
 }
 
 // DNSRecord represents a DNS record for domain verification.
@@ -29,8 +29,8 @@ type DNSRecord struct {
 // SenderReadiness represents the readiness status of a sender domain,
 // including the domain itself and the required DNS records.
 type SenderReadiness struct {
-	Domain     *Domain      `json:"domain"`
-	DNSRecords []DNSRecord  `json:"dns_records"`
+	Domain     *Domain     `json:"domain"`
+	DNSRecords []DNSRecord `json:"dns_records"`
 }
 
 // Cache provides sender-related caching using the cache-aside pattern.

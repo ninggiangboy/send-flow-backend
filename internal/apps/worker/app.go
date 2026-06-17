@@ -13,16 +13,16 @@ import (
 	analyticsredis "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/redis"
 	audiencepostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/postgres"
 	campaignpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/infrastructure/postgres"
+	contentredis "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/redis"
 	deliveryAppMappers "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/analyticsmappers"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	deliveryinfrastructure "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure"
-	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	deliverycampaign "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/campaign"
 	deliverypostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/postgres"
+	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	deliveryports "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
 	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
 	trackingAppMappers "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/analyticsmappers"
-	contentredis "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/buildinfo"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/clickhouse"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
@@ -61,7 +61,6 @@ func Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
 
 	pgClient, err := postgres.New(ctx, cfg)
 	if err != nil {

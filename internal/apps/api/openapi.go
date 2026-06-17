@@ -2580,7 +2580,6 @@ type analyticsProviderEventPathInput struct {
 	ProviderEventID string `path:"provider_event_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Provider event ID."`
 }
 
-
 func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
 	huma.Register(api, protectedOperation(huma.Operation{
 		OperationID: "get-analytics-overview",

@@ -16,8 +16,8 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/renderversion"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/updatetemplate"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/validatetemplaterenderable"
-	contentredis "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/domain"
+	contentredis "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/ports"
 )
 

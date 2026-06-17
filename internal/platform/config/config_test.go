@@ -54,7 +54,7 @@ func TestLoadFromEnv_ParsesValues(t *testing.T) {
 	t.Setenv("NODE_NAME", "node-a")
 	t.Setenv("SHUTDOWN_TIMEOUT", "5s")
 	t.Setenv("WORKER_HTTP_ADDR", ":9090")
-		t.Setenv("WORKER_ENABLED_CONSUMERS", "delivery, analytics, ")
+	t.Setenv("WORKER_ENABLED_CONSUMERS", "delivery, analytics, ")
 	t.Setenv("WORKER_CONCURRENCY", "3")
 	t.Setenv("WORKER_SHUTDOWN_TIMEOUT", "7s")
 	t.Setenv("WORKER_CONSUMER_GROUP_PREFIX", "send-flow-test")

@@ -2786,4 +2786,3 @@ func TestGetAnomalies_RepoError(t *testing.T) {
 		t.Fatalf("expected repo error, got %v", err)
 	}
 }
-
