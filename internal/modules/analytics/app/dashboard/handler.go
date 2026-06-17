@@ -9,15 +9,15 @@ import (
 )
 
 type Options struct {
-	ProjectionRead ports.ProjectionReadRepository
-	AccessChecker  ports.WorkspaceAccessChecker
-	Logger         *slog.Logger
+	WorkspaceQueryRepo ports.WorkspaceQueryRepository
+	AccessChecker      ports.WorkspaceAccessChecker
+	Logger             *slog.Logger
 }
 
 type Handler struct {
-	projectionRead ports.ProjectionReadRepository
-	accessChecker  ports.WorkspaceAccessChecker
-	log            *slog.Logger
+	workspaceQueryRepo ports.WorkspaceQueryRepository
+	accessChecker      ports.WorkspaceAccessChecker
+	log                *slog.Logger
 }
 
 type DashboardQuery struct {
@@ -30,9 +30,9 @@ func New(opts Options) *Handler {
 		opts.Logger = slog.Default()
 	}
 	return &Handler{
-		projectionRead: opts.ProjectionRead,
-		accessChecker:  opts.AccessChecker,
-		log:            opts.Logger.With("service", "analytics", "handler", "dashboard"),
+		workspaceQueryRepo: opts.WorkspaceQueryRepo,
+		accessChecker:      opts.AccessChecker,
+		log:                opts.Logger.With("service", "analytics", "handler", "dashboard"),
 	}
 }
 
@@ -43,7 +43,7 @@ func (h *Handler) ExecuteGetDashboardOverview(ctx context.Context, q DashboardQu
 		}
 	}
 
-	overview, err := h.projectionRead.GetWorkspaceOverview(ctx, q.WorkspaceID)
+	overview, err := h.workspaceQueryRepo.GetWorkspaceOverview(ctx, q.WorkspaceID)
 	if err != nil {
 		if err == domain.ErrAnalyticsProjectionNotFound {
 			return &domain.DashboardOverview{

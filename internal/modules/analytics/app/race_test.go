@@ -18,7 +18,6 @@ func TestIngestEmailEventFact_ConcurrentDuplicate(t *testing.T) {
 	var (
 		mu              sync.Mutex
 		factCreateCalls int32
-		projCalls       int32
 	)
 
 	factRepo := &stubFactRepo{
@@ -35,34 +34,10 @@ func TestIngestEmailEventFact_ConcurrentDuplicate(t *testing.T) {
 		},
 	}
 
-	projWrite := &stubProjectionWrite{
-		IncrementWorkspaceOverviewFunc: func(_ context.Context, _, _ string, _ time.Time) error {
-			atomic.AddInt32(&projCalls, 1)
-			return nil
-		},
-		IncrementCampaignSummaryFunc: func(_ context.Context, _, _, _ string, _ time.Time) error {
-			atomic.AddInt32(&projCalls, 1)
-			return nil
-		},
-		IncrementDeliverabilityFunc: func(_ context.Context, _, _, _, _ string, _ time.Time) error {
-			atomic.AddInt32(&projCalls, 1)
-			return nil
-		},
-	}
-
-	txMgr := &stubTxManager{
-		WithinTxFunc: func(_ context.Context, fn func(context.Context) error) error {
-			return fn(context.Background())
-		},
-	}
-
 	svc := NewService(Options{
-		FactRepo:        factRepo,
-		ProjectionWrite: projWrite,
-		TxManager:       txMgr,
-		IDGen:           func() (string, error) { return "id-1", nil },
-		Clock:           time.Now,
-		Logger:          slog.Default(),
+		FactRepo: factRepo,
+		Clock:    time.Now,
+		Logger:   slog.Default(),
 	})
 
 	input := IngestEmailEventFactInput{
@@ -91,13 +66,8 @@ func TestIngestEmailEventFact_ConcurrentDuplicate(t *testing.T) {
 	wg.Wait()
 
 	createCalls := atomic.LoadInt32(&factCreateCalls)
-	projCallsFinal := atomic.LoadInt32(&projCalls)
-
 	if createCalls > 1 {
 		t.Logf("note: factRepo.Create called %d times (race window)", createCalls)
-	}
-	if projCallsFinal > 3 {
-		t.Logf("note: projection increments called %d times (race window)", projCallsFinal)
 	}
 }
 
@@ -108,7 +78,6 @@ func TestIngestEmailEventFact_ConcurrentDuplicateUniqueConstraint(t *testing.T) 
 		mu        sync.Mutex
 		created   bool
 		createCnt int32
-		projCnt   int32
 	)
 
 	factRepo := &stubFactRepo{
@@ -132,34 +101,10 @@ func TestIngestEmailEventFact_ConcurrentDuplicateUniqueConstraint(t *testing.T) 
 		},
 	}
 
-	projWrite := &stubProjectionWrite{
-		IncrementWorkspaceOverviewFunc: func(_ context.Context, _, _ string, _ time.Time) error {
-			atomic.AddInt32(&projCnt, 1)
-			return nil
-		},
-		IncrementCampaignSummaryFunc: func(_ context.Context, _, _, _ string, _ time.Time) error {
-			atomic.AddInt32(&projCnt, 1)
-			return nil
-		},
-		IncrementDeliverabilityFunc: func(_ context.Context, _, _, _, _ string, _ time.Time) error {
-			atomic.AddInt32(&projCnt, 1)
-			return nil
-		},
-	}
-
-	txMgr := &stubTxManager{
-		WithinTxFunc: func(_ context.Context, fn func(context.Context) error) error {
-			return fn(context.Background())
-		},
-	}
-
 	svc := NewService(Options{
-		FactRepo:        factRepo,
-		ProjectionWrite: projWrite,
-		TxManager:       txMgr,
-		IDGen:           func() (string, error) { return "id-1", nil },
-		Clock:           time.Now,
-		Logger:          slog.Default(),
+		FactRepo: factRepo,
+		Clock:    time.Now,
+		Logger:   slog.Default(),
 	})
 
 	input := IngestEmailEventFactInput{
@@ -181,10 +126,6 @@ func TestIngestEmailEventFact_ConcurrentDuplicateUniqueConstraint(t *testing.T) 
 		}()
 	}
 	wg.Wait()
-
-	if projCnt > 3 {
-		t.Errorf("projection increments should be at most 3 (overview+campaign+deliverability), got %d", projCnt)
-	}
 }
 
 func TestGetCampaignFunnel_AuthorizationDenied(t *testing.T) {

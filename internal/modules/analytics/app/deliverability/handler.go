@@ -11,14 +11,12 @@ import (
 )
 
 type Options struct {
-	ProjectionRead          ports.ProjectionReadRepository
 	DeliverabilityQueryRepo ports.DeliverabilityQueryRepository
 	AccessChecker           ports.WorkspaceAccessChecker
 	Logger                  *slog.Logger
 }
 
 type Handler struct {
-	projectionRead          ports.ProjectionReadRepository
 	deliverabilityQueryRepo ports.DeliverabilityQueryRepository
 	accessChecker           ports.WorkspaceAccessChecker
 	log                     *slog.Logger
@@ -72,8 +70,10 @@ type IncidentsQuery struct {
 }
 
 func New(opts Options) *Handler {
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
+	}
 	return &Handler{
-		projectionRead:          opts.ProjectionRead,
 		deliverabilityQueryRepo: opts.DeliverabilityQueryRepo,
 		accessChecker:           opts.AccessChecker,
 		log:                     opts.Logger.With("service", "analytics", "handler", "deliverability"),
@@ -92,7 +92,7 @@ func (h *Handler) ExecuteGetDeliverability(ctx context.Context, q Deliverability
 		RecipientDomain: domain.NormalizeString(q.RecipientDomain),
 	}
 
-	projections, err := h.projectionRead.ListDeliverability(ctx, q.WorkspaceID, filter)
+	projections, err := h.deliverabilityQueryRepo.ListDeliverability(ctx, q.WorkspaceID, filter)
 	if err != nil {
 		h.log.Error("failed to list deliverability projections",
 			"workspace_id", q.WorkspaceID,

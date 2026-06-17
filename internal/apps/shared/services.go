@@ -6,7 +6,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
 	analyticsclickhouse "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/clickhouse"
-	analyticspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/postgres"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
 	contentpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/postgres"
 	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
@@ -78,19 +77,11 @@ func NewSenderService(readRepo *senderpostgres.ReadRepository, writeRepo *sender
 	})
 }
 
-func NewAnalyticsRepos(writePool *pgxpool.Pool, chClient *platformclickhouse.Client) analyticsapp.Options {
-	opts := analyticsapp.Options{
-		FactRepo:        analyticspostgres.NewEventFactRepository(writePool),
-		FactBatchRepo:   analyticspostgres.NewFactBatchRepository(writePool),
-		SyncStateRepo:   analyticspostgres.NewSyncStateRepository(writePool),
-		ProjectionRead:  analyticspostgres.NewProjectionRepository(writePool),
-		ProjectionWrite: analyticspostgres.NewProjectionRepository(writePool),
-		TxManager:       transaction.NewManager(writePool),
-		OutboxWriter:    analyticspostgres.NewOutboxRepository(writePool),
-		IDGen:           id.NewUUIDGenerator().New,
-	}
+func NewAnalyticsRepos(chClient *platformclickhouse.Client) analyticsapp.Options {
+	opts := analyticsapp.Options{}
 	if chClient != nil {
-		opts.ClickHouseBatchWriter = analyticsclickhouse.NewBatchWriter(chClient.Conn())
+		opts.FactRepo = analyticsclickhouse.NewFactRepository(chClient.Conn())
+		opts.WorkspaceQueryRepo = analyticsclickhouse.NewWorkspaceRepository(chClient.Conn())
 		opts.CampaignQueryRepo = analyticsclickhouse.NewCampaignRepository(chClient.Conn())
 		opts.DeliverabilityQueryRepo = analyticsclickhouse.NewDeliverabilityRepository(chClient.Conn())
 		opts.ForensicQueryRepo = analyticsclickhouse.NewForensicsRepository(chClient.Conn())

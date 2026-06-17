@@ -1138,35 +1138,6 @@ type webhookReliabilityResponseDoc struct {
 	Rows        []webhookReliabilityRowDoc `json:"rows"`
 }
 
-type syncStatusResponseDoc struct {
-	StreamName   string  `json:"stream_name"`
-	LastSyncedAt *string `json:"last_synced_at,omitempty"`
-	LastFactID   string  `json:"last_fact_id"`
-	LagSeconds   int64   `json:"lag_seconds"`
-}
-
-func (h *analyticsHTTP) getSyncStatus(w http.ResponseWriter, r *http.Request) {
-	streamName := chi.URLParam(r, "stream_name")
-	result, err := h.svc.GetSyncCursorStatus(r.Context(), streamName)
-	if err != nil {
-		writeAnalyticsErr(w, r, err)
-		return
-	}
-
-	var lastSyncedAtStr *string
-	if result.LastSyncedAt != nil {
-		s := result.LastSyncedAt.Format(time.RFC3339)
-		lastSyncedAtStr = &s
-	}
-
-	writeEnvelope(w, r, http.StatusOK, syncStatusResponseDoc{
-		StreamName:   result.StreamName,
-		LastSyncedAt: lastSyncedAtStr,
-		LastFactID:   result.LastFactID,
-		LagSeconds:   result.LagSeconds,
-	})
-}
-
 func (h *analyticsHTTP) getOutboxLag(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspace_id")
 	userID, _ := r.Context().Value(ctxUserID).(string)

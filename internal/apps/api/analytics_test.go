@@ -839,6 +839,7 @@ type stubAPIDeliverabilityRepo struct {
 	GetDeliverabilityBreakdownFunc  func(ctx context.Context, workspaceID string, from, to time.Time, groupBy, provider, recipientDomain string) (*domain.DeliverabilityBreakdownResult, error)
 	GetDeliverabilityLatencyFunc    func(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityLatencyResult, error)
 	GetDeliverabilityIncidentsFunc  func(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityIncidentResult, error)
+	ListDeliverabilityFunc          func(ctx context.Context, workspaceID string, filter domain.DeliverabilityFilter) ([]domain.DeliverabilityProjection, error)
 }
 
 func (s *stubAPIDeliverabilityRepo) GetDeliverabilityTimeSeries(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain, interval string) (*domain.DeliverabilityTimeSeriesResult, error) {
@@ -852,6 +853,12 @@ func (s *stubAPIDeliverabilityRepo) GetDeliverabilityLatency(ctx context.Context
 }
 func (s *stubAPIDeliverabilityRepo) GetDeliverabilityIncidents(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityIncidentResult, error) {
 	return s.GetDeliverabilityIncidentsFunc(ctx, workspaceID, from, to, provider, recipientDomain)
+}
+func (s *stubAPIDeliverabilityRepo) ListDeliverability(ctx context.Context, workspaceID string, filter domain.DeliverabilityFilter) ([]domain.DeliverabilityProjection, error) {
+	if s.ListDeliverabilityFunc != nil {
+		return s.ListDeliverabilityFunc(ctx, workspaceID, filter)
+	}
+	return nil, nil
 }
 
 func setupAnalyticsRouterWithDeliverability(t *testing.T, deliveryRepo *stubAPIDeliverabilityRepo) http.Handler {

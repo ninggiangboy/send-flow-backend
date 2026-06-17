@@ -10,14 +10,12 @@ import (
 )
 
 type Options struct {
-	ProjectionRead    ports.ProjectionReadRepository
 	CampaignQueryRepo ports.CampaignQueryRepository
 	AccessChecker     ports.WorkspaceAccessChecker
 	Logger            *slog.Logger
 }
 
 type Handler struct {
-	projectionRead    ports.ProjectionReadRepository
 	campaignQueryRepo ports.CampaignQueryRepository
 	accessChecker     ports.WorkspaceAccessChecker
 	log               *slog.Logger
@@ -74,7 +72,6 @@ func New(opts Options) *Handler {
 		opts.Logger = slog.Default()
 	}
 	return &Handler{
-		projectionRead:    opts.ProjectionRead,
 		campaignQueryRepo: opts.CampaignQueryRepo,
 		accessChecker:     opts.AccessChecker,
 		log:               opts.Logger.With("service", "analytics", "handler", "campaign"),
@@ -88,16 +85,9 @@ func (h *Handler) ExecuteCampaignAnalytics(ctx context.Context, q CampaignAnalyt
 		}
 	}
 
-	summary, err := h.projectionRead.GetCampaignSummary(ctx, q.WorkspaceID, q.CampaignID)
+	funnel, err := h.campaignQueryRepo.GetCampaignFunnel(ctx, q.WorkspaceID, q.CampaignID, time.Time{}, time.Time{})
 	if err != nil {
-		if err == domain.ErrAnalyticsProjectionNotFound {
-			return &domain.CampaignAnalytics{
-				Status:      "pending",
-				WorkspaceID: q.WorkspaceID,
-				CampaignID:  q.CampaignID,
-			}, nil
-		}
-		h.log.Error("failed to get campaign summary",
+		h.log.Error("failed to get campaign funnel",
 			"workspace_id", q.WorkspaceID,
 			"campaign_id", q.CampaignID,
 			"error", err,
@@ -105,30 +95,33 @@ func (h *Handler) ExecuteCampaignAnalytics(ctx context.Context, q CampaignAnalyt
 		return nil, err
 	}
 
-	delivered := summary.DeliveredCount
-	accepted := summary.AcceptedCount
+	if funnel.Status == "pending" {
+		return &domain.CampaignAnalytics{
+			Status:      "pending",
+			WorkspaceID: q.WorkspaceID,
+			CampaignID:  q.CampaignID,
+		}, nil
+	}
 
 	return &domain.CampaignAnalytics{
 		Status:              "ready",
-		WorkspaceID:         summary.WorkspaceID,
-		CampaignID:          summary.CampaignID,
-		QueuedCount:         summary.QueuedCount,
-		AcceptedCount:       summary.AcceptedCount,
-		DeliveredCount:      summary.DeliveredCount,
-		BouncedCount:        summary.BouncedCount,
-		ComplainedCount:     summary.ComplainedCount,
-		OpenedCount:         summary.OpenedCount,
-		ClickedCount:        summary.ClickedCount,
-		UnsubscribedCount:   summary.UnsubscribedCount,
-		RetryScheduledCount: summary.RetryScheduledCount,
-		DeliveryRate:        domain.ComputeRate(delivered, accepted),
-		BounceRate:          domain.ComputeRate(summary.BouncedCount, delivered),
-		ComplaintRate:       domain.ComputeRate(summary.ComplainedCount, delivered),
-		OpenRate:            domain.ComputeRate(summary.OpenedCount, delivered),
-		ClickRate:           domain.ComputeRate(summary.ClickedCount, delivered),
-		UnsubscribeRate:     domain.ComputeRate(summary.UnsubscribedCount, delivered),
-		LastEventAt:         summary.LastEventAt,
-		LastUpdatedAt:       summary.LastUpdatedAt,
+		WorkspaceID:         funnel.WorkspaceID,
+		CampaignID:          funnel.CampaignID,
+		QueuedCount:         funnel.QueuedCount,
+		AcceptedCount:       funnel.AcceptedCount,
+		DeliveredCount:      funnel.DeliveredCount,
+		BouncedCount:        funnel.BouncedCount,
+		ComplainedCount:     funnel.ComplainedCount,
+		OpenedCount:         funnel.OpenedCount,
+		ClickedCount:        funnel.ClickedCount,
+		UnsubscribedCount:   funnel.UnsubscribedCount,
+		RetryScheduledCount: funnel.RetryScheduledCount,
+		DeliveryRate:        funnel.DeliveryRate,
+		BounceRate:          funnel.BounceRate,
+		ComplaintRate:       funnel.ComplaintRate,
+		OpenRate:            funnel.OpenRate,
+		ClickRate:           funnel.ClickRate,
+		UnsubscribeRate:     funnel.UnsubscribeRate,
 	}, nil
 }
 

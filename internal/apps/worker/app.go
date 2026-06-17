@@ -59,10 +59,6 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	syncMetrics, err := observability.NewSyncMetrics(nil)
-	if err != nil {
-		return err
-	}
 
 	pgClient, err := postgres.New(ctx, cfg)
 	if err != nil {
@@ -306,7 +302,7 @@ func Run(ctx context.Context) error {
 	deliveryAppMappers.RegisterAll(mapperRegistry)
 	trackingAppMappers.RegisterAll(mapperRegistry)
 
-	analyticsOpts := shared.NewAnalyticsRepos(pgClient.WritePool(), clickHouseClient)
+	analyticsOpts := shared.NewAnalyticsRepos(clickHouseClient)
 	analyticsOpts.Logger = log
 	analyticsSvc := analyticsapp.NewService(analyticsOpts)
 
@@ -344,10 +340,6 @@ func Run(ctx context.Context) error {
 			return err
 		}
 
-		clickHouseSync := NewAnalyticsClickHouseSyncProcessor(analyticsSvc, log, WithSyncMetrics(syncMetrics))
-		if err := registry.Register(clickHouseSync); err != nil {
-			return err
-		}
 	}
 
 	notificationOpts := shared.NewNotificationRepos(pgReadPool, pgWritePool, emailSender)

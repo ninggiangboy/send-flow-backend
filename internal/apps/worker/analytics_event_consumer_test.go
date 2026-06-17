@@ -21,7 +21,7 @@ func (m *mockAnalyticsFactRepo) FindBySourceEventID(ctx context.Context, sourceE
 	if m.findBySourceEventID != nil {
 		return m.findBySourceEventID(ctx, sourceEventID)
 	}
-	return nil, nil
+	return nil, analyticsdomain.ErrAnalyticsProjectionNotFound
 }
 
 func (m *mockAnalyticsFactRepo) Create(ctx context.Context, fact analyticsdomain.EmailEventFact) error {
@@ -29,44 +29,6 @@ func (m *mockAnalyticsFactRepo) Create(ctx context.Context, fact analyticsdomain
 		return m.create(ctx, fact)
 	}
 	return nil
-}
-
-type mockAnalyticsProjWrite struct {
-	incrementWorkspaceOverview func(ctx context.Context, workspaceID, eventType string, occurredAt time.Time) error
-	incrementCampaignSummary   func(ctx context.Context, workspaceID, campaignID, eventType string, occurredAt time.Time) error
-	incrementDeliverability    func(ctx context.Context, workspaceID, provider, recipientDomain, eventType string, occurredAt time.Time) error
-}
-
-func (m *mockAnalyticsProjWrite) IncrementWorkspaceOverview(ctx context.Context, workspaceID, eventType string, occurredAt time.Time) error {
-	if m.incrementWorkspaceOverview != nil {
-		return m.incrementWorkspaceOverview(ctx, workspaceID, eventType, occurredAt)
-	}
-	return nil
-}
-
-func (m *mockAnalyticsProjWrite) IncrementCampaignSummary(ctx context.Context, workspaceID, campaignID, eventType string, occurredAt time.Time) error {
-	if m.incrementCampaignSummary != nil {
-		return m.incrementCampaignSummary(ctx, workspaceID, campaignID, eventType, occurredAt)
-	}
-	return nil
-}
-
-func (m *mockAnalyticsProjWrite) IncrementDeliverability(ctx context.Context, workspaceID, provider, recipientDomain, eventType string, occurredAt time.Time) error {
-	if m.incrementDeliverability != nil {
-		return m.incrementDeliverability(ctx, workspaceID, provider, recipientDomain, eventType, occurredAt)
-	}
-	return nil
-}
-
-type mockAnalyticsTxManager struct {
-	withinTx func(ctx context.Context, fn func(ctx context.Context) error) error
-}
-
-func (m *mockAnalyticsTxManager) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error {
-	if m.withinTx != nil {
-		return m.withinTx(ctx, fn)
-	}
-	return fn(ctx)
 }
 
 func testAnalyticsEventConsumer(svc *analyticsapp.Service, registry *analyticsapp.MapperRegistry) *AnalyticsEventConsumer {
@@ -114,12 +76,9 @@ func TestAnalyticsEventConsumer_ValidEvent(t *testing.T) {
 	})
 
 	svc := analyticsapp.NewService(analyticsapp.Options{
-		FactRepo:        &mockAnalyticsFactRepo{},
-		ProjectionWrite: &mockAnalyticsProjWrite{},
-		TxManager:       &mockAnalyticsTxManager{},
-		IDGen:           func() (string, error) { return "id-1", nil },
-		Clock:           time.Now,
-		Logger:          testConsumerLogger(),
+		FactRepo: &mockAnalyticsFactRepo{},
+		Clock:    time.Now,
+		Logger:   testConsumerLogger(),
 	})
 	consumer := testAnalyticsEventConsumer(svc, registry)
 	rawPayload := validAnalyticsEnvelope(t, "test.event.v1")
@@ -186,20 +145,12 @@ func TestAnalyticsEventConsumer_ClickHouseFailureDoesNotBlockIngestion(t *testin
 	svc := analyticsapp.NewService(analyticsapp.Options{
 		FactRepo: &mockAnalyticsFactRepo{
 			findBySourceEventID: func(_ context.Context, _ string) (*analyticsdomain.EmailEventFact, error) {
-				return nil, nil
+				return nil, analyticsdomain.ErrAnalyticsProjectionNotFound
 			},
 			create: func(_ context.Context, _ analyticsdomain.EmailEventFact) error {
 				return nil
 			},
 		},
-		ProjectionWrite: &mockAnalyticsProjWrite{
-			incrementWorkspaceOverview: func(_ context.Context, _, _ string, _ time.Time) error { return nil },
-			incrementCampaignSummary:   func(_ context.Context, _, _, _ string, _ time.Time) error { return nil },
-		},
-		TxManager: &mockAnalyticsTxManager{
-			withinTx: func(_ context.Context, fn func(context.Context) error) error { return fn(context.Background()) },
-		},
-		IDGen:  func() (string, error) { return "id-1", nil },
 		Clock:  time.Now,
 		Logger: testConsumerLogger(),
 	})

@@ -2,22 +2,16 @@ package ingestion
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"time"
 
-	analyticscontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
 )
 
 type Options struct {
 	FactRepo              ports.EventFactRepository
-	ProjectionWrite       ports.ProjectionWriteRepository
-	TxManager             ports.TransactionManager
-	OutboxWriter          ports.OutboxWriter
-	IDGen                 func() (string, error)
 	Clock                 func() time.Time
 	AccessChecker         ports.WorkspaceAccessChecker
 	OperationsEventWriter ports.OperationsEventWriter
@@ -26,10 +20,6 @@ type Options struct {
 
 type Handler struct {
 	factRepo              ports.EventFactRepository
-	projectionWrite       ports.ProjectionWriteRepository
-	txManager             ports.TransactionManager
-	outboxWriter          ports.OutboxWriter
-	idGen                 func() (string, error)
 	clock                 func() time.Time
 	accessChecker         ports.WorkspaceAccessChecker
 	operationsEventWriter ports.OperationsEventWriter
@@ -75,10 +65,6 @@ func New(opts Options) *Handler {
 	}
 	return &Handler{
 		factRepo:              opts.FactRepo,
-		projectionWrite:       opts.ProjectionWrite,
-		txManager:             opts.TxManager,
-		outboxWriter:          opts.OutboxWriter,
-		idGen:                 opts.IDGen,
 		clock:                 opts.Clock,
 		accessChecker:         opts.AccessChecker,
 		operationsEventWriter: opts.OperationsEventWriter,
@@ -96,149 +82,57 @@ func (h *Handler) ExecuteIngestEmailEventFact(ctx context.Context, cmd IngestFac
 		return err
 	}
 
-	var fact domain.EmailEventFact
-
-	txErr := h.txManager.WithinTx(ctx, func(txCtx context.Context) error {
-		existing, err := h.factRepo.FindBySourceEventID(txCtx, cmd.SourceEventID)
-		if err != nil && !errors.Is(err, domain.ErrAnalyticsProjectionNotFound) {
-			h.log.Error("failed to check existing fact",
-				"source_event_id", cmd.SourceEventID,
-				"workspace_id", cmd.WorkspaceID,
-				"error", err,
-			)
-			return err
-		}
-		if existing != nil {
-			h.log.Debug("duplicate analytics event, skipping",
-				"source_event_id", cmd.SourceEventID,
-				"workspace_id", cmd.WorkspaceID,
-				"event_type", cmd.CanonicalType,
-			)
-			return nil
-		}
-
-		factID, err := h.idGen()
-		if err != nil {
-			return err
-		}
-		now := h.clock()
-
-		fact = domain.EmailEventFact{
-			ID:                factID,
-			SourceEventID:     cmd.SourceEventID,
-			SourceEventType:   cmd.SourceEventType,
-			WorkspaceID:       cmd.WorkspaceID,
-			CampaignID:        cmd.CampaignID,
-			MessageID:         cmd.MessageID,
-			Provider:          cmd.Provider,
-			ProviderMessageID: cmd.ProviderMessageID,
-			ProviderEventID:   cmd.ProviderEventID,
-			EventType:         cmd.CanonicalType,
-			RecipientDomain:   cmd.RecipientDomain,
-			OccurredAt:        cmd.OccurredAt,
-			ReceivedAt:        cmd.ReceivedAt,
-			Metadata:          cmd.Metadata,
-			CreatedAt:         now,
-		}
-
-		if err := h.factRepo.Create(txCtx, fact); err != nil {
-			if err == domain.ErrAnalyticsEventDuplicate {
-				h.log.Debug("duplicate analytics event (race), skipping",
-					"source_event_id", cmd.SourceEventID,
-				)
-				return nil
-			}
-			h.log.Error("failed to create analytics fact",
-				"source_event_id", cmd.SourceEventID,
-				"workspace_id", cmd.WorkspaceID,
-				"error", err,
-			)
-			return err
-		}
-
-		if err := h.projectionWrite.IncrementWorkspaceOverview(txCtx, cmd.WorkspaceID, cmd.CanonicalType, cmd.OccurredAt); err != nil {
-			h.log.Error("failed to increment workspace overview",
-				"workspace_id", cmd.WorkspaceID,
-				"event_type", cmd.CanonicalType,
-				"error", err,
-			)
-			return err
-		}
-
-		if cmd.CampaignID != "" {
-			if err := h.projectionWrite.IncrementCampaignSummary(txCtx, cmd.WorkspaceID, cmd.CampaignID, cmd.CanonicalType, cmd.OccurredAt); err != nil {
-				h.log.Error("failed to increment campaign summary",
-					"workspace_id", cmd.WorkspaceID,
-					"campaign_id", cmd.CampaignID,
-					"event_type", cmd.CanonicalType,
-					"error", err,
-				)
-				return err
-			}
-		}
-
-		if cmd.Provider != "" || cmd.RecipientDomain != "" {
-			prov := cmd.Provider
-			dom := cmd.RecipientDomain
-			if err := h.projectionWrite.IncrementDeliverability(txCtx, cmd.WorkspaceID, prov, dom, cmd.CanonicalType, cmd.OccurredAt); err != nil {
-				h.log.Error("failed to increment deliverability projection",
-					"workspace_id", cmd.WorkspaceID,
-					"provider", prov,
-					"recipient_domain", dom,
-					"event_type", cmd.CanonicalType,
-					"error", err,
-				)
-				return err
-			}
-		}
-
-		if h.outboxWriter != nil {
-			payload, err := json.Marshal(analyticscontracts.ProjectionUpdatedPayload{
-				WorkspaceID:    cmd.WorkspaceID,
-				ProjectionType: "workspace_overview",
-				ProjectionID:   cmd.WorkspaceID,
-				EventType:      cmd.CanonicalType,
-				LastEventAt:    cmd.OccurredAt.Format(time.RFC3339),
-				LastUpdatedAt:  now.Format(time.RFC3339),
-			})
-			if err != nil {
-				return err
-			}
-			eventID, err := h.idGen()
-			if err != nil {
-				return err
-			}
-			if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
-				ID:            eventID,
-				AggregateType: "analytics",
-				AggregateID:   cmd.WorkspaceID,
-				EventType:     analyticscontracts.EventProjectionUpdatedV1,
-				Payload:       payload,
-				WorkspaceID:   cmd.WorkspaceID,
-				OccurredAt:    now,
-			}); err != nil {
-				h.log.Error("failed to write outbox event",
-					"workspace_id", cmd.WorkspaceID,
-					"error", err,
-				)
-				return err
-			}
-		}
-
-		h.log.Info("analytics event fact recorded",
-			"fact_id", factID,
+	existing, err := h.factRepo.FindBySourceEventID(ctx, cmd.SourceEventID)
+	if err != nil && !errors.Is(err, domain.ErrAnalyticsProjectionNotFound) {
+		h.log.Error("failed to check existing fact",
 			"source_event_id", cmd.SourceEventID,
 			"workspace_id", cmd.WorkspaceID,
-			"campaign_id", cmd.CampaignID,
-			"message_id", cmd.MessageID,
+			"error", err,
+		)
+		return err
+	}
+	if existing != nil {
+		h.log.Debug("duplicate analytics event, skipping",
+			"source_event_id", cmd.SourceEventID,
+			"workspace_id", cmd.WorkspaceID,
 			"event_type", cmd.CanonicalType,
 		)
-
 		return nil
-	})
-	if txErr != nil {
-		return txErr
 	}
+
+	fact := domain.EmailEventFact{
+		SourceEventID:     cmd.SourceEventID,
+		SourceEventType:   cmd.SourceEventType,
+		WorkspaceID:       cmd.WorkspaceID,
+		CampaignID:        cmd.CampaignID,
+		MessageID:         cmd.MessageID,
+		Provider:          cmd.Provider,
+		ProviderMessageID: cmd.ProviderMessageID,
+		ProviderEventID:   cmd.ProviderEventID,
+		EventType:         cmd.CanonicalType,
+		RecipientDomain:   cmd.RecipientDomain,
+		OccurredAt:        cmd.OccurredAt,
+		ReceivedAt:        cmd.ReceivedAt,
+		Metadata:          cmd.Metadata,
+		CreatedAt:         h.clock(),
+	}
+
+	if err := h.factRepo.Create(ctx, fact); err != nil {
+		h.log.Error("failed to create analytics fact",
+			"source_event_id", cmd.SourceEventID,
+			"workspace_id", cmd.WorkspaceID,
+			"error", err,
+		)
+		return err
+	}
+
+	h.log.Info("analytics event fact recorded",
+		"source_event_id", cmd.SourceEventID,
+		"workspace_id", cmd.WorkspaceID,
+		"campaign_id", cmd.CampaignID,
+		"message_id", cmd.MessageID,
+		"event_type", cmd.CanonicalType,
+	)
 
 	return nil
 }

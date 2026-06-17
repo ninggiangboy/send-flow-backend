@@ -12,7 +12,6 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/forensics"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/ingestion"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/operationsanalytics"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/sync"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/usage"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
@@ -94,11 +93,7 @@ type GetCampaignEventsInput struct {
 
 type Options struct {
 	FactRepo                ports.EventFactRepository
-	FactBatchRepo           ports.FactBatchRepository
-	SyncStateRepo           ports.SyncStateRepository
-	ClickHouseBatchWriter   ports.ClickHouseBatchWriter
-	ProjectionRead          ports.ProjectionReadRepository
-	ProjectionWrite         ports.ProjectionWriteRepository
+	WorkspaceQueryRepo      ports.WorkspaceQueryRepository
 	CampaignQueryRepo       ports.CampaignQueryRepository
 	DeliverabilityQueryRepo ports.DeliverabilityQueryRepository
 	ForensicQueryRepo       ports.ForensicQueryRepository
@@ -106,17 +101,13 @@ type Options struct {
 	UsageQueryRepo          ports.UsageQueryRepository
 	AnomalySignalWriteRepo  ports.AnomalySignalWriteRepository
 	OperationsEventWriter   ports.OperationsEventWriter
-	TxManager               ports.TransactionManager
-	OutboxWriter            ports.OutboxWriter
 	AccessChecker           ports.WorkspaceAccessChecker
-	IDGen                   func() (string, error)
 	Clock                   func() time.Time
 	Logger                  *slog.Logger
 }
 
 type Service struct {
 	ingestionH           *ingestion.Handler
-	syncH                *sync.Handler
 	dashboardH           *dashboard.Handler
 	campaignH            *campaign.Handler
 	deliverabilityH      *deliverability.Handler
@@ -136,35 +127,22 @@ func NewService(opts Options) *Service {
 	return &Service{
 		ingestionH: ingestion.New(ingestion.Options{
 			FactRepo:              opts.FactRepo,
-			ProjectionWrite:       opts.ProjectionWrite,
-			TxManager:             opts.TxManager,
-			OutboxWriter:          opts.OutboxWriter,
-			IDGen:                 opts.IDGen,
 			Clock:                 opts.Clock,
 			AccessChecker:         opts.AccessChecker,
 			OperationsEventWriter: opts.OperationsEventWriter,
 			Logger:                opts.Logger,
 		}),
-		syncH: sync.New(sync.Options{
-			FactBatchRepo:         opts.FactBatchRepo,
-			SyncStateRepo:         opts.SyncStateRepo,
-			ClickHouseBatchWriter: opts.ClickHouseBatchWriter,
-			Clock:                 opts.Clock,
-			Logger:                opts.Logger,
-		}),
 		dashboardH: dashboard.New(dashboard.Options{
-			ProjectionRead: opts.ProjectionRead,
-			AccessChecker:  opts.AccessChecker,
-			Logger:         opts.Logger,
+			WorkspaceQueryRepo: opts.WorkspaceQueryRepo,
+			AccessChecker:      opts.AccessChecker,
+			Logger:             opts.Logger,
 		}),
 		campaignH: campaign.New(campaign.Options{
-			ProjectionRead:    opts.ProjectionRead,
 			CampaignQueryRepo: opts.CampaignQueryRepo,
 			AccessChecker:     opts.AccessChecker,
 			Logger:            opts.Logger,
 		}),
 		deliverabilityH: deliverability.New(deliverability.Options{
-			ProjectionRead:          opts.ProjectionRead,
 			DeliverabilityQueryRepo: opts.DeliverabilityQueryRepo,
 			AccessChecker:           opts.AccessChecker,
 			Logger:                  opts.Logger,
@@ -242,52 +220,6 @@ func (s *Service) IngestOperationsEvent(ctx context.Context, input IngestOperati
 		Metadata:        input.Metadata,
 		OccurredAt:      input.OccurredAt,
 	})
-}
-
-type SyncFactsToClickHouseInput struct {
-	StreamName string
-	BatchSize  int
-}
-
-type SyncFactsToClickHouseResult struct {
-	SyncedCount int
-	LastFactID  string
-	LagSeconds  int64
-}
-
-func (s *Service) SyncFactsToClickHouse(ctx context.Context, input SyncFactsToClickHouseInput) (*SyncFactsToClickHouseResult, error) {
-	result, err := s.syncH.ExecuteSyncFactsToClickHouse(ctx, sync.SyncCommand{
-		StreamName: input.StreamName,
-		BatchSize:  input.BatchSize,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &SyncFactsToClickHouseResult{
-		SyncedCount: result.SyncedCount,
-		LastFactID:  result.LastFactID,
-		LagSeconds:  result.LagSeconds,
-	}, nil
-}
-
-type SyncCursorStatus struct {
-	StreamName   string     `json:"stream_name"`
-	LastSyncedAt *time.Time `json:"last_synced_at"`
-	LastFactID   string     `json:"last_fact_id"`
-	LagSeconds   int64      `json:"lag_seconds"`
-}
-
-func (s *Service) GetSyncCursorStatus(ctx context.Context, streamName string) (*SyncCursorStatus, error) {
-	result, err := s.syncH.ExecuteGetSyncCursorStatus(ctx, sync.CursorQuery{StreamName: streamName})
-	if err != nil {
-		return nil, err
-	}
-	return &SyncCursorStatus{
-		StreamName:   result.StreamName,
-		LastSyncedAt: result.LastSyncedAt,
-		LastFactID:   result.LastFactID,
-		LagSeconds:   result.LagSeconds,
-	}, nil
 }
 
 func (s *Service) GetDashboardOverview(ctx context.Context, input GetDashboardOverviewInput) (*domain.DashboardOverview, error) {

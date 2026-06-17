@@ -2,30 +2,23 @@ package analytics
 
 const Name = "analytics"
 
-const Purpose = "Own event facts, reporting projections, freshness metadata, and dashboard analytics."
+const Purpose = "Own email event facts in ClickHouse and provide dashboard, campaign, deliverability, forensic, operations, and usage analytics."
 
 var OwnedData = []string{
-	"email_event_facts",
-	"campaign_delivery_summaries",
-	"recipient_domain_hourly_stats",
-	"provider_delivery_stats",
-	"dashboard_overviews",
+	"email_events (ClickHouse)",
 }
 
 var Commands = []string{
 	"IngestEmailEventFact",
-	"RebuildCampaignSummary",
-	"BackfillAnalyticsWindow",
 }
 
 var Queries = []string{
 	"GetDashboardOverview",
 	"GetCampaignAnalytics",
-	"GetProviderStats",
-	"GetRecipientDomainStats",
+	"GetCampaignFunnel",
+	"GetDeliverability",
+	"SearchEvents",
+	"GetMessageTimeline",
 }
 
-var Events = []string{
-	"analytics.projection.updated.v1",
-	"analytics.backfill.completed.v1",
-}
+var Events = []string{}

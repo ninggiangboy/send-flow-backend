@@ -237,6 +237,59 @@ func (r *DeliverabilityRepository) GetDeliverabilityLatency(ctx context.Context,
 	}, nil
 }
 
+func (r *DeliverabilityRepository) ListDeliverability(ctx context.Context, workspaceID string, filter domain.DeliverabilityFilter) ([]domain.DeliverabilityProjection, error) {
+	query := `
+		SELECT
+			workspace_id,
+			provider,
+			recipient_domain,
+			countIf(event_type = 'delivered')  AS delivered_count,
+			countIf(event_type = 'bounced')    AS bounced_count,
+			countIf(event_type = 'complained') AS complained_count,
+			countIf(event_type = 'opened')     AS opened_count,
+			countIf(event_type = 'clicked')    AS clicked_count,
+			max(occurred_at)                   AS last_event_at
+		FROM email_events FINAL
+		WHERE workspace_id = ?`
+	args := []any{workspaceID}
+
+	if filter.Provider != "" {
+		query += " AND provider = ?"
+		args = append(args, strings.ToLower(strings.TrimSpace(filter.Provider)))
+	}
+	if filter.RecipientDomain != "" {
+		query += " AND recipient_domain = ?"
+		args = append(args, strings.ToLower(strings.TrimSpace(filter.RecipientDomain)))
+	}
+	query += " GROUP BY workspace_id, provider, recipient_domain ORDER BY provider, recipient_domain"
+
+	rows, err := r.conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []domain.DeliverabilityProjection
+	for rows.Next() {
+		var p domain.DeliverabilityProjection
+		var lastEventAt *time.Time
+		if err := rows.Scan(
+			&p.WorkspaceID, &p.Provider, &p.RecipientDomain,
+			&p.DeliveredCount, &p.BouncedCount, &p.ComplainedCount,
+			&p.OpenedCount, &p.ClickedCount,
+			&lastEventAt,
+		); err != nil {
+			return nil, err
+		}
+		p.LastEventAt = lastEventAt
+		if lastEventAt != nil {
+			p.LastUpdatedAt = *lastEventAt
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
 func (r *DeliverabilityRepository) GetDeliverabilityIncidents(ctx context.Context, workspaceID string, from, to time.Time, provider, recipientDomain string) (*domain.DeliverabilityIncidentResult, error) {
 	query := `
 		SELECT

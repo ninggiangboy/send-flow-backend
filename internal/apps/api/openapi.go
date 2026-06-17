@@ -2560,9 +2560,6 @@ type analyticsProviderEventPathInput struct {
 	ProviderEventID string `path:"provider_event_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Provider event ID."`
 }
 
-type analyticsSyncStreamPathInput struct {
-	StreamName string `path:"stream_name" example:"analytics_email_events" doc:"ClickHouse sync stream name."`
-}
 
 func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2865,17 +2862,6 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		return delegateHTTP[emptyOutput](ctx, nil, analytics.getAnomalies)
 	})
 
-	huma.Register(api, protectedOperation(huma.Operation{
-		OperationID: "get-clickhouse-sync-status",
-		Method:      http.MethodGet,
-		Path:        "/api/v1/analytics/sync/{stream_name}/status",
-		Tags:        []string{"Analytics"},
-		Summary:     "Get ClickHouse sync stream freshness and lag. This endpoint shows the sync cursor state for a given stream (e.g. analytics_email_events), including last_synced_at and lag in seconds.",
-		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsSyncStreamPathInput) (*emptyOutput, error) {
-		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getSyncStatus)
-	})
 }
 
 func analyticsErrorCodes() map[int][]string {

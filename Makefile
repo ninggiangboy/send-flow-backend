@@ -17,7 +17,7 @@ $(eval $(START_EXTRA_GOALS):; @:)
 endif
 endif
 
-.PHONY: dev-up dev-down dev-logs connector-up consul-clean start api api-instance worker worker-instance build format vet test check test-race test-integration openapi-generate openapi-check migrate-up migrate-down clickhouse-migrate-up clickhouse-migrate-down clickhouse-backfill logs-clean logs-rotate
+.PHONY: dev-up dev-down dev-logs connector-up consul-clean start api api-instance worker worker-instance build format vet test check test-race test-integration openapi-generate openapi-check migrate-up migrate-down clickhouse-migrate-up clickhouse-migrate-down logs-clean logs-rotate
 
 dev-up:
 	docker compose -f $(LOCAL_COMPOSE) up -d
@@ -57,7 +57,6 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o ./bin/api ./cmd/api
 	go build -ldflags "$(LDFLAGS)" -o ./bin/worker ./cmd/worker
 	go build -ldflags "$(LDFLAGS)" -o ./bin/clickhouse-migrate ./cmd/clickhouse-migrate
-	go build -ldflags "$(LDFLAGS)" -o ./bin/backfill-clickhouse ./cmd/backfill-clickhouse
 
 format:
 	gofmt -w ./cmd ./internal
@@ -94,8 +93,6 @@ clickhouse-migrate-up:
 clickhouse-migrate-down:
 	@echo "ClickHouse rollback not yet implemented; drop and re-run migrate-up to rebuild schema"
 
-clickhouse-backfill:
-	sh -c 'if [ -f $(ENV_FILE) ]; then set -a; . $(ENV_FILE); set +a; fi; go run ./cmd/backfill-clickhouse 2>&1'
 
 logs-clean:
 	sh -c 'mkdir -p $(LOG_DIR); : > $(LOG_DIR)/api.log; : > $(LOG_DIR)/worker.log; rm -f $(LOG_DIR)/api-*.log $(LOG_DIR)/worker-*.log'

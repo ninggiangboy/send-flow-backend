@@ -361,7 +361,7 @@ func Run(ctx context.Context) error {
 		Logger:                log,
 	})
 
-	analyticsOpts := shared.NewAnalyticsRepos(pgClient.WritePool(), clickHouseClient)
+	analyticsOpts := shared.NewAnalyticsRepos(clickHouseClient)
 	analyticsOpts.AccessChecker = newWorkspaceAccessAdapter(authSvc)
 	analyticsOpts.Logger = log
 	analyticsSvc := analyticsapp.NewService(analyticsOpts)
