@@ -12,6 +12,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/getme"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/getworkspace"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/getworkspaceaccess"
+	identityrediscache "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/inviteworkspacemember"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/listproviders"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/listsessions"
@@ -96,6 +97,7 @@ type Options struct {
 	Logger            *slog.Logger
 	UnitOfWork        ports.UnitOfWork
 	OutboxWriter      ports.OutboxWriter
+	RedisCache        *identityrediscache.Cache
 }
 
 type Service struct {
@@ -108,6 +110,7 @@ type Service struct {
 	rolesWrite      ports.RoleWriteRepository
 	idGen           ports.IDGenerator
 	auditRecorder   AuditRecorder
+	redisCache      *identityrediscache.Cache
 	logger          *slog.Logger
 }
 
@@ -307,6 +310,7 @@ func NewService(opts Options) *Service {
 	listWSInvitesH := listworkspaceinvitations.New(opts.MembershipsRead, opts.InvitationsRead, opts.Logger)
 
 	return &Service{
+		redisCache:      opts.RedisCache,
 		commands:        newCommandBus(opts.Logger, signupH, loginH, oauthStartH, oauthExchangeH, revokeH, refreshH, reqVerifyH, verifyH, forgotH, resetH, mfaLoginH, mfaSetupH, mfaEnableH, mfaDisableH, mfaRegenH, createWSH, inviteMemberH, acceptInviteH, removeMemberH, updateRoleH),
 		queries:         newQueryBus(opts.Logger, listProviderH, getMeH, listSessionsH, authnH, listWSH, getWSH, listWSMembersH, getWSAccessH, listWSInvitesH),
 		settingsRead:    opts.SettingsRead,

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sort"
 
+	audienceredis "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/ports"
 )
@@ -14,6 +16,7 @@ type Options struct {
 	SegmentsRead  ports.SegmentReadRepository
 	AccessChecker ports.WorkspaceAccessChecker
 	Logger        *slog.Logger
+	Cache         *audienceredis.Cache
 }
 
 type Command struct {
@@ -29,6 +32,7 @@ type Handler struct {
 	segmentsRead  ports.SegmentReadRepository
 	accessChecker ports.WorkspaceAccessChecker
 	log           *slog.Logger
+	cache         *audienceredis.Cache
 }
 
 func New(opts Options) *Handler {
@@ -37,6 +41,7 @@ func New(opts Options) *Handler {
 		segmentsRead:  opts.SegmentsRead,
 		accessChecker: opts.AccessChecker,
 		log:           opts.Logger.With("usecase", "resolve_audience_selection"),
+		cache:         opts.Cache,
 	}
 }
 
@@ -45,6 +50,16 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) ([]string, error) {
 		return nil, err
 	}
 
+	if h.cache != nil {
+		return h.cache.GetOrLoadSelection(ctx, cmd.WorkspaceID, cmd.ListID, cmd.SegmentID, cmd.ContactIDs, func() ([]string, error) {
+			return h.resolveSelection(ctx, cmd)
+		})
+	}
+
+	return h.resolveSelection(ctx, cmd)
+}
+
+func (h *Handler) resolveSelection(ctx context.Context, cmd Command) ([]string, error) {
 	contactIDs := make(map[string]struct{})
 
 	if cmd.ListID != "" {
@@ -91,5 +106,6 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) ([]string, error) {
 	if result == nil {
 		result = []string{}
 	}
+	sort.Strings(result)
 	return result, nil
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
+	analyticsredis "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
 )
 
@@ -14,12 +15,14 @@ type Options struct {
 	DeliverabilityQueryRepo ports.DeliverabilityQueryRepository
 	AccessChecker           ports.WorkspaceAccessChecker
 	Logger                  *slog.Logger
+	Cache                   *analyticsredis.Cache
 }
 
 type Handler struct {
 	deliverabilityQueryRepo ports.DeliverabilityQueryRepository
 	accessChecker           ports.WorkspaceAccessChecker
 	log                     *slog.Logger
+	cache                   *analyticsredis.Cache
 }
 
 // ── Query structs ──
@@ -77,6 +80,7 @@ func New(opts Options) *Handler {
 		deliverabilityQueryRepo: opts.DeliverabilityQueryRepo,
 		accessChecker:           opts.AccessChecker,
 		log:                     opts.Logger.With("service", "analytics", "handler", "deliverability"),
+		cache:                   opts.Cache,
 	}
 }
 
@@ -87,15 +91,37 @@ func (h *Handler) ExecuteGetDeliverability(ctx context.Context, q Deliverability
 		}
 	}
 
-	filter := domain.DeliverabilityFilter{
-		Provider:        domain.NormalizeString(q.Provider),
-		RecipientDomain: domain.NormalizeString(q.RecipientDomain),
+	if h.cache != nil {
+		filter := domain.DeliverabilityFilter{
+			Provider:        domain.NormalizeString(q.Provider),
+			RecipientDomain: domain.NormalizeString(q.RecipientDomain),
+		}
+		cached, err := h.cache.GetOrLoadDeliverability(ctx, q.WorkspaceID, func() (any, error) {
+			return h.loadDeliverability(ctx, q.WorkspaceID, filter)
+		})
+		if err != nil {
+			return nil, err
+		}
+		if result, ok := cached.(*domain.DeliverabilityResult); ok {
+			return result, nil
+		}
+		if result, ok := cached.(domain.DeliverabilityResult); ok {
+			return &result, nil
+		}
+		return nil, nil
 	}
 
-	projections, err := h.deliverabilityQueryRepo.ListDeliverability(ctx, q.WorkspaceID, filter)
+	return h.loadDeliverability(ctx, q.WorkspaceID, domain.DeliverabilityFilter{
+		Provider:        domain.NormalizeString(q.Provider),
+		RecipientDomain: domain.NormalizeString(q.RecipientDomain),
+	})
+}
+
+func (h *Handler) loadDeliverability(ctx context.Context, workspaceID string, filter domain.DeliverabilityFilter) (*domain.DeliverabilityResult, error) {
+	projections, err := h.deliverabilityQueryRepo.ListDeliverability(ctx, workspaceID, filter)
 	if err != nil {
 		h.log.Error("failed to list deliverability projections",
-			"workspace_id", q.WorkspaceID,
+			"workspace_id", workspaceID,
 			"error", err,
 		)
 		return nil, err

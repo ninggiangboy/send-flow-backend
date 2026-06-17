@@ -14,6 +14,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/processduemessages"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/queuecampaignmessages"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/usecase"
+	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
@@ -39,6 +40,7 @@ type Options struct {
 	AccessChecker       ports.WorkspaceAccessChecker
 	IDGen               func() (string, error)
 	Logger              *slog.Logger
+	RedisCache          *deliveryredis.Cache
 }
 
 type Service struct {
@@ -67,6 +69,7 @@ func NewService(opts Options) *Service {
 		opts.TxManager,
 		opts.IDGen,
 		opts.Logger,
+		opts.RedisCache,
 	)
 
 	queueCampaignH := queuecampaignmessages.New(
@@ -105,6 +108,7 @@ func NewService(opts Options) *Service {
 		opts.TxManager,
 		opts.IDGen,
 		opts.Logger,
+		opts.RedisCache,
 	)
 
 	listMessagesH := listmessages.New(opts.MessagesRead, opts.AccessChecker, opts.Logger)

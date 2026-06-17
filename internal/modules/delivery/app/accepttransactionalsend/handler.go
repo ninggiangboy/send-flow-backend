@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
@@ -75,6 +76,7 @@ type Handler struct {
 	txManager          ports.UnitOfWork
 	idGen              func() (string, error)
 	log                *slog.Logger
+	cache              *deliveryredis.Cache
 }
 
 func New(
@@ -89,6 +91,7 @@ func New(
 	txManager ports.UnitOfWork,
 	idGen func() (string, error),
 	logger *slog.Logger,
+	cache *deliveryredis.Cache,
 ) *Handler {
 	return &Handler{
 		txRequestsRead:     txRequestsRead,
@@ -102,6 +105,7 @@ func New(
 		txManager:          txManager,
 		idGen:              idGen,
 		log:                logger.With("usecase", "accept_transactional_send"),
+		cache:              cache,
 	}
 }
 
@@ -353,6 +357,16 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 		}
 	}
 
+	if h.cache != nil && result != nil && inputKey != "" {
+		_ = h.cache.SetIdempotency(ctx, input.WorkspaceID, inputKey, &deliveryredis.IdempotencyEntry{
+			PayloadHash: string(canonicalJSON),
+			RequestID:   result.RequestID,
+			MessageID:   result.MessageID,
+			Status:      result.Status,
+			AcceptedAt:  result.AcceptedAt.Format(time.RFC3339),
+		})
+	}
+
 	log.Info("transactional send accepted",
 		"request_id", result.RequestID,
 		"message_id", result.MessageID,
@@ -433,6 +447,20 @@ func (h *Handler) validateSendInput(input *Input) error {
 }
 
 func (h *Handler) handleIdempotency(ctx context.Context, workspaceID, idempotencyKey string, canonicalJSON []byte) (*Result, error) {
+	if h.cache != nil {
+		if entry, err := h.cache.GetIdempotency(ctx, workspaceID, idempotencyKey); err == nil {
+			if isPayloadMatch, _ := payloadMatches(entry, canonicalJSON); isPayloadMatch {
+				return &Result{
+					MessageID:  entry.MessageID,
+					RequestID:  entry.RequestID,
+					Status:     entry.Status,
+					AcceptedAt: parseTimeOrZero(entry.AcceptedAt),
+				}, nil
+			}
+			return nil, domain.ErrIdempotencyKeyConflict
+		}
+	}
+
 	existingReq, err := h.txRequestsRead.FindByIdempotencyKey(ctx, workspaceID, idempotencyKey)
 	if err != nil {
 		if errors.Is(err, domain.ErrTransactionalRequestNotFound) {
@@ -453,6 +481,16 @@ func (h *Handler) handleIdempotency(ctx context.Context, workspaceID, idempotenc
 			"error", err,
 		)
 		return nil, domain.ErrTemporarilyUnavailable
+	}
+
+	if h.cache != nil {
+		_ = h.cache.SetIdempotency(ctx, workspaceID, idempotencyKey, &deliveryredis.IdempotencyEntry{
+			PayloadHash: string(canonicalJSON),
+			RequestID:   existingReq.ID,
+			MessageID:   existingMsg.ID,
+			Status:      existingReq.Status,
+			AcceptedAt:  existingReq.CreatedAt.Format(time.RFC3339),
+		})
 	}
 
 	return &Result{
@@ -525,4 +563,16 @@ func cleanTags(tags []string) []string {
 		return nil
 	}
 	return cleaned
+}
+
+func payloadMatches(entry *deliveryredis.IdempotencyEntry, canonicalJSON []byte) (bool, error) {
+	return entry.PayloadHash == string(canonicalJSON), nil
+}
+
+func parseTimeOrZero(s string) time.Time {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }

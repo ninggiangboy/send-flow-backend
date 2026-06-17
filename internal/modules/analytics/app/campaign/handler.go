@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
+	analyticsredis "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
 )
 
@@ -13,12 +14,14 @@ type Options struct {
 	CampaignQueryRepo ports.CampaignQueryRepository
 	AccessChecker     ports.WorkspaceAccessChecker
 	Logger            *slog.Logger
+	Cache             *analyticsredis.Cache
 }
 
 type Handler struct {
 	campaignQueryRepo ports.CampaignQueryRepository
 	accessChecker     ports.WorkspaceAccessChecker
 	log               *slog.Logger
+	cache             *analyticsredis.Cache
 }
 
 type CampaignAnalyticsQuery struct {
@@ -75,6 +78,7 @@ func New(opts Options) *Handler {
 		campaignQueryRepo: opts.CampaignQueryRepo,
 		accessChecker:     opts.AccessChecker,
 		log:               opts.Logger.With("service", "analytics", "handler", "campaign"),
+		cache:             opts.Cache,
 	}
 }
 
@@ -85,11 +89,31 @@ func (h *Handler) ExecuteCampaignAnalytics(ctx context.Context, q CampaignAnalyt
 		}
 	}
 
-	funnel, err := h.campaignQueryRepo.GetCampaignFunnel(ctx, q.WorkspaceID, q.CampaignID, time.Time{}, time.Time{})
+	if h.cache != nil {
+		cached, err := h.cache.GetOrLoadCampaign(ctx, q.WorkspaceID, q.CampaignID, func() (any, error) {
+			return h.loadCampaignAnalytics(ctx, q.WorkspaceID, q.CampaignID)
+		})
+		if err != nil {
+			return nil, err
+		}
+		if result, ok := cached.(*domain.CampaignAnalytics); ok {
+			return result, nil
+		}
+		if result, ok := cached.(domain.CampaignAnalytics); ok {
+			return &result, nil
+		}
+		return nil, nil
+	}
+
+	return h.loadCampaignAnalytics(ctx, q.WorkspaceID, q.CampaignID)
+}
+
+func (h *Handler) loadCampaignAnalytics(ctx context.Context, workspaceID, campaignID string) (*domain.CampaignAnalytics, error) {
+	funnel, err := h.campaignQueryRepo.GetCampaignFunnel(ctx, workspaceID, campaignID, time.Time{}, time.Time{})
 	if err != nil {
 		h.log.Error("failed to get campaign funnel",
-			"workspace_id", q.WorkspaceID,
-			"campaign_id", q.CampaignID,
+			"workspace_id", workspaceID,
+			"campaign_id", campaignID,
 			"error", err,
 		)
 		return nil, err
@@ -98,8 +122,8 @@ func (h *Handler) ExecuteCampaignAnalytics(ctx context.Context, q CampaignAnalyt
 	if funnel.Status == "pending" {
 		return &domain.CampaignAnalytics{
 			Status:      "pending",
-			WorkspaceID: q.WorkspaceID,
-			CampaignID:  q.CampaignID,
+			WorkspaceID: workspaceID,
+			CampaignID:  campaignID,
 		}, nil
 	}
 

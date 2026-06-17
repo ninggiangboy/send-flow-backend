@@ -10,16 +10,19 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/ninggiangboy/send-flow/backend/internal/apps/shared"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
+	analyticsredis "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/redis"
 	audiencepostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/postgres"
 	campaignpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/infrastructure/postgres"
 	deliveryAppMappers "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/analyticsmappers"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	deliveryinfrastructure "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure"
+	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	deliverycampaign "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/campaign"
 	deliverypostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/postgres"
 	deliveryports "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
 	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
 	trackingAppMappers "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/analyticsmappers"
+	contentredis "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/buildinfo"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/clickhouse"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/config"
@@ -71,6 +74,17 @@ func Run(ctx context.Context) error {
 		return err
 	}
 	defer redisClient.Close()
+
+	redisMetrics, err := observability.NewRedisMetrics(nil)
+	if err != nil {
+		return err
+	}
+
+	cacheAside := platformredis.NewCacheAside(redisClient, redisMetrics)
+
+	contentCache := contentredis.NewCache(cacheAside, cfg.RedisCache.ContentPreviewCacheTTL)
+	deliveryCache := deliveryredis.NewCache(cacheAside, redisClient, cfg.RedisCache.DeliveryIdempotencyTTL, cfg.RedisCache.DeliveryQuotaCacheTTL)
+	analyticsCache := analyticsredis.NewCache(cacheAside, cfg.RedisCache.AnalyticsQueryCacheTTL)
 
 	var objectStorageClient objectstorage.ObjectStorage
 	if cfg.ObjectStorageEnabled() {
@@ -143,10 +157,10 @@ func Run(ctx context.Context) error {
 	suppressionRecipientSuppressorAdapter := newRecipientSuppressorAdapter(suppressionSvc)
 
 	contentReadRepo, contentWriteRepo := shared.NewContentRepos(pgReadPool, pgWritePool)
-	contentSvc := shared.NewContentService(contentReadRepo, contentWriteRepo, nil, log)
+	contentSvc := shared.NewContentService(contentReadRepo, contentWriteRepo, nil, log, contentCache)
 
 	senderReadRepo, senderWriteRepo := shared.NewSenderRepos(pgReadPool, pgWritePool)
-	senderSvc := shared.NewSenderService(senderReadRepo, senderWriteRepo, nil, nil, log, nil)
+	senderSvc := shared.NewSenderService(senderReadRepo, senderWriteRepo, nil, nil, log, nil, cacheAside)
 
 	// Create platform email sender (shared across modules)
 	emailSender, err := platformemail.NewSender(ctx, cfg)
@@ -185,6 +199,7 @@ func Run(ctx context.Context) error {
 		TxManager:           deliveryTxManager,
 		IDGen:               id.NewUUIDGenerator().New,
 		Logger:              log,
+		RedisCache:          deliveryCache,
 	})
 
 	consumer := NewCampaignScheduledConsumer(
@@ -304,6 +319,7 @@ func Run(ctx context.Context) error {
 
 	analyticsOpts := shared.NewAnalyticsRepos(clickHouseClient)
 	analyticsOpts.Logger = log
+	analyticsOpts.RedisCache = analyticsCache
 	analyticsSvc := analyticsapp.NewService(analyticsOpts)
 
 	providerEventConsumer.SetOperationsRecorder(newOpsRecorderAdapter(analyticsSvc))

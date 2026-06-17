@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
+	analyticsredis "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
 )
 
@@ -12,12 +13,14 @@ type Options struct {
 	WorkspaceQueryRepo ports.WorkspaceQueryRepository
 	AccessChecker      ports.WorkspaceAccessChecker
 	Logger             *slog.Logger
+	Cache              *analyticsredis.Cache
 }
 
 type Handler struct {
 	workspaceQueryRepo ports.WorkspaceQueryRepository
 	accessChecker      ports.WorkspaceAccessChecker
 	log                *slog.Logger
+	cache              *analyticsredis.Cache
 }
 
 type DashboardQuery struct {
@@ -33,6 +36,7 @@ func New(opts Options) *Handler {
 		workspaceQueryRepo: opts.WorkspaceQueryRepo,
 		accessChecker:      opts.AccessChecker,
 		log:                opts.Logger.With("service", "analytics", "handler", "dashboard"),
+		cache:              opts.Cache,
 	}
 }
 
@@ -43,16 +47,36 @@ func (h *Handler) ExecuteGetDashboardOverview(ctx context.Context, q DashboardQu
 		}
 	}
 
-	overview, err := h.workspaceQueryRepo.GetWorkspaceOverview(ctx, q.WorkspaceID)
+	if h.cache != nil {
+		cached, err := h.cache.GetOrLoadDashboard(ctx, q.WorkspaceID, func() (any, error) {
+			return h.loadDashboardOverview(ctx, q.WorkspaceID)
+		})
+		if err != nil {
+			return nil, err
+		}
+		if overview, ok := cached.(*domain.DashboardOverview); ok {
+			return overview, nil
+		}
+		if overview, ok := cached.(domain.DashboardOverview); ok {
+			return &overview, nil
+		}
+		return nil, nil
+	}
+
+	return h.loadDashboardOverview(ctx, q.WorkspaceID)
+}
+
+func (h *Handler) loadDashboardOverview(ctx context.Context, workspaceID string) (*domain.DashboardOverview, error) {
+	overview, err := h.workspaceQueryRepo.GetWorkspaceOverview(ctx, workspaceID)
 	if err != nil {
 		if err == domain.ErrAnalyticsProjectionNotFound {
 			return &domain.DashboardOverview{
 				Status:      "pending",
-				WorkspaceID: q.WorkspaceID,
+				WorkspaceID: workspaceID,
 			}, nil
 		}
 		h.log.Error("failed to get workspace overview",
-			"workspace_id", q.WorkspaceID,
+			"workspace_id", workspaceID,
 			"error", err,
 		)
 		return nil, err

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestLoadFromEnv_RequiresDatabaseURL(t *testing.T) {
@@ -53,12 +54,13 @@ func TestLoadFromEnv_ParsesValues(t *testing.T) {
 	t.Setenv("NODE_NAME", "node-a")
 	t.Setenv("SHUTDOWN_TIMEOUT", "5s")
 	t.Setenv("WORKER_HTTP_ADDR", ":9090")
-	t.Setenv("WORKER_ENABLED_CONSUMERS", "delivery, analytics, ")
+		t.Setenv("WORKER_ENABLED_CONSUMERS", "delivery, analytics, ")
 	t.Setenv("WORKER_CONCURRENCY", "3")
 	t.Setenv("WORKER_SHUTDOWN_TIMEOUT", "7s")
 	t.Setenv("WORKER_CONSUMER_GROUP_PREFIX", "send-flow-test")
 	t.Setenv("JWT_ACCESS_SECRET", "real-access-secret-for-testing")
 	t.Setenv("JWT_REFRESH_SECRET", "real-refresh-secret-for-testing")
+	t.Setenv("REDIS_CACHE_IDENTITY_ACCESS_TTL", "30s")
 
 	cfg, err := LoadFromEnv()
 	if err != nil {
@@ -102,6 +104,9 @@ func TestLoadFromEnv_ParsesValues(t *testing.T) {
 	}
 	if cfg.WorkerConsumerGroupPrefix != "send-flow-test" {
 		t.Fatalf("unexpected worker consumer group prefix: %s", cfg.WorkerConsumerGroupPrefix)
+	}
+	if cfg.RedisCache.IdentityAccessCacheTTL != 30*time.Second {
+		t.Fatalf("unexpected identity access cache TTL: %s", cfg.RedisCache.IdentityAccessCacheTTL)
 	}
 	if !cfg.ObjectStorageEnabled() {
 		t.Fatal("expected object storage enabled")
@@ -168,7 +173,6 @@ func TestMain(m *testing.M) {
 	_ = os.Unsetenv("SES_CONFIGURATION_SET")
 	_ = os.Unsetenv("SHUTDOWN_TIMEOUT")
 	_ = os.Unsetenv("WORKER_HTTP_ADDR")
-	_ = os.Unsetenv("WORKER_ENABLED_CONSUMERS")
 	_ = os.Unsetenv("WORKER_CONCURRENCY")
 	_ = os.Unsetenv("WORKER_SHUTDOWN_TIMEOUT")
 	_ = os.Unsetenv("WORKER_CONSUMER_GROUP_PREFIX")
@@ -202,5 +206,13 @@ func TestMain(m *testing.M) {
 	_ = os.Unsetenv("JWT_ACCESS_SECRET")
 	_ = os.Unsetenv("JWT_REFRESH_SECRET")
 	_ = os.Unsetenv("UNSUBSCRIBE_TOKEN_SECRET")
+	_ = os.Unsetenv("REDIS_CACHE_IDENTITY_ACCESS_TTL")
+	_ = os.Unsetenv("REDIS_CACHE_IDENTITY_SETTINGS_TTL")
+	_ = os.Unsetenv("REDIS_CACHE_CONTENT_PREVIEW_TTL")
+	_ = os.Unsetenv("REDIS_CACHE_SENDER_READINESS_TTL")
+	_ = os.Unsetenv("REDIS_CACHE_AUDIENCE_RESOLUTION_TTL")
+	_ = os.Unsetenv("REDIS_CACHE_DELIVERY_IDEMPOTENCY_TTL")
+	_ = os.Unsetenv("REDIS_CACHE_DELIVERY_QUOTA_TTL")
+	_ = os.Unsetenv("REDIS_CACHE_ANALYTICS_QUERY_TTL")
 	os.Exit(m.Run())
 }

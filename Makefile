@@ -27,6 +27,9 @@ dev-up:
 dev-down:
 	docker compose -f $(LOCAL_COMPOSE) down -v
 
+dev-stop:
+	docker compose -f $(LOCAL_COMPOSE) stop
+
 dev-logs:
 	docker compose -f $(LOCAL_COMPOSE) logs -f --tail=200
 

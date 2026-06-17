@@ -96,7 +96,11 @@ func (s *Service) InviteWorkspaceMember(ctx context.Context, workspaceID, email 
 
 // UpdateWorkspaceMemberRole delegates to the update workspace member role command handler.
 func (s *Service) UpdateWorkspaceMemberRole(ctx context.Context, workspaceID, membershipID string, roleIDs []string, updaterID string, now time.Time) error {
-	return s.commands.UpdateWorkspaceMemberRole(ctx, updateworkspacememberrole.Command{WorkspaceID: workspaceID, MembershipID: membershipID, RoleIDs: roleIDs, UpdaterID: updaterID, Now: now})
+	err := s.commands.UpdateWorkspaceMemberRole(ctx, updateworkspacememberrole.Command{WorkspaceID: workspaceID, MembershipID: membershipID, RoleIDs: roleIDs, UpdaterID: updaterID, Now: now})
+	if err == nil && s.redisCache != nil {
+		_ = s.redisCache.InvalidateWorkspaceAccessByPrefix(ctx, workspaceID)
+	}
+	return err
 }
 
 // AssignWorkspaceMemberRoles updates a member's roles and returns the enriched membership.
@@ -112,6 +116,9 @@ func (s *Service) AssignWorkspaceMemberRoles(ctx context.Context, workspaceID, m
 	}
 	if err := s.enrichMembership(ctx, membership); err != nil {
 		return nil, err
+	}
+	if s.redisCache != nil {
+		_ = s.redisCache.InvalidateWorkspaceAccess(ctx, workspaceID, membership.UserID)
 	}
 	return membership, nil
 }
@@ -171,6 +178,9 @@ func (s *Service) CreateWorkspaceRole(ctx context.Context, workspaceID, actorID,
 		}
 		return nil, err
 	}
+	if s.redisCache != nil {
+		_ = s.redisCache.InvalidateWorkspaceAccessByPrefix(ctx, workspaceID)
+	}
 	return role, nil
 }
 
@@ -216,6 +226,9 @@ func (s *Service) UpdateWorkspaceRole(ctx context.Context, workspaceID, roleID, 
 		}
 		return nil, err
 	}
+	if s.redisCache != nil {
+		_ = s.redisCache.InvalidateWorkspaceAccessByPrefix(ctx, workspaceID)
+	}
 	return role, nil
 }
 
@@ -245,7 +258,17 @@ func (s *Service) requireWorkspacePermission(ctx context.Context, workspaceID, u
 
 // enrichedMembershipForUser loads a membership and attaches role IDs, role names, and the
 // computed effective permissions. Returns ErrMembershipNotFound if the user is not a member.
+// Uses Redis cache-aside when the cache adapter is configured.
 func (s *Service) enrichedMembershipForUser(ctx context.Context, workspaceID, userID string) (*domain.Membership, error) {
+	if s.redisCache != nil {
+		return s.redisCache.GetOrLoadWorkspaceAccess(ctx, workspaceID, userID, func() (*domain.Membership, error) {
+			return s.loadAndEnrichMembership(ctx, workspaceID, userID)
+		})
+	}
+	return s.loadAndEnrichMembership(ctx, workspaceID, userID)
+}
+
+func (s *Service) loadAndEnrichMembership(ctx context.Context, workspaceID, userID string) (*domain.Membership, error) {
 	membership, err := s.membershipsRead.FindByWorkspaceAndUser(ctx, workspaceID, userID)
 	if err != nil {
 		return nil, err

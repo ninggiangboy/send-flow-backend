@@ -17,14 +17,18 @@ import (
 	accessinfrastructure "github.com/ninggiangboy/send-flow/backend/internal/modules/access/infrastructure"
 	accesspostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/access/infrastructure/postgres"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
+	analyticsredis "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/redis"
 	audienceapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app"
 	audiencepostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/postgres"
+	audienceredis "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/redis"
 	auditapp "github.com/ninggiangboy/send-flow/backend/internal/modules/audit/app"
 	auditpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/audit/infrastructure/postgres"
 	campaignapp "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app"
 	campaignpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/infrastructure/postgres"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
+	contentredis "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/redis"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
+	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	deliveryinfrastructure "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure"
 	deliverypostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/postgres"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
@@ -109,6 +113,11 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
+	redisMetrics, err := observability.NewRedisMetrics(nil)
+	if err != nil {
+		return err
+	}
+
 	pgClient, err := postgres.New(ctx, cfg)
 	if err != nil {
 		return err
@@ -120,6 +129,14 @@ func Run(ctx context.Context) error {
 		return err
 	}
 	defer redisClient.Close()
+
+	cacheAside := platformredis.NewCacheAside(redisClient, redisMetrics)
+
+	identityCache := identityredis.NewCache(cacheAside, cfg.RedisCache.IdentityAccessCacheTTL, cfg.RedisCache.IdentitySettingsCacheTTL)
+	contentCache := contentredis.NewCache(cacheAside, cfg.RedisCache.ContentPreviewCacheTTL)
+	audienceCache := audienceredis.NewCache(cacheAside, cfg.RedisCache.AudienceResolutionCacheTTL)
+	deliveryCache := deliveryredis.NewCache(cacheAside, redisClient, cfg.RedisCache.DeliveryIdempotencyTTL, cfg.RedisCache.DeliveryQuotaCacheTTL)
+	analyticsCache := analyticsredis.NewCache(cacheAside, cfg.RedisCache.AnalyticsQueryCacheTTL)
 
 	emailSender, err := platformemail.NewSender(ctx, cfg)
 	if err != nil {
@@ -195,6 +212,7 @@ func Run(ctx context.Context) error {
 		Logger:            log,
 		UnitOfWork:        transaction.NewManager(pgClient.WritePool()),
 		OutboxWriter:      identitypostgres.NewIdentityOutboxRepository(pgClient.WritePool()),
+		RedisCache:        identityCache,
 	})
 
 	auditSvc := auditapp.NewService(auditapp.Options{
@@ -232,7 +250,7 @@ func Run(ctx context.Context) error {
 
 	senderReadRepo, senderWriteRepo := shared.NewSenderRepos(pgClient.ReadPool(), pgClient.WritePool())
 	senderResolver := senderdns.NewResolver()
-	senderSvc := shared.NewSenderService(senderReadRepo, senderWriteRepo, senderResolver, newWorkspaceAccessAdapter(authSvc), log, senderMetrics)
+	senderSvc := shared.NewSenderService(senderReadRepo, senderWriteRepo, senderResolver, newWorkspaceAccessAdapter(authSvc), log, senderMetrics, cacheAside)
 
 	audienceContactsRead := audiencepostgres.NewContactReadRepository(pgClient.ReadPool())
 	audienceContactsWrite := audiencepostgres.NewContactWriteRepository(pgClient.WritePool())
@@ -260,10 +278,11 @@ func Run(ctx context.Context) error {
 		ArtifactSigner:  objectStorageClient,
 		IDGen:           id.NewUUIDGenerator().New,
 		Logger:          log,
+		RedisCache:      audienceCache,
 	})
 
 	contentReadRepo, contentWriteRepo := shared.NewContentRepos(pgClient.ReadPool(), pgClient.WritePool())
-	contentSvc := shared.NewContentService(contentReadRepo, contentWriteRepo, newWorkspaceAccessAdapter(authSvc), log)
+	contentSvc := shared.NewContentService(contentReadRepo, contentWriteRepo, newWorkspaceAccessAdapter(authSvc), log, contentCache)
 
 	suppressionReadRepo, suppressionWriteRepo := shared.NewSuppressionRepos(pgClient.ReadPool(), pgClient.WritePool())
 	suppressionSvc := shared.NewSuppressionService(suppressionReadRepo, suppressionWriteRepo, newWorkspaceAccessAdapter(authSvc), log)
@@ -315,6 +334,7 @@ func Run(ctx context.Context) error {
 		AccessChecker:      newWorkspaceAccessAdapter(authSvc),
 		Logger:             log,
 		IDGen:              id.NewUUIDGenerator().New,
+		RedisCache:         deliveryCache,
 	})
 
 	accessAPIKeyRepo := accesspostgres.NewAPIKeyRepository(pgClient.ReadPool(), pgClient.WritePool())
@@ -366,6 +386,7 @@ func Run(ctx context.Context) error {
 	analyticsOpts := shared.NewAnalyticsRepos(clickHouseClient)
 	analyticsOpts.AccessChecker = newWorkspaceAccessAdapter(authSvc)
 	analyticsOpts.Logger = log
+	analyticsOpts.RedisCache = analyticsCache
 	analyticsSvc := analyticsapp.NewService(analyticsOpts)
 
 	webhooksSvc := shared.NewWebhooksService(pgClient.ReadPool(), pgClient.WritePool(), newWorkspaceAccessAdapter(authSvc), log)

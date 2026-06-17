@@ -24,6 +24,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatecontact"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatelistmemberships"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatesegment"
+	audienceredis "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
@@ -46,6 +47,7 @@ type Options struct {
 	DownloadURLTTL  time.Duration
 	IDGen           func() (string, error)
 	Logger          *slog.Logger
+	RedisCache      *audienceredis.Cache
 }
 
 type ExportArtifactSigner interface {
@@ -194,6 +196,7 @@ func NewService(opts Options) *Service {
 			SegmentsRead:  opts.SegmentsRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
+			Cache:         opts.RedisCache,
 		}),
 		resolveAudienceRecipientsH: resolveaudiencerecipients.New(resolveaudiencerecipients.Options{
 			ContactsRead:  opts.ContactsRead,
@@ -201,6 +204,7 @@ func NewService(opts Options) *Service {
 			SegmentsRead:  opts.SegmentsRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
+			Cache:         opts.RedisCache,
 		}),
 	}
 }

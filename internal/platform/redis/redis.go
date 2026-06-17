@@ -109,6 +109,13 @@ return 0
 	return deleted == 1, nil
 }
 
+func (c *Client) Delete(ctx context.Context, keys ...string) (int64, error) {
+	if len(keys) == 0 {
+		return 0, nil
+	}
+	return c.client.Del(ctx, keys...).Result()
+}
+
 func (c *Client) DeletePrefix(ctx context.Context, prefix string, batchSize int64) (int64, error) {
 	if prefix == "" {
 		return 0, errors.New("redis prefix is required")

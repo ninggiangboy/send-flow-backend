@@ -14,6 +14,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/operationsanalytics"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app/usage"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
+	analyticsredis "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
 )
 
@@ -104,6 +105,7 @@ type Options struct {
 	AccessChecker           ports.WorkspaceAccessChecker
 	Clock                   func() time.Time
 	Logger                  *slog.Logger
+	RedisCache              *analyticsredis.Cache
 }
 
 type Service struct {
@@ -136,16 +138,19 @@ func NewService(opts Options) *Service {
 			WorkspaceQueryRepo: opts.WorkspaceQueryRepo,
 			AccessChecker:      opts.AccessChecker,
 			Logger:             opts.Logger,
+			Cache:              opts.RedisCache,
 		}),
 		campaignH: campaign.New(campaign.Options{
 			CampaignQueryRepo: opts.CampaignQueryRepo,
 			AccessChecker:     opts.AccessChecker,
 			Logger:            opts.Logger,
+			Cache:             opts.RedisCache,
 		}),
 		deliverabilityH: deliverability.New(deliverability.Options{
 			DeliverabilityQueryRepo: opts.DeliverabilityQueryRepo,
 			AccessChecker:           opts.AccessChecker,
 			Logger:                  opts.Logger,
+			Cache:                   opts.RedisCache,
 		}),
 		forensicsH: forensics.New(forensics.Options{
 			ForensicQueryRepo: opts.ForensicQueryRepo,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	audienceredis "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/ports"
 )
@@ -25,6 +26,7 @@ type Options struct {
 	SegmentsRead  ports.SegmentReadRepository
 	AccessChecker ports.WorkspaceAccessChecker
 	Logger        *slog.Logger
+	Cache         *audienceredis.Cache
 }
 
 type Command struct {
@@ -41,6 +43,7 @@ type Handler struct {
 	segmentsRead  ports.SegmentReadRepository
 	accessChecker ports.WorkspaceAccessChecker
 	log           *slog.Logger
+	cache         *audienceredis.Cache
 }
 
 func New(opts Options) *Handler {
@@ -50,6 +53,7 @@ func New(opts Options) *Handler {
 		segmentsRead:  opts.SegmentsRead,
 		accessChecker: opts.AccessChecker,
 		log:           opts.Logger.With("usecase", "resolve_audience_recipients"),
+		cache:         opts.Cache,
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app/refreshsenderdomaindnsstatus"
 	senderdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/ports"
+	platformredis "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
 )
 
 type MetricsRecorder interface {
@@ -28,6 +29,7 @@ type Options struct {
 	IDGen           func() (string, error)
 	Logger          *slog.Logger
 	MetricsRecorder MetricsRecorder
+	CacheAside      *platformredis.CacheAside
 }
 
 type Result struct {
@@ -43,8 +45,9 @@ type Readiness struct {
 }
 
 type Service struct {
-	commands CommandBus
-	queries  QueryBus
+	commands    CommandBus
+	queries     QueryBus
+	cacheAside  *platformredis.CacheAside
 }
 
 func NewService(opts Options) *Service {
@@ -96,8 +99,9 @@ func NewService(opts Options) *Service {
 	})
 
 	return &Service{
-		commands: newCommandBus(createH, refreshH, disableH),
-		queries:  newQueryBus(getH, listH, readinessH),
+		commands:   newCommandBus(createH, refreshH, disableH),
+		queries:    newQueryBus(getH, listH, readinessH),
+		cacheAside: opts.CacheAside,
 	}
 }
 
@@ -212,6 +216,26 @@ func (s *Service) ListSenderDomains(ctx context.Context, workspaceID, actorUserI
 }
 
 func (s *Service) GetSenderDomainReadiness(ctx context.Context, workspaceID, senderDomainID string) (*Readiness, error) {
+	if s.cacheAside != nil {
+		key := platformredis.KeySenderDomainAuth(workspaceID, senderDomainID)
+		var cached Readiness
+		err := s.cacheAside.GetOrLoadJSON(ctx, "sender", "readiness", key, &cached, 5*time.Minute, func() (any, error) {
+			sd, records, loadErr := s.queries.GetSenderReadiness(ctx, getsenderreadiness.Command{
+				WorkspaceID:    workspaceID,
+				SenderDomainID: senderDomainID,
+			})
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			r := readinessFor(*sd, records, time.Now())
+			return &r, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &cached, nil
+	}
+
 	sd, records, err := s.queries.GetSenderReadiness(ctx, getsenderreadiness.Command{
 		WorkspaceID:    workspaceID,
 		SenderDomainID: senderDomainID,
@@ -225,6 +249,26 @@ func (s *Service) GetSenderDomainReadiness(ctx context.Context, workspaceID, sen
 }
 
 func (s *Service) GetSenderReadiness(ctx context.Context, workspaceID, domainID string) (*Readiness, error) {
+	if s.cacheAside != nil {
+		key := platformredis.KeySenderDomainAuth(workspaceID, domainID)
+		var cached Readiness
+		err := s.cacheAside.GetOrLoadJSON(ctx, "sender", "readiness", key, &cached, 5*time.Minute, func() (any, error) {
+			sd, records, loadErr := s.queries.GetSenderReadiness(ctx, getsenderreadiness.Command{
+				WorkspaceID:    workspaceID,
+				SenderDomainID: domainID,
+			})
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			r := readinessFor(*sd, records, time.Now().UTC())
+			return &r, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &cached, nil
+	}
+
 	sd, records, err := s.queries.GetSenderReadiness(ctx, getsenderreadiness.Command{
 		WorkspaceID:    workspaceID,
 		SenderDomainID: domainID,

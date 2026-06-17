@@ -16,6 +16,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/renderversion"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/updatetemplate"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/validatetemplaterenderable"
+	contentredis "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/ports"
 )
@@ -26,6 +27,7 @@ type Options struct {
 	AccessChecker  ports.WorkspaceAccessChecker
 	IDGen          func() (string, error)
 	Logger         *slog.Logger
+	RedisCache     *contentredis.Cache
 }
 
 type Service struct {
@@ -104,6 +106,7 @@ func NewService(opts Options) *Service {
 			TemplatesRead: opts.TemplatesRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
+			Cache:         opts.RedisCache,
 		}),
 		renderH: render.New(render.Options{
 			TemplatesRead:  opts.TemplatesRead,

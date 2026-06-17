@@ -7,6 +7,7 @@ import (
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
 	analyticsclickhouse "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/clickhouse"
 	contentapp "github.com/ninggiangboy/send-flow/backend/internal/modules/content/app"
+	contentredis "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/redis"
 	contentpostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/postgres"
 	notificationapp "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
 	notificationemail "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/email"
@@ -27,6 +28,7 @@ import (
 	platformclickhouse "github.com/ninggiangboy/send-flow/backend/internal/platform/clickhouse"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/email"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
+	platformredis "github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
@@ -50,13 +52,14 @@ func NewContentRepos(pgReadPool, pgWritePool *pgxpool.Pool) (*contentpostgres.Te
 		contentpostgres.NewTemplateWriteRepository(pgWritePool)
 }
 
-func NewContentService(readRepo *contentpostgres.TemplateReadRepository, writeRepo *contentpostgres.TemplateWriteRepository, accessChecker auth.WorkspaceAccessChecker, logger *slog.Logger) *contentapp.Service {
+func NewContentService(readRepo *contentpostgres.TemplateReadRepository, writeRepo *contentpostgres.TemplateWriteRepository, accessChecker auth.WorkspaceAccessChecker, logger *slog.Logger, cache *contentredis.Cache) *contentapp.Service {
 	return contentapp.NewService(contentapp.Options{
 		TemplatesRead:  readRepo,
 		TemplatesWrite: writeRepo,
 		AccessChecker:  accessChecker,
 		IDGen:          id.NewUUIDGenerator().New,
 		Logger:         logger,
+		RedisCache:     cache,
 	})
 }
 
@@ -65,7 +68,7 @@ func NewSenderRepos(pgReadPool, pgWritePool *pgxpool.Pool) (*senderpostgres.Read
 		senderpostgres.NewWriteRepository(pgWritePool)
 }
 
-func NewSenderService(readRepo *senderpostgres.ReadRepository, writeRepo *senderpostgres.WriteRepository, dnsResolver *senderdns.Resolver, accessChecker auth.WorkspaceAccessChecker, logger *slog.Logger, metricsRecorder senderapp.MetricsRecorder) *senderapp.Service {
+func NewSenderService(readRepo *senderpostgres.ReadRepository, writeRepo *senderpostgres.WriteRepository, dnsResolver *senderdns.Resolver, accessChecker auth.WorkspaceAccessChecker, logger *slog.Logger, metricsRecorder senderapp.MetricsRecorder, cacheAside *platformredis.CacheAside) *senderapp.Service {
 	return senderapp.NewService(senderapp.Options{
 		DomainsRead:     readRepo,
 		DomainsWrite:    writeRepo,
@@ -74,6 +77,7 @@ func NewSenderService(readRepo *senderpostgres.ReadRepository, writeRepo *sender
 		IDGen:           id.NewUUIDGenerator().New,
 		Logger:          logger,
 		MetricsRecorder: metricsRecorder,
+		CacheAside:      cacheAside,
 	})
 }
 

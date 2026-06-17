@@ -19,6 +19,15 @@ func (s *Service) GetWorkspaceSettings(ctx context.Context, workspaceID, userID 
 		return nil, err
 	}
 
+	if s.redisCache != nil {
+		return s.redisCache.GetOrLoadWorkspaceSettings(ctx, workspaceID, func() (*domain.WorkspaceSettings, error) {
+			return s.loadWorkspaceSettings(ctx, workspaceID)
+		})
+	}
+	return s.loadWorkspaceSettings(ctx, workspaceID)
+}
+
+func (s *Service) loadWorkspaceSettings(ctx context.Context, workspaceID string) (*domain.WorkspaceSettings, error) {
 	settings, err := s.settingsRead.GetByWorkspace(ctx, workspaceID)
 	if err != nil {
 		if errors.Is(err, domain.ErrSettingsNotFound) {
@@ -121,6 +130,10 @@ func (s *Service) UpdateWorkspaceSettings(ctx context.Context, workspaceID, user
 			s.logger.Error("failed to record audit entry for settings update", "error", auditErr, "workspace_id", workspaceID)
 			return nil, auditErr
 		}
+	}
+
+	if s.redisCache != nil {
+		_ = s.redisCache.InvalidateWorkspaceSettings(ctx, workspaceID)
 	}
 
 	if !isNew {

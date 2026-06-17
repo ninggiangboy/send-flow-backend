@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"time"
 
+	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
@@ -66,6 +67,7 @@ type Handler struct {
 	txManager          ports.UnitOfWork
 	idGen              func() (string, error)
 	log                *slog.Logger
+	cache              *deliveryredis.Cache
 }
 
 func New(
@@ -83,6 +85,7 @@ func New(
 	txManager ports.UnitOfWork,
 	idGen func() (string, error),
 	logger *slog.Logger,
+	cache *deliveryredis.Cache,
 ) *Handler {
 	return &Handler{
 		messagesRead:       messagesRead,
@@ -99,6 +102,7 @@ func New(
 		txManager:          txManager,
 		idGen:              idGen,
 		log:                logger.With("usecase", "process_due_messages"),
+		cache:              cache,
 	}
 }
 
@@ -240,6 +244,23 @@ func (h *Handler) processMessage(ctx context.Context, msg domain.Message, now ti
 	)
 
 	now = now.UTC()
+
+	if h.cache != nil {
+		token, acquired, err := h.cache.AcquireMessageLock(ctx, msg.ID, 30*time.Second)
+		if err != nil {
+			log.Error("failed to acquire message lock", "error", err)
+			return 0, err
+		}
+		if !acquired {
+			log.Warn("message locked by another worker, skipping")
+			return messageStatusFailed, nil
+		}
+		defer func() {
+			if _, releaseErr := h.cache.ReleaseMessageLock(ctx, msg.ID, token); releaseErr != nil {
+				log.Error("failed to release message lock", "error", releaseErr)
+			}
+		}()
+	}
 
 	readiness, err := h.senderChecker.GetSenderReadiness(ctx, msg.WorkspaceID, msg.SenderDomainID)
 	if err != nil {

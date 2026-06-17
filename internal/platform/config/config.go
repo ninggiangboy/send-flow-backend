@@ -57,6 +57,19 @@ type Config struct {
 	MFAChallengeTTL        time.Duration
 	FakeWebhookSecret      string
 	UnsubscribeTokenSecret string
+
+	RedisCache RedisFeatures
+}
+
+type RedisFeatures struct {
+	IdentityAccessCacheTTL          time.Duration
+	IdentitySettingsCacheTTL        time.Duration
+	ContentPreviewCacheTTL          time.Duration
+	SenderReadinessCacheTTL         time.Duration
+	AudienceResolutionCacheTTL      time.Duration
+	DeliveryIdempotencyTTL          time.Duration
+	DeliveryQuotaCacheTTL           time.Duration
+	AnalyticsQueryCacheTTL          time.Duration
 }
 
 type RuntimeIdentityConfig struct {
@@ -279,6 +292,17 @@ func LoadFromEnv() (Config, error) {
 		errs = append(errs, fmt.Errorf("invalid REDIS_DB: %w", err))
 	} else {
 		cfg.RedisDB = redisDB
+	}
+
+	cfg.RedisCache = RedisFeatures{
+		IdentityAccessCacheTTL:          parseDurationOrDefault("REDIS_CACHE_IDENTITY_ACCESS_TTL", 5*time.Minute),
+		IdentitySettingsCacheTTL:        parseDurationOrDefault("REDIS_CACHE_IDENTITY_SETTINGS_TTL", 5*time.Minute),
+		ContentPreviewCacheTTL:          parseDurationOrDefault("REDIS_CACHE_CONTENT_PREVIEW_TTL", 10*time.Minute),
+		SenderReadinessCacheTTL:         parseDurationOrDefault("REDIS_CACHE_SENDER_READINESS_TTL", 5*time.Minute),
+		AudienceResolutionCacheTTL:      parseDurationOrDefault("REDIS_CACHE_AUDIENCE_RESOLUTION_TTL", 2*time.Minute),
+		DeliveryIdempotencyTTL:          parseDurationOrDefault("REDIS_CACHE_DELIVERY_IDEMPOTENCY_TTL", 24*time.Hour),
+		DeliveryQuotaCacheTTL:           parseDurationOrDefault("REDIS_CACHE_DELIVERY_QUOTA_TTL", time.Minute),
+		AnalyticsQueryCacheTTL:          parseDurationOrDefault("REDIS_CACHE_ANALYTICS_QUERY_TTL", time.Minute),
 	}
 
 	if len(errs) > 0 {
@@ -591,6 +615,22 @@ func parseInt(key string, fallback int) (int, error) {
 		return 0, fmt.Errorf("failed to parse %s=%q: %w", key, raw, err)
 	}
 	return v, nil
+}
+
+func parseBoolOrDefault(key string, fallback bool) bool {
+	v, err := parseBool(key, fallback)
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+func parseDurationOrDefault(key string, fallback time.Duration) time.Duration {
+	v, err := parseDuration(key, fallback)
+	if err != nil {
+		return fallback
+	}
+	return v
 }
 
 func parseCSV(key string) []string {
