@@ -54,112 +54,227 @@ flowchart LR
 
 ### Data Flow
 
+The system's data flow is decomposed into focused sequence diagrams by concern. Each diagram shows only the participants relevant to that flow.
+
+---
+
+#### 1. Authentication & Identity Flow
+
+User registration, login, MFA, OAuth, and session management.
+
 ```mermaid
 sequenceDiagram
     autonumber
     participant Client as Dashboard/API client
     participant API as API service
     participant Auth as Identity/Access
-    participant Setup as Sender/Audience/Content
-    participant Campaign as Campaign app
-    participant Delivery as Delivery app
-    participant Ingestion as Ingestion/Tracking
-    participant Webhooks as Customer webhooks
-    participant Ops as Operations app
     participant DB as PostgreSQL
-    participant Outbox as Outbox publisher
-    participant Kafka as Kafka/Redpanda
-    participant Worker as Worker service
-    participant ESP as Email provider
-    participant Recipient as Recipient
-    participant Analytics as ClickHouse
 
-    rect rgba(240, 240, 240, 0.25)
-        Client->>API: POST /api/v1/auth/signup or /auth/login
-        API->>Auth: signup/login, MFA, OAuth, refresh session
-        Auth->>DB: Persist user, session, tokens, workspace membership
-        Auth->>DB: Save outbox event: user.registered.v1
-        API-->>Client: JWT session + workspace context
-    end
+    Client->>API: POST /api/v1/auth/signup or /auth/login
+    API->>Auth: signup/login, MFA, OAuth, refresh session
+    Auth->>DB: Persist user, session, tokens, workspace membership
+    Auth->>DB: Save outbox event: user.registered.v1
+    API-->>Client: JWT session + workspace context
+```
 
-    rect rgba(240, 240, 240, 0.25)
-        Client->>API: POST /api/v1/workspaces/{id}/sender-domains
+---
+
+#### 2. Sender Setup & Audience Management
+
+Sender domain verification, contact/list/segment management, and template publishing.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Dashboard/API client
+    participant API as API service
+    participant Setup as Sender/Audience/Content
+    participant DB as PostgreSQL
+
+    rect rgba(70, 130, 180, 0.08)
+        Note over Client,DB: Sender Domain
+        Client->>API: POST /workspaces/{id}/sender-domains
         API->>Setup: Create sender domain and DNS records
         Setup->>DB: Persist sender domain
         Client->>API: POST /sender-domains/{domain_id}/verify
         API->>Setup: Refresh DNS readiness
         Setup->>DB: Mark verified/failed
+    end
 
+    rect rgba(60, 179, 113, 0.08)
+        Note over Client,DB: Audience Management
         Client->>API: POST /contacts, /lists, /segments, /audience/imports
         API->>Setup: Manage audience and import/export jobs
         Setup->>DB: Persist contacts, lists, segments, jobs
+    end
 
+    rect rgba(218, 165, 32, 0.08)
+        Note over Client,DB: Template Management
         Client->>API: POST /templates and /templates/{id}/publish
         API->>Setup: Validate, render, publish template version
         Setup->>DB: Persist template and immutable version
     end
+```
 
-    rect rgba(240, 240, 240, 0.25)
-        Client->>API: POST /api/v1/workspaces/{id}/campaigns
+---
+
+#### 3. Campaign Lifecycle
+
+Campaign creation, scheduling, outbox publishing, and message queuing via the worker.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Dashboard/API client
+    participant API as API service
+    participant Campaign as Campaign app
+    participant Delivery as Delivery app
+    participant DB as PostgreSQL
+    participant Outbox as Outbox publisher
+    participant Kafka as Kafka/Redpanda
+    participant Worker as Worker service
+
+    rect rgba(100, 100, 200, 0.08)
+        Note over Client,DB: Campaign Draft
+        Client->>API: POST /workspaces/{id}/campaigns
         API->>Campaign: Create/update campaign draft
         Campaign->>DB: Save campaign, audience ref, template ref
+    end
 
+    rect rgba(100, 100, 200, 0.08)
+        Note over Client,Kafka: Scheduling & Outbox
         Client->>API: POST /campaigns/{campaign_id}/schedule
         API->>Campaign: Validate audience, published template, sender readiness
-        Campaign->>DB: Save scheduled campaign + campaign.scheduled.v1 outbox event
+        Campaign->>DB: Save scheduled campaign
+        Campaign->>DB: Save campaign.scheduled.v1 outbox event
         API-->>Client: Campaign scheduled
 
         Outbox->>DB: Poll unpublished outbox_events
         Outbox->>Kafka: Publish campaign.scheduled.v1
         Outbox->>DB: Mark published
+    end
 
+    rect rgba(100, 100, 200, 0.08)
+        Note over Kafka,Worker: Consumer & Message Queue
         Kafka->>Worker: CampaignScheduledConsumer
         Worker->>Delivery: Queue campaign messages
         Delivery->>DB: Resolve candidates and create delivery messages
         Delivery->>DB: Save delivery.message_queued.v1 outbox events
     end
+```
 
-    rect rgba(240, 240, 240, 0.25)
-        Client->>API: POST /api/v1/transactional/send with API key
-        API->>Auth: Authenticate API key and scope transactional.send
-        API->>Delivery: Accept transactional send
-        Delivery->>DB: Idempotency, render template, create message
-        Delivery->>DB: Save delivery.message_queued.v1 outbox event
-        API-->>Client: 202 Accepted + message_id
-    end
+---
 
-    rect rgba(240, 240, 240, 0.25)
-        Outbox->>Kafka: Publish delivery.message_queued.v1
-        Kafka->>Worker: DueMessageProcessor / delivery consumer
-        Worker->>Delivery: Check suppression, sender readiness, retry state
-        Delivery->>ESP: Send email
-        ESP-->>Delivery: Accepted or failed
-        Delivery->>DB: Persist attempt, message state, retry state
-        Delivery->>DB: Save delivery accepted/bounced/retry outbox event
-    end
+#### 4. Transactional Send
 
-    rect rgba(240, 240, 240, 0.25)
-        ESP->>API: POST /api/v1/webhooks/providers/{provider}
+Transactional email submission via API key authentication, idempotency, and immediate message creation.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Dashboard/API client
+    participant API as API service
+    participant Auth as Identity/Access
+    participant Delivery as Delivery app
+    participant DB as PostgreSQL
+
+    Client->>API: POST /transactional/send (with API key)
+    API->>Auth: Authenticate API key & scope transactional.send
+    API->>Delivery: Accept transactional send
+    Delivery->>DB: Idempotency check, render template, create message
+    Delivery->>DB: Save delivery.message_queued.v1 outbox event
+    API-->>Client: 202 Accepted + message_id
+```
+
+---
+
+#### 5. Email Delivery & ESP Interaction
+
+Outbox-driven message processing, suppression checks, ESP sending, and retry state management.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Outbox as Outbox publisher
+    participant Kafka as Kafka/Redpanda
+    participant Worker as Worker service
+    participant Delivery as Delivery app
+    participant DB as PostgreSQL
+    participant ESP as Email provider
+
+    Outbox->>Kafka: Publish delivery.message_queued.v1
+    Kafka->>Worker: DueMessageProcessor / delivery consumer
+    Worker->>Delivery: Check suppression, sender readiness, retry state
+    Delivery->>ESP: Send email
+    ESP-->>Delivery: Accepted or failed
+    Delivery->>DB: Persist attempt, message state, retry state
+    Delivery->>DB: Save accepted/bounced/retry outbox event
+```
+
+---
+
+#### 6. Webhook Ingestion & Tracking
+
+Provider webhook receipt, normalization, and recipient interaction tracking (opens, clicks, unsubscribes).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant ESP as Email provider
+    participant Recipient as Recipient
+    participant API as API service
+    participant Ingestion as Ingestion/Tracking
+    participant DB as PostgreSQL
+
+    rect rgba(255, 100, 100, 0.08)
+        Note over ESP,DB: Provider Webhook Ingestion
+        ESP->>API: POST /webhooks/providers/{provider}
         API->>Ingestion: Verify, deduplicate, normalize provider webhook
-        Ingestion->>DB: Store raw webhook and normalized provider event
+        Ingestion->>DB: Store raw webhook and normalized event
         Ingestion->>DB: Save ingestion.provider_event.normalized.v1 outbox event
+    end
 
-        Recipient->>API: GET /o/{tracking_id}, /t/{tracking_id}, /u/{token}
-        API->>Ingestion: Record open, click, unsubscribe
+    rect rgba(100, 200, 100, 0.08)
+        Note over Recipient,DB: Open / Click / Unsubscribe
+        Recipient->>API: GET /o/{tracking_id} or /t/{tracking_id} or /u/{token}
+        API->>Ingestion: Record open, click, or unsubscribe
         Ingestion->>DB: Persist tracking event and suppression update
         Ingestion->>DB: Save tracking event outbox event
     end
+```
 
-    rect rgba(240, 240, 240, 0.25)
+---
+
+#### 7. Analytics, Notifications & Operations
+
+Downstream event consumption, analytics projections, customer webhook delivery, and operational queries.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Outbox as Outbox publisher
+    participant Kafka as Kafka/Redpanda
+    participant Worker as Worker service
+    participant Analytics as ClickHouse
+    participant Webhooks as Customer webhooks
+    participant ESP as Email provider
+    participant DB as PostgreSQL
+    participant Client as Dashboard/API client
+    participant API as API service
+    participant Ops as Operations app
+
+    rect rgba(180, 100, 200, 0.08)
+        Note over Outbox,DB: Event Consumption & Projection
         Outbox->>Kafka: Publish delivery, ingestion, tracking, identity events
         Kafka->>Worker: Analytics, notification, webhook consumers
         Worker->>Analytics: Map events into facts, projections, timelines
         Worker->>Webhooks: Create and deliver customer webhook attempts
-        Worker->>ESP: Send welcome, invitation, and system notifications
+        Worker->>ESP: Send welcome, invitation, system notifications
         Worker->>DB: Persist notification and webhook delivery state
     end
 
-    rect rgba(240, 240, 240, 0.25)
+    rect rgba(180, 100, 200, 0.08)
+        Note over Client,DB: Operational Queries
         Client->>API: GET /analytics/*, /messages/*, /operations/*
         API->>Analytics: Query funnels, timeseries, timelines, incidents
         API->>Ops: Query outbox, DLQ, replay jobs, sync lag
