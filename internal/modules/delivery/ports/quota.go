@@ -2,11 +2,12 @@ package ports
 
 import "context"
 
-// QuotaEnforcer checks and consumes API key email quota before accepting
-// a transactional send request. Returns nil when within quota, or
-// domain.ErrAPIKeyQuotaExceeded when quota would be exceeded.
-// On infrastructure error (e.g., Redis down) it returns the error
-// for fail-closed behavior.
+// QuotaEnforcer checks, consumes, and refunds API key email quota.
+// CheckAndConsume returns nil when within quota, domain.ErrAPIKeyQuotaExceeded
+// when exhausted, or an infrastructure error for fail-closed behavior.
+// Refund restores previously consumed units and is best-effort — callers
+// should log failures but must not propagate them to the user response.
 type QuotaEnforcer interface {
 	CheckAndConsume(ctx context.Context, workspaceID, apiKeyID string, recipientCount int) error
+	Refund(ctx context.Context, workspaceID, apiKeyID string, recipientCount int) error
 }

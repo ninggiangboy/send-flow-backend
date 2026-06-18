@@ -121,7 +121,7 @@ func registerOpenAPIRoutes(api huma.API, r chi.Router, deps *RouterDeps) {
 		registerIngestionWebhookOperations(api, ingestion)
 	}
 	if deps.AccessSvc != nil {
-		apiKeyHandler := newAPIKeyHTTP(deps.AccessSvc, auditRecorder)
+		apiKeyHandler := newAPIKeyHTTP(deps.AccessSvc, auditRecorder, deps.QuotaFlusher)
 		registerAPIKeyOperations(api, apiKeyHandler, authMiddleware)
 	}
 	if deps.TrackingSvc != nil {

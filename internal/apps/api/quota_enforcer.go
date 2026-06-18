@@ -43,6 +43,38 @@ func newAPIKeyQuotaEnforcer(
 	}
 }
 
+// InvalidateQuotaLimits removes the cached quota limits for an API key so the
+// next CheckAndConsume call re-fetches the updated limits from Postgres.
+func (e *apiKeyQuotaEnforcer) InvalidateQuotaLimits(ctx context.Context, workspaceID, apiKeyID string) error {
+	cacheKey := platformredis.KeyAPIKeyQuotaLimits(workspaceID, apiKeyID)
+	return e.cache.DeleteKey(ctx, "access", "quota_limits", cacheKey)
+}
+
+// Refund restores previously consumed quota units. It uses the same
+// cache-aside path as CheckAndConsume to resolve limits.
+func (e *apiKeyQuotaEnforcer) Refund(ctx context.Context, workspaceID, apiKeyID string, recipientCount int) error {
+	cacheKey := platformredis.KeyAPIKeyQuotaLimits(workspaceID, apiKeyID)
+
+	var limits *accessdomain.EmailQuotaLimits
+	err := e.cache.GetOrLoadJSON(ctx, "access", "quota_limits", cacheKey, &limits, e.cacheTTL, func() (any, error) {
+		key, err := e.reader.FindByID(ctx, workspaceID, apiKeyID)
+		if err != nil {
+			return nil, err
+		}
+		return key.QuotaLimits, nil
+	})
+	if err != nil {
+		e.log.Error("failed to resolve api key quota limits for refund",
+			"workspace_id", workspaceID,
+			"api_key_id", apiKeyID,
+			"error", err,
+		)
+		return err
+	}
+
+	return e.bucket.Refund(ctx, workspaceID, apiKeyID, recipientCount, limits)
+}
+
 // CheckAndConsume resolves the API key quota limits (from cache or Postgres)
 // and delegates to the token bucket service for enforcement.
 func (e *apiKeyQuotaEnforcer) CheckAndConsume(ctx context.Context, workspaceID, apiKeyID string, recipientCount int) error {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -14,13 +15,18 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
 )
 
+type quotaLimitsFlusher interface {
+	InvalidateQuotaLimits(ctx context.Context, workspaceID, apiKeyID string) error
+}
+
 type apiKeyHTTP struct {
 	svc           *accessapp.Service
 	auditRecorder identityapp.AuditRecorder
+	quotaFlusher  quotaLimitsFlusher // may be nil
 }
 
-func newAPIKeyHTTP(svc *accessapp.Service, auditRecorder identityapp.AuditRecorder) *apiKeyHTTP {
-	return &apiKeyHTTP{svc: svc, auditRecorder: auditRecorder}
+func newAPIKeyHTTP(svc *accessapp.Service, auditRecorder identityapp.AuditRecorder, quotaFlusher quotaLimitsFlusher) *apiKeyHTTP {
+	return &apiKeyHTTP{svc: svc, auditRecorder: auditRecorder, quotaFlusher: quotaFlusher}
 }
 
 func (h *apiKeyHTTP) listAPIKeys(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +157,12 @@ func (h *apiKeyHTTP) updateAPIKey(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeAPIKeyErr(w, r, err)
 		return
+	}
+
+	if h.quotaFlusher != nil {
+		if flushErr := h.quotaFlusher.InvalidateQuotaLimits(r.Context(), workspaceID, apiKeyID); flushErr != nil {
+			slog.Warn("failed to invalidate api key quota limits cache", "workspace_id", workspaceID, "api_key_id", apiKeyID, "error", flushErr)
+		}
 	}
 
 	actionType := "api_key.updated"

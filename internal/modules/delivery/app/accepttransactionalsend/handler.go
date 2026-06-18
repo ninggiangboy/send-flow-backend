@@ -167,18 +167,6 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 		}
 	}
 
-	// Enforce API key quota (after idempotency check — replays don't consume quota)
-	if h.quotaEnforcer != nil {
-		if err := h.quotaEnforcer.CheckAndConsume(ctx, input.WorkspaceID, input.APIKeyID, len(targets)); err != nil {
-			log.Warn("api key quota exceeded",
-				"api_key_id", input.APIKeyID,
-				"recipient_units", len(targets),
-				"error", err,
-			)
-			return nil, err
-		}
-	}
-
 	// Check sender readiness
 	if err := h.checkSenderReadiness(ctx, input.WorkspaceID, input.SenderDomainID); err != nil {
 		log.Warn("sender readiness check failed", "sender_domain_id", input.SenderDomainID, "error", err)
@@ -213,11 +201,45 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 		}
 	}
 
+	// Enforce API key quota after all business-rule rejections so that sender
+	// failures, invalid templates, and suppressed recipients don't burn quota.
+	// Replays were already returned above, so this only fires for new requests.
+	quotaConsumed := false
+	if h.quotaEnforcer != nil {
+		if err := h.quotaEnforcer.CheckAndConsume(ctx, input.WorkspaceID, input.APIKeyID, len(targets)); err != nil {
+			log.Warn("api key quota exceeded",
+				"api_key_id", input.APIKeyID,
+				"recipient_units", len(targets),
+				"error", err,
+			)
+			return nil, err
+		}
+		quotaConsumed = true
+	}
+
+	// refundQuota returns consumed units when the request is not durably
+	// accepted (attachment failure, DB failure, or concurrent dup). It is
+	// best-effort: a Redis failure only produces a warning.
+	refundQuota := func() {
+		if !quotaConsumed {
+			return
+		}
+		quotaConsumed = false // guard against double-call
+		if refundErr := h.quotaEnforcer.Refund(ctx, input.WorkspaceID, input.APIKeyID, len(targets)); refundErr != nil {
+			log.Warn("failed to refund api key quota after request failure",
+				"api_key_id", input.APIKeyID,
+				"recipient_units", len(targets),
+				"error", refundErr,
+			)
+		}
+	}
+
 	var requestID string
 	if len(input.Attachments) > 0 {
 		requestID, err = h.idGen()
 		if err != nil {
 			log.Error("failed to generate request ID for attachments", "error", err)
+			refundQuota()
 			return nil, domain.ErrTemporarilyUnavailable
 		}
 	}
@@ -228,6 +250,7 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 		manifests, err := h.storeAttachments(ctx, input.WorkspaceID, requestID, input.Attachments)
 		if err != nil {
 			log.Error("attachment storage failed", "error", err)
+			refundQuota()
 			return nil, err
 		}
 		attachmentManifests = manifests
@@ -470,6 +493,9 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 		if len(attachmentManifests) > 0 {
 			h.cleanupUploadedAttachments(ctx, attachmentManifests)
 		}
+		// All paths here abandon this request: refund quota regardless of
+		// whether we return an error or the existing result of a concurrent dup.
+		refundQuota()
 		if errors.Is(err, errUniqueViolation) {
 			return h.recoverFromUniqueViolation(ctx, input.WorkspaceID, inputKey, requestHash)
 		}

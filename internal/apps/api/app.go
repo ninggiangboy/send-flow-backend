@@ -461,6 +461,7 @@ func Run(ctx context.Context) error {
 		CampaignSvc:          campaignSvc,
 		DeliverySvc:          deliverySvc,
 		AccessSvc:            accessSvc,
+		QuotaFlusher:         apiKeyQuotaEnforcer,
 		IngestionSvc:         ingestionSvc,
 		TrackingSvc:          trackingSvc,
 		AnalyticsSvc:         analyticsSvc,
@@ -552,6 +553,7 @@ type RouterDeps struct {
 	CampaignSvc          *campaignapp.Service
 	DeliverySvc          *deliveryapp.Service
 	AccessSvc            *accessapp.Service
+	QuotaFlusher         quotaLimitsFlusher
 	IngestionSvc         *ingestionapp.Service
 	TrackingSvc          *trackingapp.Service
 	AnalyticsSvc         *analyticsapp.Service

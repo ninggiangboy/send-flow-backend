@@ -165,9 +165,9 @@ sequenceDiagram
 
 ---
 
-#### 4. Transactional Send
+#### 4. API Key Quotas & Transactional Send
 
-Transactional email submission via API key authentication, idempotency, and immediate message creation.
+API keys can carry optional per-minute, per-hour, per-day, and per-month email quota limits. Transactional sends authenticate with API-key scope, resolve quota limits through cache-aside reads, consume quota before durable acceptance, and refund consumed units when acceptance fails.
 
 ```mermaid
 sequenceDiagram
@@ -176,14 +176,49 @@ sequenceDiagram
     participant API as API service
     participant Auth as Identity/Access
     participant Delivery as Delivery app
+    participant Redis as Redis
     participant DB as PostgreSQL
+    participant ObjectStorage as MinIO/S3
+    participant Outbox as Outbox publisher
+    participant Kafka as Kafka/Redpanda
 
-    Client->>API: POST /transactional/send (with API key)
-    API->>Auth: Authenticate API key & scope transactional.send
-    API->>Delivery: Accept transactional send
-    Delivery->>DB: Idempotency check, render template, create message
-    Delivery->>DB: Save delivery.message_queued.v1 outbox event
-    API-->>Client: 202 Accepted + message_id
+    rect rgba(70, 130, 180, 0.08)
+        Note over Client,Redis: API Key Quota Configuration
+        Client->>API: POST/PATCH /workspaces/{id}/api-keys
+        API->>Auth: Validate scopes and email_quota_limits
+        Auth->>DB: Persist API key and quota limits
+        API->>Redis: Invalidate cached quota limits after update
+        API-->>Client: API key metadata
+    end
+
+    rect rgba(60, 179, 113, 0.08)
+        Note over Client,Outbox: Transactional Send Acceptance
+        Client->>API: POST /transactional/send (with API key)
+        API->>Auth: Authenticate API key and require transactional.send
+        API->>Delivery: Accept transactional send
+        Delivery->>DB: Check durable idempotency record
+        alt Existing matching idempotency key
+            Delivery-->>API: Existing request and message IDs
+            API-->>Client: 202 Accepted + existing IDs
+        else New request
+            Delivery->>DB: Validate sender, template, suppression rules
+            Delivery->>Redis: Load cached quota limits or fetch from DB
+            Delivery->>Redis: Atomically consume API-key quota buckets
+            opt Attachments
+                Delivery->>ObjectStorage: Upload attachment objects
+            end
+            Delivery->>DB: Create request, messages, events, outbox rows
+            alt Accept failed after quota consume
+                Delivery->>Redis: Best-effort quota refund
+                Delivery->>ObjectStorage: Best-effort uploaded attachment cleanup
+                Delivery-->>API: Error or recovered idempotency result
+            else Accepted
+                API-->>Client: 202 Accepted + request/message IDs
+            end
+        end
+        Outbox->>DB: Poll unpublished delivery outbox rows
+        Outbox->>Kafka: Publish delivery events
+    end
 ```
 
 ---

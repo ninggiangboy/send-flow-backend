@@ -69,10 +69,10 @@ func (r *APIKeyRepository) ListByWorkspace(ctx context.Context, query ports.APIK
 		rows, err = db.Query(ctx, `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,email_quota_limits::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE workspace_id=$1 AND (created_at,id) < ($2,$3) ORDER BY created_at DESC, id DESC LIMIT $4`,
 			query.WorkspaceID, query.Cursor, query.Cursor, limit)
 	} else if query.Status != "" {
-		rows, err = db.Query(ctx, `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE workspace_id=$1 AND status=$2 ORDER BY created_at DESC, id DESC LIMIT $3`,
+		rows, err = db.Query(ctx, `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,email_quota_limits::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE workspace_id=$1 AND status=$2 ORDER BY created_at DESC, id DESC LIMIT $3`,
 			query.WorkspaceID, query.Status, limit)
 	} else {
-		rows, err = db.Query(ctx, `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE workspace_id=$1 ORDER BY created_at DESC, id DESC LIMIT $2`,
+		rows, err = db.Query(ctx, `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,email_quota_limits::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE workspace_id=$1 ORDER BY created_at DESC, id DESC LIMIT $2`,
 			query.WorkspaceID, limit)
 	}
 	if err != nil {

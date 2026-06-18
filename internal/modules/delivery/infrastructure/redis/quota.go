@@ -61,6 +61,26 @@ end
 return {1, 0}
 `
 
+// tokenRefundLua adds tokens back to each active window bucket, capped at
+// capacity. Buckets that have never been written (key absent) are skipped
+// because they are effectively full — there is nothing to restore.
+//
+// KEYS: bucket keys for each configured window (same order as CheckAndConsume).
+// ARGV: [units, cap1, cap2, ...]  (one capacity per key, in order)
+const tokenRefundLua = `
+local units = tonumber(ARGV[1])
+local n = #KEYS
+
+for i = 1, n do
+    local capacity = tonumber(ARGV[1 + i])
+    local tokens = tonumber(redis.call('HGET', KEYS[i], 'tokens'))
+    if tokens ~= nil then
+        redis.call('HSET', KEYS[i], 'tokens', math.min(capacity, tokens + units))
+    end
+end
+return 1
+`
+
 // windowConfig maps an EmailQuotaLimits field name to its Redis key suffix
 // and window duration in seconds.
 type windowConfig struct {
@@ -142,6 +162,43 @@ func (s *TokenBucketService) CheckAndConsume(ctx context.Context, workspaceID, a
 	if !ok || allowed != 1 {
 		// failedWindow, _ := arr[1].(int64) // available for logging
 		return deliverydomain.ErrAPIKeyQuotaExceeded
+	}
+
+	return nil
+}
+
+// Refund returns previously consumed tokens to all active window buckets for
+// the given API key. It is best-effort: buckets that do not exist (never
+// initialised) are silently skipped. If Redis is unavailable the error is
+// returned so the caller can log it, but it should not block the user-facing
+// response — the caller is responsible for deciding how to handle it.
+func (s *TokenBucketService) Refund(ctx context.Context, workspaceID, apiKeyID string, recipientCount int, limits *accessdomain.EmailQuotaLimits) error {
+	if limits == nil || limits.IsEmpty() {
+		return nil
+	}
+
+	var keys []string
+	var args []string
+
+	args = append(args, strconv.Itoa(recipientCount))
+
+	for _, w := range quotaWindows {
+		val := w.field(limits)
+		if val == nil {
+			continue
+		}
+		key := platformredis.KeyAPIKeyQuotaBucket(workspaceID, apiKeyID, w.config.keySuffix)
+		keys = append(keys, key)
+		args = append(args, strconv.Itoa(*val))
+	}
+
+	if len(keys) == 0 {
+		return nil
+	}
+
+	if _, err := s.client.Eval(ctx, tokenRefundLua, keys, argsToAny(args)...); err != nil {
+		s.log.Error("redis token bucket refund failed", "error", err, "workspace_id", workspaceID)
+		return deliverydomain.ErrTemporarilyUnavailable
 	}
 
 	return nil
