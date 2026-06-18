@@ -286,7 +286,7 @@ func testHandler(
 ) *Handler {
 	return New(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStor, outbox, txMgr,
 		func() (string, error) { return "id_gen_1", nil },
-		testLogger(), nil, nil)
+		testLogger(), nil, nil, nil)
 }
 
 // Tests
@@ -442,6 +442,7 @@ func TestRawModeWithoutObjectStorage_ReturnsError(t *testing.T) {
 		func() (string, error) { return "id_gen_1", nil },
 		testLogger(), nil,
 		nil,
+		nil,
 	)
 
 	input := baseRawInput()
@@ -552,7 +553,7 @@ func TestExecuteCleansUpUploadedAttachmentsOnTxFailure(t *testing.T) {
 				return "extra_id", nil
 			}
 		},
-		testLogger(), nil, nil)
+		testLogger(), nil, nil, nil)
 
 	input := baseRawInput()
 	input.Attachments = []AttachmentStream{{

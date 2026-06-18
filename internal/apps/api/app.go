@@ -324,6 +324,25 @@ func Run(ctx context.Context) error {
 	deliverySuppressionChecker := newTransactionalSuppressionChecker(suppressionSvc)
 	deliveryEventRepo := deliverypostgres.NewMessageEventRepository(pgClient.WritePool())
 	deliveryAttachmentRepo := deliverypostgres.NewAttachmentRepository(pgClient.WritePool())
+	accessAPIKeyRepo := accesspostgres.NewAPIKeyRepository(pgClient.ReadPool(), pgClient.WritePool())
+	accessSvc := accessapp.NewService(accessapp.Options{
+		APIKeyRepo:    accessAPIKeyRepo,
+		AccessChecker: newWorkspaceAccessAdapter(authSvc),
+		IDGen:         id.NewUUIDGenerator().New,
+		SecretGen:     accessinfrastructure.NewCryptoSecretGenerator(),
+		SecretHasher:  accessinfrastructure.NewBcryptSecretHasher(),
+		Logger:        log,
+	})
+
+	tokenBucket := deliveryredis.NewTokenBucketService(redisClient, log)
+	apiKeyQuotaEnforcer := newAPIKeyQuotaEnforcer(
+		tokenBucket,
+		accessAPIKeyRepo,
+		cacheAside,
+		cfg.RedisCache.DeliveryAPIKeyQuotaLimitsTTL,
+		log,
+	)
+
 	deliverySvc := deliveryapp.NewService(deliveryapp.Options{
 		MessagesRead:       deliveryMsgReadRepo,
 		MessagesWrite:      deliveryMsgWriteRepo,
@@ -346,16 +365,7 @@ func Run(ctx context.Context) error {
 		AttachmentRepo:     deliveryAttachmentRepo,
 		ObjectStorage:      deliveryObjectStorageAdapter{objectStorageClient},
 		AttachmentMetrics:  attachmentMetrics,
-	})
-
-	accessAPIKeyRepo := accesspostgres.NewAPIKeyRepository(pgClient.ReadPool(), pgClient.WritePool())
-	accessSvc := accessapp.NewService(accessapp.Options{
-		APIKeyRepo:    accessAPIKeyRepo,
-		AccessChecker: newWorkspaceAccessAdapter(authSvc),
-		IDGen:         id.NewUUIDGenerator().New,
-		SecretGen:     accessinfrastructure.NewCryptoSecretGenerator(),
-		SecretHasher:  accessinfrastructure.NewBcryptSecretHasher(),
-		Logger:        log,
+		QuotaEnforcer:      apiKeyQuotaEnforcer,
 	})
 
 	ingestionRawReadRepo := ingestionpostgres.NewRawEventRepository(pgClient.ReadPool())

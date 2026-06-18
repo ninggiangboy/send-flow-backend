@@ -80,17 +80,18 @@ type ListAPIKeysResult struct {
 }
 
 type APIKeyResult struct {
-	ID          string     `json:"id"`
-	WorkspaceID string     `json:"workspace_id"`
-	Name        string     `json:"name"`
-	KeyPrefix   string     `json:"key_prefix"`
-	Scopes      []string   `json:"scopes"`
-	Status      string     `json:"status"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	ExpiresAt   *time.Time `json:"expires_at"`
-	RevokedAt   *time.Time `json:"revoked_at"`
+	ID          string                   `json:"id"`
+	WorkspaceID string                   `json:"workspace_id"`
+	Name        string                   `json:"name"`
+	KeyPrefix   string                   `json:"key_prefix"`
+	Scopes      []string                 `json:"scopes"`
+	Status      string                   `json:"status"`
+	CreatedAt   time.Time                `json:"created_at"`
+	UpdatedAt   time.Time                `json:"updated_at"`
+	LastUsedAt  *time.Time               `json:"last_used_at"`
+	ExpiresAt   *time.Time               `json:"expires_at"`
+	RevokedAt   *time.Time               `json:"revoked_at"`
+	QuotaLimits *domain.EmailQuotaLimits `json:"email_quota_limits,omitempty"`
 }
 
 type CreateAPIKeyInput struct {
@@ -99,6 +100,7 @@ type CreateAPIKeyInput struct {
 	Name        string
 	Scopes      []string
 	ExpiresAt   *time.Time
+	QuotaLimits *domain.EmailQuotaLimits
 }
 
 type CreateAPIKeyResult struct {
@@ -114,6 +116,7 @@ type UpdateAPIKeyInput struct {
 	Scopes      []string
 	ExpiresAt   *time.Time
 	Rotate      bool
+	QuotaLimits *domain.EmailQuotaLimits
 }
 
 type UpdateAPIKeyResult struct {
@@ -165,6 +168,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) (*C
 		Name:        input.Name,
 		Scopes:      input.Scopes,
 		ExpiresAt:   input.ExpiresAt,
+		QuotaLimits: input.QuotaLimits,
 	})
 	if err != nil {
 		return nil, err
@@ -185,6 +189,7 @@ func (s *Service) UpdateAPIKey(ctx context.Context, input UpdateAPIKeyInput) (*U
 		Scopes:      input.Scopes,
 		ExpiresAt:   input.ExpiresAt,
 		Rotate:      input.Rotate,
+		QuotaLimits: input.QuotaLimits,
 	})
 	if err != nil {
 		return nil, err
@@ -244,5 +249,6 @@ func apiKeyToResult(k domain.APIKey) APIKeyResult {
 		LastUsedAt:  k.LastUsedAt,
 		ExpiresAt:   k.ExpiresAt,
 		RevokedAt:   k.RevokedAt,
+		QuotaLimits: k.QuotaLimits,
 	}
 }

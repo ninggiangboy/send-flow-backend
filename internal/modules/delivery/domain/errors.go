@@ -33,4 +33,5 @@ var (
 	ErrAttachmentNotSupported       = errors.New("delivery attachments not supported in template mode")
 	ErrAttachmentStorageFailed      = errors.New("delivery attachment storage failed")
 	ErrObjectStorageDisabled        = errors.New("delivery object storage disabled")
+	ErrAPIKeyQuotaExceeded          = errors.New("delivery api key quota exceeded")
 )

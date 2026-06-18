@@ -17,18 +17,19 @@ import (
 type txKey struct{}
 
 type apiKeyRow struct {
-	ID          string
-	WorkspaceID string
-	Name        string
-	KeyPrefix   string
-	SecretHash  string
-	Scopes      string
-	Status      string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	LastUsedAt  *time.Time
-	ExpiresAt   *time.Time
-	RevokedAt   *time.Time
+	ID               string
+	WorkspaceID      string
+	Name             string
+	KeyPrefix        string
+	SecretHash       string
+	Scopes           string
+	EmailQuotaLimits string
+	Status           string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	LastUsedAt       *time.Time
+	ExpiresAt        *time.Time
+	RevokedAt        *time.Time
 }
 
 type APIKeyRepository struct {
@@ -65,7 +66,7 @@ func (r *APIKeyRepository) ListByWorkspace(ctx context.Context, query ports.APIK
 	var rows pgx.Rows
 	var err error
 	if query.Cursor != "" {
-		rows, err = db.Query(ctx, `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE workspace_id=$1 AND (created_at,id) < ($2,$3) ORDER BY created_at DESC, id DESC LIMIT $4`,
+		rows, err = db.Query(ctx, `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,email_quota_limits::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE workspace_id=$1 AND (created_at,id) < ($2,$3) ORDER BY created_at DESC, id DESC LIMIT $4`,
 			query.WorkspaceID, query.Cursor, query.Cursor, limit)
 	} else if query.Status != "" {
 		rows, err = db.Query(ctx, `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE workspace_id=$1 AND status=$2 ORDER BY created_at DESC, id DESC LIMIT $3`,
@@ -82,7 +83,7 @@ func (r *APIKeyRepository) ListByWorkspace(ctx context.Context, query ports.APIK
 	var out []domain.APIKey
 	for rows.Next() {
 		var row apiKeyRow
-		if err := rows.Scan(&row.ID, &row.WorkspaceID, &row.Name, &row.KeyPrefix, &row.SecretHash, &row.Scopes, &row.Status, &row.CreatedAt, &row.UpdatedAt, &row.LastUsedAt, &row.ExpiresAt, &row.RevokedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.WorkspaceID, &row.Name, &row.KeyPrefix, &row.SecretHash, &row.Scopes, &row.EmailQuotaLimits, &row.Status, &row.CreatedAt, &row.UpdatedAt, &row.LastUsedAt, &row.ExpiresAt, &row.RevokedAt); err != nil {
 			return nil, "", err
 		}
 		key, err := rowToDomain(row)
@@ -104,11 +105,11 @@ func (r *APIKeyRepository) ListByWorkspace(ctx context.Context, query ports.APIK
 }
 
 func (r *APIKeyRepository) FindByID(ctx context.Context, workspaceID, keyID string) (*domain.APIKey, error) {
-	return r.findOne(ctx, r.getReadDB(ctx), `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE workspace_id=$1 AND id=$2`, workspaceID, keyID)
+	return r.findOne(ctx, r.getReadDB(ctx), `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,email_quota_limits::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE workspace_id=$1 AND id=$2`, workspaceID, keyID)
 }
 
 func (r *APIKeyRepository) FindByPrefix(ctx context.Context, keyPrefix string) (*domain.APIKey, error) {
-	return r.findOne(ctx, r.getReadDB(ctx), `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE key_prefix=$1`, keyPrefix)
+	return r.findOne(ctx, r.getReadDB(ctx), `SELECT id,workspace_id,name,key_prefix,secret_hash,scopes::text,email_quota_limits::text,status,created_at,updated_at,last_used_at,expires_at,revoked_at FROM api_keys WHERE key_prefix=$1`, keyPrefix)
 }
 
 func (r *APIKeyRepository) Create(ctx context.Context, key domain.APIKey) error {
@@ -116,9 +117,13 @@ func (r *APIKeyRepository) Create(ctx context.Context, key domain.APIKey) error 
 	if err != nil {
 		return err
 	}
+	quotaLimitsJSON, err := json.Marshal(key.QuotaLimits)
+	if err != nil {
+		return err
+	}
 	db := r.getWriteDB(ctx)
-	_, err = db.Exec(ctx, `INSERT INTO api_keys (id,workspace_id,name,key_prefix,secret_hash,scopes,status,created_at,updated_at,last_used_at,expires_at,revoked_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-		key.ID, key.WorkspaceID, key.Name, key.KeyPrefix, key.SecretHash, scopesJSON, string(key.Status), key.CreatedAt, key.UpdatedAt, key.LastUsedAt, key.ExpiresAt, key.RevokedAt)
+	_, err = db.Exec(ctx, `INSERT INTO api_keys (id,workspace_id,name,key_prefix,secret_hash,scopes,email_quota_limits,status,created_at,updated_at,last_used_at,expires_at,revoked_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		key.ID, key.WorkspaceID, key.Name, key.KeyPrefix, key.SecretHash, scopesJSON, quotaLimitsJSON, string(key.Status), key.CreatedAt, key.UpdatedAt, key.LastUsedAt, key.ExpiresAt, key.RevokedAt)
 	return err
 }
 
@@ -127,9 +132,13 @@ func (r *APIKeyRepository) Update(ctx context.Context, key domain.APIKey) error 
 	if err != nil {
 		return err
 	}
+	quotaLimitsJSON, err := json.Marshal(key.QuotaLimits)
+	if err != nil {
+		return err
+	}
 	db := r.getWriteDB(ctx)
-	_, err = db.Exec(ctx, `UPDATE api_keys SET name=$3, key_prefix=$4, secret_hash=$5, scopes=$6, status=$7, updated_at=$8, expires_at=$9, revoked_at=$10 WHERE workspace_id=$1 AND id=$2`,
-		key.WorkspaceID, key.ID, key.Name, key.KeyPrefix, key.SecretHash, scopesJSON, string(key.Status), key.UpdatedAt, key.ExpiresAt, key.RevokedAt)
+	_, err = db.Exec(ctx, `UPDATE api_keys SET name=$3, key_prefix=$4, secret_hash=$5, scopes=$6, email_quota_limits=$7, status=$8, updated_at=$9, expires_at=$10, revoked_at=$11 WHERE workspace_id=$1 AND id=$2`,
+		key.WorkspaceID, key.ID, key.Name, key.KeyPrefix, key.SecretHash, scopesJSON, quotaLimitsJSON, string(key.Status), key.UpdatedAt, key.ExpiresAt, key.RevokedAt)
 	return err
 }
 
@@ -141,7 +150,7 @@ func (r *APIKeyRepository) TouchLastUsed(ctx context.Context, workspaceID, keyID
 
 func (r *APIKeyRepository) findOne(ctx context.Context, db platformpostgres.DBTX, sql string, args ...any) (*domain.APIKey, error) {
 	var row apiKeyRow
-	err := db.QueryRow(ctx, sql, args...).Scan(&row.ID, &row.WorkspaceID, &row.Name, &row.KeyPrefix, &row.SecretHash, &row.Scopes, &row.Status, &row.CreatedAt, &row.UpdatedAt, &row.LastUsedAt, &row.ExpiresAt, &row.RevokedAt)
+	err := db.QueryRow(ctx, sql, args...).Scan(&row.ID, &row.WorkspaceID, &row.Name, &row.KeyPrefix, &row.SecretHash, &row.Scopes, &row.EmailQuotaLimits, &row.Status, &row.CreatedAt, &row.UpdatedAt, &row.LastUsedAt, &row.ExpiresAt, &row.RevokedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrAPIKeyNotFound
 	}
@@ -158,6 +167,16 @@ func rowToDomain(row apiKeyRow) (*domain.APIKey, error) {
 			return nil, err
 		}
 	}
+	var quotaLimits *domain.EmailQuotaLimits
+	if row.EmailQuotaLimits != "" {
+		var ql domain.EmailQuotaLimits
+		if err := json.Unmarshal([]byte(row.EmailQuotaLimits), &ql); err != nil {
+			return nil, err
+		}
+		if !ql.IsEmpty() {
+			quotaLimits = &ql
+		}
+	}
 	return &domain.APIKey{
 		ID:          row.ID,
 		WorkspaceID: row.WorkspaceID,
@@ -171,5 +190,6 @@ func rowToDomain(row apiKeyRow) (*domain.APIKey, error) {
 		LastUsedAt:  row.LastUsedAt,
 		ExpiresAt:   row.ExpiresAt,
 		RevokedAt:   row.RevokedAt,
+		QuotaLimits: quotaLimits,
 	}, nil
 }

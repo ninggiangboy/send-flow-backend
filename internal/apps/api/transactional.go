@@ -446,6 +446,8 @@ func writeTransactionalErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusInternalServerError, "delivery.attachment_storage_failed", err.Error(), nil)
 	case errors.Is(err, domain.ErrObjectStorageDisabled):
 		writeError(w, r, http.StatusUnprocessableEntity, "delivery.object_storage_disabled", err.Error(), nil)
+	case errors.Is(err, domain.ErrAPIKeyQuotaExceeded):
+		writeError(w, r, http.StatusTooManyRequests, "delivery.quota_exceeded", err.Error(), nil)
 	case errors.Is(err, domain.ErrTemporarilyUnavailable):
 		writeError(w, r, http.StatusServiceUnavailable, "delivery.temporarily_unavailable", err.Error(), nil)
 	default:

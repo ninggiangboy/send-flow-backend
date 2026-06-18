@@ -10,5 +10,6 @@ var (
 	ErrAPIKeyScopeInvalid   = errors.New("api key scope is invalid")
 	ErrAPIKeyConfigInvalid  = errors.New("api key configuration is invalid")
 	ErrAPIKeyRotateConflict = errors.New("api key cannot be rotated")
+	ErrEmailQuotaInvalid    = errors.New("api key email quota limits are invalid")
 	ErrPayloadInvalid       = errors.New("request payload is invalid")
 )

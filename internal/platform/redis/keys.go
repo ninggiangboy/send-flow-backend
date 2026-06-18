@@ -39,6 +39,14 @@ func KeyDeliveryQuota(provider, workspaceID string) string {
 	return fmt.Sprintf("quota:delivery:provider:%s:%s:%s", keyVersion, provider, workspaceID)
 }
 
+func KeyAPIKeyQuotaLimits(workspaceID, apiKeyID string) string {
+	return fmt.Sprintf("cache:access:quota-limits:%s:%s:%s", keyVersion, workspaceID, apiKeyID)
+}
+
+func KeyAPIKeyQuotaBucket(workspaceID, apiKeyID, window string) string {
+	return fmt.Sprintf("quota:apikey:token_bucket:%s:%s:%s:%s", keyVersion, workspaceID, apiKeyID, window)
+}
+
 func KeyLockMessage(messageID string) string {
 	return fmt.Sprintf("lock:delivery:message:%s:%s", keyVersion, messageID)
 }

@@ -25,6 +25,7 @@ type Command struct {
 	Scopes      []string
 	ExpiresAt   *time.Time
 	Rotate      bool
+	QuotaLimits *domain.EmailQuotaLimits
 }
 
 type Result struct {
@@ -90,6 +91,18 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 			return nil, domain.ErrAPIKeyConfigInvalid
 		}
 		existing.ExpiresAt = cmd.ExpiresAt
+	}
+
+	if cmd.QuotaLimits != nil {
+		if err := cmd.QuotaLimits.Validate(); err != nil {
+			log.Warn("invalid quota limits for update", "error", err)
+			return nil, err
+		}
+		if cmd.QuotaLimits.IsEmpty() {
+			existing.QuotaLimits = nil
+		} else {
+			existing.QuotaLimits = cmd.QuotaLimits
+		}
 	}
 
 	var newSecret string

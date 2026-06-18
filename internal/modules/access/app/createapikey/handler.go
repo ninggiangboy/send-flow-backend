@@ -24,6 +24,7 @@ type Command struct {
 	Name        string
 	Scopes      []string
 	ExpiresAt   *time.Time
+	QuotaLimits *domain.EmailQuotaLimits
 }
 
 type Result struct {
@@ -72,6 +73,13 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 		return nil, err
 	}
 
+	if cmd.QuotaLimits != nil {
+		if err := cmd.QuotaLimits.Validate(); err != nil {
+			log.Warn("invalid quota limits for create", "error", err)
+			return nil, err
+		}
+	}
+
 	now := time.Now().UTC()
 
 	if cmd.ExpiresAt != nil && !cmd.ExpiresAt.IsZero() && cmd.ExpiresAt.Before(now) {
@@ -107,6 +115,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		ExpiresAt:   cmd.ExpiresAt,
+		QuotaLimits: cmd.QuotaLimits,
 	}
 
 	if err := h.apiKeyRepo.Create(ctx, key); err != nil {

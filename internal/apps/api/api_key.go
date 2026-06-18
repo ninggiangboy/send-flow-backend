@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -54,9 +55,10 @@ func (h *apiKeyHTTP) createAPIKey(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	var req struct {
-		Name      string     `json:"name"`
-		Scopes    []string   `json:"scopes"`
-		ExpiresAt *time.Time `json:"expires_at"`
+		Name        string                         `json:"name"`
+		Scopes      []string                       `json:"scopes"`
+		ExpiresAt   *time.Time                     `json:"expires_at"`
+		QuotaLimits *accessdomain.EmailQuotaLimits `json:"email_quota_limits,omitempty"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -68,6 +70,7 @@ func (h *apiKeyHTTP) createAPIKey(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Scopes:      req.Scopes,
 		ExpiresAt:   req.ExpiresAt,
+		QuotaLimits: req.QuotaLimits,
 	})
 	if err != nil {
 		writeAPIKeyErr(w, r, err)
@@ -81,21 +84,23 @@ func (h *apiKeyHTTP) createAPIKey(w http.ResponseWriter, r *http.Request) {
 		TargetType:  "api_key",
 		TargetID:    result.ID,
 		PayloadSummary: map[string]any{
-			"name":       result.Name,
-			"scopes":     result.Scopes,
-			"expires_at": result.ExpiresAt,
+			"name":               result.Name,
+			"scopes":             result.Scopes,
+			"expires_at":         result.ExpiresAt,
+			"email_quota_limits": result.QuotaLimits,
 		},
 	})
 
 	writeEnvelope(w, r, http.StatusCreated, map[string]any{
-		"id":         result.ID,
-		"name":       result.Name,
-		"key_prefix": result.KeyPrefix,
-		"scopes":     result.Scopes,
-		"status":     result.Status,
-		"secret":     result.Secret,
-		"created_at": result.CreatedAt,
-		"expires_at": result.ExpiresAt,
+		"id":                 result.ID,
+		"name":               result.Name,
+		"key_prefix":         result.KeyPrefix,
+		"scopes":             result.Scopes,
+		"status":             result.Status,
+		"secret":             result.Secret,
+		"created_at":         result.CreatedAt,
+		"expires_at":         result.ExpiresAt,
+		"email_quota_limits": result.QuotaLimits,
 	})
 }
 
@@ -105,13 +110,32 @@ func (h *apiKeyHTTP) updateAPIKey(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	var req struct {
-		Name      *string    `json:"name"`
-		Scopes    []string   `json:"scopes"`
-		ExpiresAt *time.Time `json:"expires_at"`
-		Rotate    bool       `json:"rotate"`
+		Name        *string          `json:"name"`
+		Scopes      []string         `json:"scopes"`
+		ExpiresAt   *time.Time       `json:"expires_at"`
+		Rotate      bool             `json:"rotate"`
+		QuotaLimits *json.RawMessage `json:"email_quota_limits"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
+	}
+
+	// Resolve patch semantics for quota limits:
+	//   nil            → omitted from JSON → pass nil (no change)
+	//   "null"         → explicit null     → pass empty struct (clear)
+	//   {...}          → provided object   → unmarshal and pass (replace)
+	var quotaLimits *accessdomain.EmailQuotaLimits
+	if req.QuotaLimits != nil {
+		if string(*req.QuotaLimits) == "null" {
+			quotaLimits = &accessdomain.EmailQuotaLimits{}
+		} else {
+			var ql accessdomain.EmailQuotaLimits
+			if err := json.Unmarshal(*req.QuotaLimits, &ql); err != nil {
+				writeAPIKeyErr(w, r, accessdomain.ErrAPIKeyConfigInvalid)
+				return
+			}
+			quotaLimits = &ql
+		}
 	}
 
 	result, err := h.svc.UpdateAPIKey(r.Context(), accessapp.UpdateAPIKeyInput{
@@ -122,6 +146,7 @@ func (h *apiKeyHTTP) updateAPIKey(w http.ResponseWriter, r *http.Request) {
 		Scopes:      req.Scopes,
 		ExpiresAt:   req.ExpiresAt,
 		Rotate:      req.Rotate,
+		QuotaLimits: quotaLimits,
 	})
 	if err != nil {
 		writeAPIKeyErr(w, r, err)
@@ -133,23 +158,26 @@ func (h *apiKeyHTTP) updateAPIKey(w http.ResponseWriter, r *http.Request) {
 		actionType = "api_key.rotated"
 	}
 	h.recordAudit(r, identityapp.RecordAuditInput{
-		WorkspaceID:    workspaceID,
-		ActorUserID:    userID,
-		ActionType:     actionType,
-		TargetType:     "api_key",
-		TargetID:       apiKeyID,
-		PayloadSummary: map[string]any{},
+		WorkspaceID: workspaceID,
+		ActorUserID: userID,
+		ActionType:  actionType,
+		TargetType:  "api_key",
+		TargetID:    apiKeyID,
+		PayloadSummary: map[string]any{
+			"email_quota_limits": result.QuotaLimits,
+		},
 	})
 
 	resp := map[string]any{
-		"id":         result.ID,
-		"name":       result.Name,
-		"key_prefix": result.KeyPrefix,
-		"scopes":     result.Scopes,
-		"status":     result.Status,
-		"created_at": result.CreatedAt,
-		"updated_at": result.UpdatedAt,
-		"expires_at": result.ExpiresAt,
+		"id":                 result.ID,
+		"name":               result.Name,
+		"key_prefix":         result.KeyPrefix,
+		"scopes":             result.Scopes,
+		"status":             result.Status,
+		"created_at":         result.CreatedAt,
+		"updated_at":         result.UpdatedAt,
+		"expires_at":         result.ExpiresAt,
+		"email_quota_limits": result.QuotaLimits,
 	}
 	if result.Secret != "" {
 		resp["secret"] = result.Secret
@@ -207,6 +235,8 @@ func writeAPIKeyErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, accessdomain.ErrAPIKeyScopeInvalid):
 		writeError(w, r, http.StatusUnprocessableEntity, "api_key.scope_invalid", err.Error(), nil)
 	case errors.Is(err, accessdomain.ErrAPIKeyConfigInvalid):
+		writeError(w, r, http.StatusUnprocessableEntity, "api_key.config_invalid", err.Error(), nil)
+	case errors.Is(err, accessdomain.ErrEmailQuotaInvalid):
 		writeError(w, r, http.StatusUnprocessableEntity, "api_key.config_invalid", err.Error(), nil)
 	case errors.Is(err, accessdomain.ErrPayloadInvalid):
 		writeError(w, r, http.StatusBadRequest, "auth.invalid_request_body", err.Error(), nil)

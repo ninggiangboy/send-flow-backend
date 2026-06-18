@@ -47,6 +47,7 @@ type Options struct {
 	AttachmentRepo      ports.AttachmentRepository
 	ObjectStorage       ports.ObjectStorage
 	AttachmentMetrics   *observability.AttachmentMetrics
+	QuotaEnforcer       ports.QuotaEnforcer
 }
 
 type Service struct {
@@ -83,6 +84,7 @@ func NewService(opts Options) *Service {
 		opts.Logger,
 		opts.RedisCache,
 		opts.AttachmentMetrics,
+		opts.QuotaEnforcer,
 	)
 
 	queueCampaignH := queuecampaignmessages.New(

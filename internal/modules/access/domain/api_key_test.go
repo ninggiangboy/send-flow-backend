@@ -116,6 +116,57 @@ func TestIsActive_NotExpired(t *testing.T) {
 	}
 }
 
+func TestEmailQuotaLimits_Validate_Valid(t *testing.T) {
+	one := 1
+	hundred := 100
+	tests := []struct {
+		name   string
+		limits *EmailQuotaLimits
+	}{
+		{"nil limits", nil},
+		{"single window", &EmailQuotaLimits{PerMinute: &one}},
+		{"all windows", &EmailQuotaLimits{PerMinute: &one, PerHour: &one, PerDay: &one, PerMonth: &one}},
+		{"empty struct", &EmailQuotaLimits{}},
+		{"partial windows", &EmailQuotaLimits{PerHour: &hundred, PerDay: &hundred}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.limits.Validate(); err != nil {
+				t.Errorf("expected no error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestEmailQuotaLimits_Validate_Zero(t *testing.T) {
+	zero := 0
+	limits := &EmailQuotaLimits{PerMinute: &zero}
+	if err := limits.Validate(); err != ErrEmailQuotaInvalid {
+		t.Errorf("expected ErrEmailQuotaInvalid, got %v", err)
+	}
+}
+
+func TestEmailQuotaLimits_Validate_Negative(t *testing.T) {
+	neg := -5
+	limits := &EmailQuotaLimits{PerHour: &neg}
+	if err := limits.Validate(); err != ErrEmailQuotaInvalid {
+		t.Errorf("expected ErrEmailQuotaInvalid, got %v", err)
+	}
+}
+
+func TestEmailQuotaLimits_IsEmpty(t *testing.T) {
+	one := 1
+	if !(*EmailQuotaLimits)(nil).IsEmpty() {
+		t.Error("expected nil to be empty")
+	}
+	if !(&EmailQuotaLimits{}).IsEmpty() {
+		t.Error("expected empty struct to be empty")
+	}
+	if (&EmailQuotaLimits{PerMinute: &one}).IsEmpty() {
+		t.Error("expected non-empty struct to not be empty")
+	}
+}
+
 func TestNormalizeName(t *testing.T) {
 	if got := NormalizeName("  My Key  "); got != "My Key" {
 		t.Errorf("expected %q, got %q", "My Key", got)

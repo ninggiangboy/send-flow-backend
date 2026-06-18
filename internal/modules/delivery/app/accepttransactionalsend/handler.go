@@ -89,6 +89,7 @@ type Handler struct {
 	log                *slog.Logger
 	cache              *deliveryredis.Cache
 	attachmentMetrics  *observability.AttachmentMetrics
+	quotaEnforcer      ports.QuotaEnforcer
 }
 
 func New(
@@ -108,6 +109,7 @@ func New(
 	logger *slog.Logger,
 	cache *deliveryredis.Cache,
 	attachmentMetrics *observability.AttachmentMetrics,
+	quotaEnforcer ports.QuotaEnforcer,
 ) *Handler {
 	return &Handler{
 		txRequestsRead:     txRequestsRead,
@@ -126,6 +128,7 @@ func New(
 		log:                logger.With("usecase", "accept_transactional_send"),
 		cache:              cache,
 		attachmentMetrics:  attachmentMetrics,
+		quotaEnforcer:      quotaEnforcer,
 	}
 }
 
@@ -161,6 +164,18 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 		}
 		if result != nil {
 			return result, nil
+		}
+	}
+
+	// Enforce API key quota (after idempotency check — replays don't consume quota)
+	if h.quotaEnforcer != nil {
+		if err := h.quotaEnforcer.CheckAndConsume(ctx, input.WorkspaceID, input.APIKeyID, len(targets)); err != nil {
+			log.Warn("api key quota exceeded",
+				"api_key_id", input.APIKeyID,
+				"recipient_units", len(targets),
+				"error", err,
+			)
+			return nil, err
 		}
 	}
 

@@ -2384,6 +2384,7 @@ func deliveryErrorCodes() map[int][]string {
 		},
 		http.StatusTooManyRequests: {
 			"delivery.request_rate_limited",
+			"delivery.quota_exceeded",
 		},
 		http.StatusServiceUnavailable: {
 			"delivery.temporarily_unavailable",

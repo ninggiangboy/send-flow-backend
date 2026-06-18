@@ -38,6 +38,7 @@ type APIKey struct {
 	LastUsedAt  *time.Time
 	ExpiresAt   *time.Time
 	RevokedAt   *time.Time
+	QuotaLimits *EmailQuotaLimits
 }
 
 func SupportedScopes() []string {
