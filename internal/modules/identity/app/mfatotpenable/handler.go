@@ -51,7 +51,15 @@ func New(opts Options) *Handler {
 
 func (h *Handler) Execute(ctx context.Context, userID, code string, now time.Time) (*Result, error) {
 	secret, err := h.totp.FindSecretByUser(ctx, userID)
-	if err != nil || !h.totpVerifier.VerifyTOTPCode(secret.Secret, code, now) {
+	if err != nil {
+		h.log.Warn("failed to find TOTP secret for MFA enable", "user_id", userID, "error", err)
+		return nil, domain.ErrMFAInvalidCode
+	}
+	if secret == nil {
+		h.log.Warn("TOTP secret is nil for MFA enable", "user_id", userID)
+		return nil, domain.ErrMFAInvalidCode
+	}
+	if !h.totpVerifier.VerifyTOTPCode(secret.Secret, code, now) {
 		h.log.Warn("invalid TOTP code during MFA enable", "user_id", userID)
 		return nil, domain.ErrMFAInvalidCode
 	}

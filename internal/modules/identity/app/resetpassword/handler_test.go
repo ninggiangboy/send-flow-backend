@@ -68,6 +68,10 @@ func (s *userWriteStub) SetMFAEnabledAt(ctx context.Context, userID string, enab
 }
 func (s *userWriteStub) Create(ctx context.Context, user domain.User) error { return nil }
 
+type noopTx struct{}
+
+func (noopTx) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
+
 type sessionsWriteStub struct{}
 
 func (s *sessionsWriteStub) RevokeByUser(ctx context.Context, userID string, now time.Time) error {
@@ -133,6 +137,7 @@ func TestExecute_HashFails(t *testing.T) {
 		UsersWrite:        &userWriteStub{},
 		SessionsWrite:     &sessionsWriteStub{},
 		AuthTokensRepo:    repo,
+		UnitOfWork:        noopTx{},
 		Logger:            testLogger,
 	})
 	err := h.Execute(context.Background(), Command{Token: "t", NewPassword: "StrongPassword123!", Now: time.Now()})
@@ -156,6 +161,7 @@ func TestExecute_Success(t *testing.T) {
 		UsersWrite:        &userWriteStub{},
 		SessionsWrite:     &sessionsWriteStub{},
 		AuthTokensRepo:    repo,
+		UnitOfWork:        noopTx{},
 		Logger:            testLogger,
 	})
 	err := h.Execute(context.Background(), Command{Token: "t", NewPassword: "StrongPassword123!", Now: time.Now()})

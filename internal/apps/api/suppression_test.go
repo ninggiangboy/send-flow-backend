@@ -178,7 +178,6 @@ func setupSuppressionRouter(t *testing.T, setup func(repo *sharedSuppressionRepo
 		TOTPVerifier:      &totpVerifierAdapter{},
 		TOTPSecretGen:     &totpSecretGeneratorAdapter{},
 		RecoveryCodeGen:   &recoveryCodeGeneratorAdapter{},
-		RateLimiter:       &rateLimiterAdapter{svc: &mockRateLimiter{}},
 		SettingsWrite:     &noopSettingsWrite{},
 		Logger:            slog.Default(),
 		UnitOfWork:        &noopTxManager{},

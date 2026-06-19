@@ -346,6 +346,7 @@ func setupAuthRouter(t *testing.T) (http.Handler, *captureSender) {
 	t.Helper()
 	users := newMemoryUserRepo()
 	sessions := newMemorySessionRepo()
+	sessions.Create(context.Background(), domain.Session{ID: "session-1", UserID: "user-1", ExpiresAt: time.Now().UTC().Add(time.Hour)})
 	refreshStore := newMemoryRefreshStore()
 	authTokens := newMemoryAuthTokenRepo()
 	totp := newMemoryTOTPRepo()
@@ -389,7 +390,6 @@ func setupAuthRouter(t *testing.T) (http.Handler, *captureSender) {
 		TOTPVerifier:      &totpVerifierAdapter{},
 		TOTPSecretGen:     &totpSecretGeneratorAdapter{},
 		RecoveryCodeGen:   &recoveryCodeGeneratorAdapter{},
-		RateLimiter:       &rateLimiterAdapter{svc: &mockRateLimiter{}},
 		SettingsWrite:     &noopSettingsWrite{},
 		Logger:            slog.Default(),
 		UnitOfWork:        &noopTxManager{},

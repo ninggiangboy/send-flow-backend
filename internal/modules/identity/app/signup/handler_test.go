@@ -90,8 +90,8 @@ type tokenMgrStub struct {
 func (s *tokenMgrStub) Issue(userID, sessionID string, now time.Time) (ports.TokenPair, string, string, error) {
 	return s.issue(userID, sessionID, now)
 }
-func (s *tokenMgrStub) ParseAccess(string) (*ports.AccessClaims, error)  { return nil, nil }
-func (s *tokenMgrStub) ParseRefresh(string) (*ports.AccessClaims, error) { return nil, nil }
+func (s *tokenMgrStub) ParseAccess(string, time.Time) (*ports.AccessClaims, error)  { return nil, nil }
+func (s *tokenMgrStub) ParseRefresh(string, time.Time) (*ports.AccessClaims, error) { return nil, nil }
 
 type sessWriteStub struct {
 	create func(ctx context.Context, session domain.Session) error

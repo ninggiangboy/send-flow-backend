@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 )
@@ -22,7 +23,7 @@ func authzMiddleware(svc *identityapp.Service) func(http.Handler) http.Handler {
 				return
 			}
 			token := strings.TrimSpace(h[len("Bearer "):])
-			sess, user, err := svc.AuthenticateAccessToken(r.Context(), token)
+			sess, user, err := svc.AuthenticateAccessToken(r.Context(), token, time.Now().UTC())
 			if err != nil {
 				writeError(w, r, http.StatusUnauthorized, "auth.invalid_token", "invalid token", nil)
 				return

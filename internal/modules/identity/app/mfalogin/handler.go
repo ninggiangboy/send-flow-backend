@@ -2,6 +2,7 @@ package mfalogin
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"log/slog"
 	"time"
@@ -75,7 +76,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 		}
 		rawHash := h.tokenHasher.HashToken(cmd.RecoveryCode)
 		for _, code := range codes {
-			if code.ConsumedAt == nil && code.CodeHash == rawHash {
+			if code.ConsumedAt == nil && subtle.ConstantTimeCompare([]byte(code.CodeHash), []byte(rawHash)) == 1 {
 				if err := h.totp.ConsumeRecoveryCode(ctx, code.ID, cmd.Now); err != nil {
 					h.log.Error("failed to consume recovery code", "user_id", user.ID, "error", err)
 					return nil, err
@@ -88,7 +89,15 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 		return nil, domain.ErrMFAInvalidCode
 	}
 	secret, err := h.totp.FindSecretByUser(ctx, user.ID)
-	if err != nil || !h.totpVerifier.VerifyTOTPCode(secret.Secret, cmd.Code, cmd.Now) {
+	if err != nil {
+		h.log.Warn("failed to find TOTP secret for MFA login", "user_id", user.ID, "error", err)
+		return nil, domain.ErrMFAInvalidCode
+	}
+	if secret == nil {
+		h.log.Warn("TOTP secret is nil for MFA login", "user_id", user.ID)
+		return nil, domain.ErrMFAInvalidCode
+	}
+	if !h.totpVerifier.VerifyTOTPCode(secret.Secret, cmd.Code, cmd.Now) {
 		h.log.Warn("invalid MFA TOTP code", "user_id", user.ID)
 		return nil, domain.ErrMFAInvalidCode
 	}

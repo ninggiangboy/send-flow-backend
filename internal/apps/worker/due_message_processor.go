@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
@@ -19,7 +20,7 @@ type DueMessageProcessor struct {
 }
 
 func NewDueMessageProcessor(svc *deliveryapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int, messageType string) *DueMessageProcessor {
-	return newDueMessageProcessor("delivery.process_due_messages", svc, log, pollInterval, batchSize, messageType)
+	return newDueMessageProcessor(dueMessageProcessorName(messageType), svc, log, pollInterval, batchSize, messageType)
 }
 
 func newDueMessageProcessor(name string, svc *deliveryapp.Service, log *slog.Logger, pollInterval time.Duration, batchSize int, messageType string) *DueMessageProcessor {
@@ -39,7 +40,7 @@ func (p *DueMessageProcessor) Name() string {
 }
 
 func (p *DueMessageProcessor) RunnerKey() string {
-	return "delivery.due_messages.db_processor"
+	return dueMessageProcessorKey(p.messageType)
 }
 
 func (p *DueMessageProcessor) Run(ctx context.Context) error {
@@ -61,4 +62,26 @@ func (p *DueMessageProcessor) Poll(ctx context.Context) (bool, error) {
 		p.log.Debug("processed due messages across workspaces", "workspaces_processed", workspaces)
 	}
 	return workspaces > 0, nil
+}
+
+func dueMessageProcessorName(messageType string) string {
+	switch strings.TrimSpace(messageType) {
+	case "", "marketing":
+		return "delivery.process_due_messages"
+	case "transactional":
+		return "delivery.process_due_messages_tx"
+	default:
+		return "delivery.process_due_messages_" + strings.ReplaceAll(strings.TrimSpace(messageType), " ", "_")
+	}
+}
+
+func dueMessageProcessorKey(messageType string) string {
+	switch strings.TrimSpace(messageType) {
+	case "", "marketing":
+		return "delivery.due_messages.db_processor"
+	case "transactional":
+		return "delivery.due_messages_tx.db_processor"
+	default:
+		return "delivery.due_messages." + strings.ReplaceAll(strings.TrimSpace(messageType), " ", "_") + ".db_processor"
+	}
 }

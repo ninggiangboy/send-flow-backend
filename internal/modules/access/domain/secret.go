@@ -1,9 +1,5 @@
 package domain
 
-import (
-	"crypto/subtle"
-)
-
 const (
 	SecretStablePrefix = "sk_"
 	SecretKeyLen       = 32
@@ -15,8 +11,4 @@ func DerivePrefix(secret string) string {
 		return secret
 	}
 	return secret[:PrefixVisibleChars]
-}
-
-func ConstantTimeCompare(a, b string) bool {
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

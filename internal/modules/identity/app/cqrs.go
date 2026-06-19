@@ -65,7 +65,7 @@ type QueryBus interface {
 	ListProviders() []usecase.Provider
 	GetMe(ctx context.Context, userID string) (*domain.User, error)
 	ListSessions(ctx context.Context, userID string, now time.Time) ([]domain.Session, error)
-	AuthenticateAccessToken(ctx context.Context, token string) (*domain.Session, *domain.User, error)
+	AuthenticateAccessToken(ctx context.Context, token string, now time.Time) (*domain.Session, *domain.User, error)
 	ListWorkspaces(ctx context.Context, userID string) ([]domain.Workspace, error)
 	GetWorkspace(ctx context.Context, workspaceID, userID string) (*domain.Workspace, error)
 	ListWorkspaceMembers(ctx context.Context, workspaceID, userID string) ([]domain.Membership, error)
@@ -365,9 +365,9 @@ func (b *queryBus) ListSessions(ctx context.Context, userID string, now time.Tim
 	}
 	return sessions, err
 }
-func (b *queryBus) AuthenticateAccessToken(ctx context.Context, token string) (*domain.Session, *domain.User, error) {
+func (b *queryBus) AuthenticateAccessToken(ctx context.Context, token string, now time.Time) (*domain.Session, *domain.User, error) {
 	b.logger.Info("dispatching query", "query", "authenticate_access_token")
-	session, user, err := b.authn.Execute(ctx, token)
+	session, user, err := b.authn.Execute(ctx, token, now)
 	if err != nil {
 		b.logger.Warn("query failed", "query", "authenticate_access_token", "error", err)
 	}

@@ -71,8 +71,12 @@ func (s *tokenManagerStub) Issue(userID, sessionID string, now time.Time) (ports
 	}
 	return s.pair, "access-jti", "refresh-jti", nil
 }
-func (s *tokenManagerStub) ParseAccess(string) (*ports.AccessClaims, error)  { return nil, nil }
-func (s *tokenManagerStub) ParseRefresh(string) (*ports.AccessClaims, error) { return nil, nil }
+func (s *tokenManagerStub) ParseAccess(string, time.Time) (*ports.AccessClaims, error) {
+	return nil, nil
+}
+func (s *tokenManagerStub) ParseRefresh(string, time.Time) (*ports.AccessClaims, error) {
+	return nil, nil
+}
 
 func TestBuildNewSessionSuccess(t *testing.T) {
 	now := time.Now().UTC()

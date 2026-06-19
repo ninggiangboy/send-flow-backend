@@ -174,6 +174,7 @@ func (s *TokenBucketService) CheckAndConsume(ctx context.Context, workspaceID, a
 // response — the caller is responsible for deciding how to handle it.
 func (s *TokenBucketService) Refund(ctx context.Context, workspaceID, apiKeyID string, recipientCount int, limits *accessdomain.EmailQuotaLimits) error {
 	if limits == nil || limits.IsEmpty() {
+		s.log.Debug("quota refund skipped: no limits configured", "workspace_id", workspaceID, "api_key_id", apiKeyID)
 		return nil
 	}
 

@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
@@ -37,7 +38,7 @@ func NewDueMessageScheduler(
 	messageType string,
 	batchSize int,
 ) *DueMessageScheduler {
-	name := "delivery.due_message_scheduler"
+	name := dueMessageSchedulerName(messageType)
 	return &DueMessageScheduler{
 		name:           name,
 		listWorkspaces: listWorkspaces,
@@ -115,4 +116,15 @@ func (s *DueMessageScheduler) Poll(ctx context.Context) (bool, error) {
 	}
 
 	return published > 0, nil
+}
+
+func dueMessageSchedulerName(messageType string) string {
+	switch strings.TrimSpace(messageType) {
+	case "", "marketing":
+		return "delivery.due_message_scheduler"
+	case "transactional":
+		return "delivery.due_message_scheduler_tx"
+	default:
+		return "delivery.due_message_scheduler_" + strings.ReplaceAll(strings.TrimSpace(messageType), " ", "_")
+	}
 }

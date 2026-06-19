@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -12,10 +13,13 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/redis"
 )
 
-type OAuthStateStore struct{ client *redis.Client }
+type OAuthStateStore struct {
+	client *redis.Client
+	log    *slog.Logger
+}
 
-func NewOAuthStateStore(client *redis.Client) *OAuthStateStore {
-	return &OAuthStateStore{client: client}
+func NewOAuthStateStore(client *redis.Client, logger *slog.Logger) *OAuthStateStore {
+	return &OAuthStateStore{client: client, log: logger}
 }
 
 func (s *OAuthStateStore) Save(ctx context.Context, state string, value ports.OAuthState, ttl time.Duration) error {
@@ -28,7 +32,9 @@ func (s *OAuthStateStore) GetAndDelete(ctx context.Context, state string) (*port
 	if err := s.client.GetJSON(ctx, key, &v); err != nil {
 		return nil, err
 	}
-	_ = s.client.Raw().Del(ctx, key).Err()
+	if delErr := s.client.Raw().Del(ctx, key).Err(); delErr != nil {
+		s.log.Warn("failed to delete OAuth state from Redis", "key", key, "error", delErr)
+	}
 	return &v, nil
 }
 

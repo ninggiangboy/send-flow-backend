@@ -50,8 +50,8 @@ type tokMgrStub struct{}
 func (s *tokMgrStub) Issue(_, _ string, now time.Time) (ports.TokenPair, string, string, error) {
 	return ports.TokenPair{AccessToken: "at", RefreshToken: "rt", AccessExpiresAt: now.Add(time.Hour), RefreshExpiresAt: now.Add(24 * time.Hour)}, "ajti", "rjti", nil
 }
-func (s *tokMgrStub) ParseAccess(string) (*ports.AccessClaims, error)  { return nil, nil }
-func (s *tokMgrStub) ParseRefresh(string) (*ports.AccessClaims, error) { return nil, nil }
+func (s *tokMgrStub) ParseAccess(string, time.Time) (*ports.AccessClaims, error)  { return nil, nil }
+func (s *tokMgrStub) ParseRefresh(string, time.Time) (*ports.AccessClaims, error) { return nil, nil }
 
 type sessWrtStub struct{}
 

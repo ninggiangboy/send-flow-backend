@@ -11,7 +11,7 @@ func TestJWTManagerIssueAndParseAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("issue token: %v", err)
 	}
-	claims, err := m.ParseAccess(tokens.AccessToken)
+	claims, err := m.ParseAccess(tokens.AccessToken, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("parse access: %v", err)
 	}

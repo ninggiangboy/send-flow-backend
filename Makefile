@@ -41,6 +41,8 @@ consul-clean:
 
 start:
 	$(MAKE) consul-clean
+	$(MAKE) migrate-up
+	$(MAKE) clickhouse-migrate-up
 	sh -c 'count="$(START_COUNT)"; case "$$count" in ""|*[!0-9]*|0) echo "usage: make start [replicas], e.g. make start 2"; exit 2;; esac; pids=""; used_ports=""; i=1; trap "trap - INT TERM EXIT; kill $$pids 2>/dev/null; wait" INT TERM EXIT; while [ $$i -le $$count ]; do api_port=$$(./scripts/pick-local-port.sh $$used_ports); used_ports="$$used_ports $$api_port"; worker_port=$$(./scripts/pick-local-port.sh $$used_ports); used_ports="$$used_ports $$worker_port"; echo "starting api[$$i] on :$$api_port and worker[$$i] on :$$worker_port"; $(MAKE) --no-print-directory api-instance INSTANCE=$$i HTTP_ADDR=:$$api_port CONSUL_SERVICE_ID=sendflow-api-local-$$i CONSUL_SERVICE_PORT=$$api_port & pids="$$pids $$!"; $(MAKE) --no-print-directory worker-instance INSTANCE=$$i WORKER_HTTP_ADDR=:$$worker_port CONSUL_WORKER_SERVICE_ID=sendflow-worker-local-$$i CONSUL_WORKER_SERVICE_PORT=$$worker_port & pids="$$pids $$!"; i=$$((i + 1)); done; wait'
 
 api:

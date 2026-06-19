@@ -130,7 +130,6 @@ func setupSettingsRouter(t *testing.T) http.Handler {
 		TOTPVerifier:      &totpVerifierAdapter{},
 		TOTPSecretGen:     &totpSecretGeneratorAdapter{},
 		RecoveryCodeGen:   &recoveryCodeGeneratorAdapter{},
-		RateLimiter:       &rateLimiterAdapter{svc: &mockRateLimiter{}},
 		Logger:            slog.Default(),
 		UnitOfWork:        &noopTxManager{},
 	})

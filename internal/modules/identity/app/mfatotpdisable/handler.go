@@ -11,8 +11,6 @@ import (
 )
 
 type Options struct {
-	UsersRead    ports.UserReadRepository
-	Hasher       domain.PasswordHasher
 	Totp         ports.TOTPRepository
 	TotpVerifier ports.TOTPCodeVerifier
 	UsersWrite   ports.UserWriteRepository
@@ -21,8 +19,6 @@ type Options struct {
 }
 
 type Handler struct {
-	usersRead    ports.UserReadRepository
-	hasher       domain.PasswordHasher
 	totp         ports.TOTPRepository
 	totpVerifier ports.TOTPCodeVerifier
 	usersWrite   ports.UserWriteRepository
@@ -31,16 +27,13 @@ type Handler struct {
 }
 
 type Command struct {
-	UserID   string
-	Password string
-	Code     string
-	Now      time.Time
+	UserID string
+	Code   string
+	Now    time.Time
 }
 
 func New(opts Options) *Handler {
 	return &Handler{
-		usersRead:    opts.UsersRead,
-		hasher:       opts.Hasher,
 		totp:         opts.Totp,
 		totpVerifier: opts.TotpVerifier,
 		usersWrite:   opts.UsersWrite,
@@ -50,22 +43,20 @@ func New(opts Options) *Handler {
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) error {
-	user, err := h.usersRead.FindByID(ctx, cmd.UserID)
+	if cmd.Code == "" {
+		h.log.Warn("MFA disable requires TOTP code", "user_id", cmd.UserID)
+		return domain.ErrMFAInvalidCode
+	}
+	secret, err := h.totp.FindSecretByUser(ctx, cmd.UserID)
 	if err != nil {
-		h.log.Error("failed to find user for MFA disable", "user_id", cmd.UserID, "error", err)
-		return err
+		h.log.Warn("failed to find TOTP secret for MFA disable", "user_id", cmd.UserID, "error", err)
+		return domain.ErrMFAInvalidCode
 	}
-	authorized := false
-	if cmd.Password != "" && user.HashedPassword != "" && user.VerifyPassword(cmd.Password, h.hasher) == nil {
-		authorized = true
+	if secret == nil {
+		h.log.Warn("TOTP secret is nil for MFA disable", "user_id", cmd.UserID)
+		return domain.ErrMFAInvalidCode
 	}
-	if !authorized && cmd.Code != "" {
-		secret, err := h.totp.FindSecretByUser(ctx, cmd.UserID)
-		if err == nil && h.totpVerifier.VerifyTOTPCode(secret.Secret, cmd.Code, cmd.Now) {
-			authorized = true
-		}
-	}
-	if !authorized {
+	if !h.totpVerifier.VerifyTOTPCode(secret.Secret, cmd.Code, cmd.Now) {
 		h.log.Warn("MFA disable authorization failed", "user_id", cmd.UserID)
 		return domain.ErrMFAInvalidCode
 	}

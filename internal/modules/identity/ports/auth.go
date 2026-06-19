@@ -49,6 +49,7 @@ type AccessClaims struct {
 	SessionID string `json:"sid"`
 	JWTID     string `json:"jti"`
 	Issuer    string `json:"iss"`
+	Audience  string `json:"aud"`
 	ExpiresAt int64  `json:"exp"`
 	IssuedAt  int64  `json:"iat"`
 	Type      string `json:"typ"`
@@ -63,8 +64,8 @@ type TokenPair struct {
 
 type TokenManager interface {
 	Issue(userID, sessionID string, now time.Time) (TokenPair, string, string, error)
-	ParseAccess(token string) (*AccessClaims, error)
-	ParseRefresh(token string) (*AccessClaims, error)
+	ParseAccess(token string, now time.Time) (*AccessClaims, error)
+	ParseRefresh(token string, now time.Time) (*AccessClaims, error)
 }
 
 type OAuthProvider interface {

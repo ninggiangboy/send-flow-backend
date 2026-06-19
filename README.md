@@ -435,7 +435,7 @@ make build         # Build ./bin/api and ./bin/worker
 make format        # gofmt for cmd/ and internal/
 make vet           # go vet ./...
 make test          # go test ./...
-make check         # Format, vet, test, and verify OpenAPI snapshot
+make check         # Format, vet and test
 make test-race     # Run race detector over internal packages
 make test-integration # Run Docker-backed integration tests
 make openapi-generate # Regenerate docs/api/openapi.yaml

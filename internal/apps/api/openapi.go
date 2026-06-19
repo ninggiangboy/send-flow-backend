@@ -247,7 +247,7 @@ func humaAuthzMiddleware(svc *identityapp.Service) func(huma.Context, func(huma.
 			return
 		}
 		token := strings.TrimSpace(h[len("Bearer "):])
-		sess, user, err := svc.AuthenticateAccessToken(ctx.Context(), token)
+		sess, user, err := svc.AuthenticateAccessToken(ctx.Context(), token, time.Now().UTC())
 		if err != nil {
 			writeError(w, req, http.StatusUnauthorized, "auth.invalid_token", "invalid token", nil)
 			return

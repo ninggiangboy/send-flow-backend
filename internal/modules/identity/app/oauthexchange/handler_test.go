@@ -25,8 +25,8 @@ type oauthTokMgrStub struct{}
 func (oauthTokMgrStub) Issue(_, _ string, now time.Time) (ports.TokenPair, string, string, error) {
 	return ports.TokenPair{AccessToken: "at", RefreshToken: "rt", AccessExpiresAt: now.Add(time.Hour), RefreshExpiresAt: now.Add(24 * time.Hour)}, "ajti", "rjti", nil
 }
-func (oauthTokMgrStub) ParseAccess(string) (*ports.AccessClaims, error)  { return nil, nil }
-func (oauthTokMgrStub) ParseRefresh(string) (*ports.AccessClaims, error) { return nil, nil }
+func (oauthTokMgrStub) ParseAccess(string, time.Time) (*ports.AccessClaims, error)  { return nil, nil }
+func (oauthTokMgrStub) ParseRefresh(string, time.Time) (*ports.AccessClaims, error) { return nil, nil }
 
 type oauthSessWrtStub struct{}
 

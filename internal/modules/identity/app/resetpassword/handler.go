@@ -9,6 +9,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/transaction"
 )
 
 type Options struct {
@@ -18,6 +19,7 @@ type Options struct {
 	UsersWrite        ports.UserWriteRepository
 	SessionsWrite     ports.SessionWriteRepository
 	AuthTokensRepo    ports.AuthTokenRepository
+	UnitOfWork        ports.UnitOfWork
 	Logger            *slog.Logger
 }
 
@@ -28,6 +30,7 @@ type Handler struct {
 	usersWrite        ports.UserWriteRepository
 	sessionsWrite     ports.SessionWriteRepository
 	authTokensRepo    ports.AuthTokenRepository
+	unitOfWork        ports.UnitOfWork
 	log               *slog.Logger
 }
 
@@ -45,6 +48,7 @@ func New(opts Options) *Handler {
 		usersWrite:        opts.UsersWrite,
 		sessionsWrite:     opts.SessionsWrite,
 		authTokensRepo:    opts.AuthTokensRepo,
+		unitOfWork:        opts.UnitOfWork,
 		log:               opts.Logger.With("usecase", "reset_password"),
 	}
 }
@@ -67,16 +71,22 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		h.log.Error("failed to hash new password", "user_id", record.UserID, "error", err)
 		return err
 	}
-	if err := h.usersWrite.UpdatePassword(ctx, record.UserID, hash, cmd.Now); err != nil {
-		h.log.Error("failed to update password", "user_id", record.UserID, "error", err)
-		return err
+	doReset := func(txCtx context.Context) error {
+		if err := h.usersWrite.UpdatePassword(txCtx, record.UserID, hash, cmd.Now); err != nil {
+			h.log.Error("failed to update password", "user_id", record.UserID, "error", err)
+			return err
+		}
+		if err := h.sessionsWrite.RevokeByUser(txCtx, record.UserID, cmd.Now); err != nil {
+			h.log.Error("failed to revoke sessions after password reset", "user_id", record.UserID, "error", err)
+			return err
+		}
+		if err := h.authTokensRepo.DeleteByUserAndPurpose(txCtx, record.UserID, domain.AuthTokenPurposeMFAChallenge); err != nil {
+			h.log.Error("failed to clear MFA challenges after password reset", "user_id", record.UserID, "error", err)
+			return err
+		}
+		return nil
 	}
-	if err := h.sessionsWrite.RevokeByUser(ctx, record.UserID, cmd.Now); err != nil {
-		h.log.Error("failed to revoke sessions after password reset", "user_id", record.UserID, "error", err)
-		return err
-	}
-	if err := h.authTokensRepo.DeleteByUserAndPurpose(ctx, record.UserID, domain.AuthTokenPurposeMFAChallenge); err != nil {
-		h.log.Error("failed to clear MFA challenges after password reset", "user_id", record.UserID, "error", err)
+	if err := transaction.RunInTx(ctx, h.unitOfWork, doReset); err != nil {
 		return err
 	}
 	h.log.Info("password reset completed, all sessions revoked", "user_id", record.UserID)

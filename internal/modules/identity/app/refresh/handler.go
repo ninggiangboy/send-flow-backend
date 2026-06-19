@@ -46,7 +46,7 @@ func New(opts Options) *Handler {
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionContext, error) {
-	claims, err := h.tokens.ParseRefresh(cmd.RefreshToken)
+	claims, err := h.tokens.ParseRefresh(cmd.RefreshToken, cmd.Now)
 	if err != nil {
 		h.log.Warn("invalid refresh token: parse failed")
 		return nil, domain.ErrUnauthorized

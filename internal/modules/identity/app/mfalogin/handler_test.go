@@ -97,8 +97,8 @@ type mfaTokMgrStub struct{}
 func (mfaTokMgrStub) Issue(_, _ string, now time.Time) (ports.TokenPair, string, string, error) {
 	return ports.TokenPair{AccessToken: "at", RefreshToken: "rt", AccessExpiresAt: now.Add(time.Hour), RefreshExpiresAt: now.Add(24 * time.Hour)}, "ajti", "rjti", nil
 }
-func (mfaTokMgrStub) ParseAccess(string) (*ports.AccessClaims, error)  { return nil, nil }
-func (mfaTokMgrStub) ParseRefresh(string) (*ports.AccessClaims, error) { return nil, nil }
+func (mfaTokMgrStub) ParseAccess(string, time.Time) (*ports.AccessClaims, error)  { return nil, nil }
+func (mfaTokMgrStub) ParseRefresh(string, time.Time) (*ports.AccessClaims, error) { return nil, nil }
 
 type mfaSessWrtStub struct {
 	create func(ctx context.Context, session domain.Session) error

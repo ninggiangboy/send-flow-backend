@@ -71,7 +71,6 @@ type Options struct {
 	Providers         []ports.OAuthProvider
 	OAuthStateTTL     time.Duration
 	MailSender        ports.Mailer
-	RateLimiter       ports.RateLimiter
 	IDGen             ports.IDGenerator
 	TokenGen          ports.TokenGenerator
 	TokenHasher       ports.TokenHasher
@@ -184,7 +183,7 @@ func NewService(opts Options) *Service {
 		RefreshStore:  opts.RefreshStore,
 		Logger:        opts.Logger,
 	})
-	authnH := authenticate.New(opts.Tokens, opts.Logger)
+	authnH := authenticate.New(opts.Tokens, opts.SessionsRead, opts.Logger)
 	refreshH := refresh.New(refresh.Options{
 		Tokens:        opts.Tokens,
 		RefreshStore:  opts.RefreshStore,
@@ -219,7 +218,7 @@ func NewService(opts Options) *Service {
 		UsersWrite:        opts.UsersWrite,
 		SessionsWrite:     opts.SessionsWrite,
 		AuthTokensRepo:    opts.AuthTokens,
-		Logger:            opts.Logger,
+		UnitOfWork:        opts.UnitOfWork, Logger: opts.Logger,
 	})
 	mfaLoginH := mfalogin.New(mfalogin.Options{
 		AuthTokens:     authTokenSvc,
@@ -247,8 +246,6 @@ func NewService(opts Options) *Service {
 		Logger:          opts.Logger,
 	})
 	mfaDisableH := mfatotpdisable.New(mfatotpdisable.Options{
-		UsersRead:    opts.UsersRead,
-		Hasher:       opts.Hasher,
 		Totp:         opts.TOTP,
 		TotpVerifier: opts.TOTPVerifier,
 		UsersWrite:   opts.UsersWrite,
@@ -346,8 +343,8 @@ func (s *Service) ListSessions(ctx context.Context, userID string, now time.Time
 func (s *Service) RevokeSession(ctx context.Context, sessionID, userID string, now time.Time) error {
 	return s.commands.RevokeSession(ctx, sessionID, userID, now)
 }
-func (s *Service) AuthenticateAccessToken(ctx context.Context, token string) (*domain.Session, *domain.User, error) {
-	return s.queries.AuthenticateAccessToken(ctx, token)
+func (s *Service) AuthenticateAccessToken(ctx context.Context, token string, now time.Time) (*domain.Session, *domain.User, error) {
+	return s.queries.AuthenticateAccessToken(ctx, token, now)
 }
 func (s *Service) Refresh(ctx context.Context, refreshToken string, now time.Time) (*SessionContext, error) {
 	return s.commands.Refresh(ctx, refresh.Command{RefreshToken: refreshToken, Now: now})
@@ -373,8 +370,8 @@ func (s *Service) MFATOTPSetup(ctx context.Context, userID string, now time.Time
 func (s *Service) MFATOTPEnable(ctx context.Context, userID, code string, now time.Time) (*mfatotpenable.Result, error) {
 	return s.commands.MFATOTPEnable(ctx, userID, code, now)
 }
-func (s *Service) MFATOTPDisable(ctx context.Context, userID, password, code string, now time.Time) error {
-	return s.commands.MFATOTPDisable(ctx, mfatotpdisable.Command{UserID: userID, Password: password, Code: code, Now: now})
+func (s *Service) MFATOTPDisable(ctx context.Context, userID, code string, now time.Time) error {
+	return s.commands.MFATOTPDisable(ctx, mfatotpdisable.Command{UserID: userID, Code: code, Now: now})
 }
 func (s *Service) MFARegenerate(ctx context.Context, userID, code string, now time.Time) (*mfatotpenable.Result, error) {
 	return s.commands.MFARegenerate(ctx, userID, code, now)

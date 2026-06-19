@@ -14,14 +14,14 @@ import (
 var testLogger = slog.Default()
 
 type tokenManagerStub struct {
-	parseRefresh func(token string) (*ports.AccessClaims, error)
+	parseRefresh func(token string, now time.Time) (*ports.AccessClaims, error)
 	issue        func(userID, sessionID string, now time.Time) (ports.TokenPair, string, string, error)
 }
 
-func (s *tokenManagerStub) ParseRefresh(token string) (*ports.AccessClaims, error) {
-	return s.parseRefresh(token)
+func (s *tokenManagerStub) ParseRefresh(token string, now time.Time) (*ports.AccessClaims, error) {
+	return s.parseRefresh(token, now)
 }
-func (s *tokenManagerStub) ParseAccess(token string) (*ports.AccessClaims, error) {
+func (s *tokenManagerStub) ParseAccess(token string, now time.Time) (*ports.AccessClaims, error) {
 	return nil, nil
 }
 func (s *tokenManagerStub) Issue(userID, sessionID string, now time.Time) (ports.TokenPair, string, string, error) {
@@ -98,7 +98,7 @@ func TestRefreshSuccess(t *testing.T) {
 	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
-			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
+			parseRefresh: func(_ string, _ time.Time) (*ports.AccessClaims, error) {
 				return &ports.AccessClaims{JWTID: "old-refresh-jti", SessionID: "sess-1"}, nil
 			},
 			issue: func(_, _ string, _ time.Time) (ports.TokenPair, string, string, error) {
@@ -149,7 +149,7 @@ func TestRefresh_InvalidToken(t *testing.T) {
 	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
-			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
+			parseRefresh: func(_ string, _ time.Time) (*ports.AccessClaims, error) {
 				return nil, errors.New("parse error")
 			},
 		},
@@ -164,7 +164,7 @@ func TestRefresh_JTINotFound(t *testing.T) {
 	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
-			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
+			parseRefresh: func(_ string, _ time.Time) (*ports.AccessClaims, error) {
 				return &ports.AccessClaims{JWTID: "jti-1", SessionID: "sess-1"}, nil
 			},
 		},
@@ -185,7 +185,7 @@ func TestRefresh_RefreshStoreError(t *testing.T) {
 	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
-			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
+			parseRefresh: func(_ string, _ time.Time) (*ports.AccessClaims, error) {
 				return &ports.AccessClaims{JWTID: "jti-1", SessionID: "sess-1"}, nil
 			},
 		},
@@ -205,7 +205,7 @@ func TestRefresh_SessionMismatch(t *testing.T) {
 	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
-			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
+			parseRefresh: func(_ string, _ time.Time) (*ports.AccessClaims, error) {
 				return &ports.AccessClaims{JWTID: "jti-1", SessionID: "sess-1"}, nil
 			},
 		},
@@ -226,7 +226,7 @@ func TestRefresh_SessionInactive(t *testing.T) {
 	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
-			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
+			parseRefresh: func(_ string, _ time.Time) (*ports.AccessClaims, error) {
 				return &ports.AccessClaims{JWTID: "jti-1", SessionID: "sess-1"}, nil
 			},
 		},
@@ -255,7 +255,7 @@ func TestRefresh_SessionExpired(t *testing.T) {
 	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
-			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
+			parseRefresh: func(_ string, _ time.Time) (*ports.AccessClaims, error) {
 				return &ports.AccessClaims{JWTID: "jti-1", SessionID: "sess-1"}, nil
 			},
 		},
@@ -285,7 +285,7 @@ func TestRefresh_SessionJTIMismatch(t *testing.T) {
 	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
-			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
+			parseRefresh: func(_ string, _ time.Time) (*ports.AccessClaims, error) {
 				return &ports.AccessClaims{JWTID: "jti-1", SessionID: "sess-1"}, nil
 			},
 		},
@@ -314,7 +314,7 @@ func TestRefresh_UserNotFound(t *testing.T) {
 	h := New(Options{
 		Logger: testLogger,
 		Tokens: &tokenManagerStub{
-			parseRefresh: func(_ string) (*ports.AccessClaims, error) {
+			parseRefresh: func(_ string, _ time.Time) (*ports.AccessClaims, error) {
 				return &ports.AccessClaims{JWTID: "jti-1", SessionID: "sess-1"}, nil
 			},
 		},

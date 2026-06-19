@@ -71,6 +71,9 @@ func VerifyHMACSHA256(payload, signature, secret string) bool {
 }
 
 func ValidatePasswordPolicy(password string) error {
+	if len(password) > 128 {
+		return errors.New("password must not exceed 128 characters")
+	}
 	if len(password) < 12 {
 		return errors.New("password must be at least 12 characters")
 	}

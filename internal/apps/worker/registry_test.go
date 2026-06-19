@@ -143,6 +143,24 @@ func TestRegistry_RunUnknownConsumer(t *testing.T) {
 	}
 }
 
+func TestAliasRunnerUsesWrappedRunnerIdentity(t *testing.T) {
+	started := make(chan string, 1)
+	inner := testRunner{name: "analytics_events", started: started}
+	alias := newAliasRunner("analytics.clickhouse_sync", inner)
+
+	if alias.Name() != "analytics.clickhouse_sync" {
+		t.Fatalf("unexpected alias name: %q", alias.Name())
+	}
+
+	keyed, ok := alias.(keyedRunner)
+	if !ok {
+		t.Fatal("expected alias runner to implement keyedRunner")
+	}
+	if keyed.RunnerKey() != "analytics_events" {
+		t.Fatalf("unexpected alias runner key: %q", keyed.RunnerKey())
+	}
+}
+
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

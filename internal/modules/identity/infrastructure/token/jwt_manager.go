@@ -27,22 +27,28 @@ func NewJWTManager(issuer, accessSecret, refreshSecret string, accessTTL, refres
 }
 
 func (m *JWTManager) Issue(userID, sessionID string, now time.Time) (ports.TokenPair, string, string, error) {
-	accessJTI := id.Must(id.NewUUIDGenerator())
-	refreshJTI := id.Must(id.NewUUIDGenerator())
+	accessJTI, err := id.NewUUIDGenerator().New()
+	if err != nil {
+		return ports.TokenPair{}, "", "", fmt.Errorf("generate access JTI: %w", err)
+	}
+	refreshJTI, err := id.NewUUIDGenerator().New()
+	if err != nil {
+		return ports.TokenPair{}, "", "", fmt.Errorf("generate refresh JTI: %w", err)
+	}
 	accessExp := now.Add(m.accessTTL)
 	refreshExp := now.Add(m.refreshTTL)
-	access, err := m.sign(ports.AccessClaims{Subject: userID, SessionID: sessionID, JWTID: accessJTI, Issuer: m.issuer, ExpiresAt: accessExp.Unix(), IssuedAt: now.Unix(), Type: "access"}, m.accessSecret)
+	access, err := m.sign(ports.AccessClaims{Subject: userID, SessionID: sessionID, JWTID: accessJTI, Issuer: m.issuer, Audience: m.issuer, ExpiresAt: accessExp.Unix(), IssuedAt: now.Unix(), Type: "access"}, m.accessSecret)
 	if err != nil {
 		return ports.TokenPair{}, "", "", err
 	}
-	refresh, err := m.sign(ports.AccessClaims{Subject: userID, SessionID: sessionID, JWTID: refreshJTI, Issuer: m.issuer, ExpiresAt: refreshExp.Unix(), IssuedAt: now.Unix(), Type: "refresh"}, m.refreshSecret)
+	refresh, err := m.sign(ports.AccessClaims{Subject: userID, SessionID: sessionID, JWTID: refreshJTI, Issuer: m.issuer, Audience: m.issuer, ExpiresAt: refreshExp.Unix(), IssuedAt: now.Unix(), Type: "refresh"}, m.refreshSecret)
 	if err != nil {
 		return ports.TokenPair{}, "", "", err
 	}
 	return ports.TokenPair{AccessToken: access, RefreshToken: refresh, AccessExpiresAt: accessExp, RefreshExpiresAt: refreshExp}, accessJTI, refreshJTI, nil
 }
 
-func (m *JWTManager) ParseAccess(token string) (*ports.AccessClaims, error) {
+func (m *JWTManager) ParseAccess(token string, now time.Time) (*ports.AccessClaims, error) {
 	claims, err := m.parse(token, m.accessSecret)
 	if err != nil {
 		return nil, err
@@ -50,13 +56,13 @@ func (m *JWTManager) ParseAccess(token string) (*ports.AccessClaims, error) {
 	if claims.Type != "access" {
 		return nil, errors.New("invalid token type")
 	}
-	if time.Now().UTC().Unix() > claims.ExpiresAt {
+	if now.Unix() > claims.ExpiresAt {
 		return nil, errors.New("token expired")
 	}
 	return claims, nil
 }
 
-func (m *JWTManager) ParseRefresh(token string) (*ports.AccessClaims, error) {
+func (m *JWTManager) ParseRefresh(token string, now time.Time) (*ports.AccessClaims, error) {
 	claims, err := m.parse(token, m.refreshSecret)
 	if err != nil {
 		return nil, err
@@ -64,7 +70,7 @@ func (m *JWTManager) ParseRefresh(token string) (*ports.AccessClaims, error) {
 	if claims.Type != "refresh" {
 		return nil, errors.New("invalid token type")
 	}
-	if time.Now().UTC().Unix() > claims.ExpiresAt {
+	if now.Unix() > claims.ExpiresAt {
 		return nil, errors.New("token expired")
 	}
 	return claims, nil

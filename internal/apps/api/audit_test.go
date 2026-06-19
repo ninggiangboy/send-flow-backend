@@ -112,7 +112,6 @@ func setupAuditRouter(t *testing.T, auditEntries []auditdomain.AuditEntry) (http
 		TOTPVerifier:      &totpVerifierAdapter{},
 		TOTPSecretGen:     &totpSecretGeneratorAdapter{},
 		RecoveryCodeGen:   &recoveryCodeGeneratorAdapter{},
-		RateLimiter:       &rateLimiterAdapter{svc: &mockRateLimiter{}},
 		SettingsWrite:     &noopSettingsWrite{},
 		Logger:            slog.Default(),
 		UnitOfWork:        &noopTxManager{},

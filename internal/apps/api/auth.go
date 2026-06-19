@@ -430,7 +430,7 @@ func (a *authHTTP) mfaTOTPDisable(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if err := a.svc.MFATOTPDisable(r.Context(), userID, req.Password, req.Code, time.Now().UTC()); err != nil {
+	if err := a.svc.MFATOTPDisable(r.Context(), userID, req.Code, time.Now().UTC()); err != nil {
 		writeAuthErr(w, r, err)
 		return
 	}

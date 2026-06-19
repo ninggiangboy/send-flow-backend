@@ -383,6 +383,9 @@ func Run(ctx context.Context) error {
 	if err := registry.Register(analyticsConsumer); err != nil {
 		return err
 	}
+	if err := registry.Register(newAliasRunner("analytics.clickhouse_sync", analyticsConsumer)); err != nil {
+		return err
+	}
 
 	if clickHouseClient != nil {
 		anomalyProcessor := NewAnalyticsAnomalyProcessor(

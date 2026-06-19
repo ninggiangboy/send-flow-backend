@@ -5,7 +5,7 @@ import "time"
 type User struct {
 	ID                string
 	Email             string
-	HashedPassword    string
+	HashedPassword    string `json:"-"`
 	PrimaryAuthMethod string
 	EmailVerifiedAt   *time.Time
 	MFAEnabledAt      *time.Time

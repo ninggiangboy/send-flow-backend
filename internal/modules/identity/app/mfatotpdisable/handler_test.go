@@ -16,23 +16,6 @@ type noopTx struct{}
 
 func (noopTx) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
 
-type userReadStub struct {
-	user *domain.User
-	err  error
-}
-
-func (s *userReadStub) FindByEmail(context.Context, string) (*domain.User, error) {
-	return s.user, s.err
-}
-func (s *userReadStub) FindByID(context.Context, string) (*domain.User, error) { return s.user, s.err }
-
-type hasherStub struct {
-	compareErr error
-}
-
-func (s *hasherStub) Hash(string) (string, error)  { return "hash", nil }
-func (s *hasherStub) Compare(string, string) error { return s.compareErr }
-
 type totpStub struct {
 	secret     *domain.TOTPSecret
 	findErr    error
@@ -74,32 +57,9 @@ func (s *userWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, tim
 	return s.err
 }
 
-func TestExecuteSuccessWithPassword(t *testing.T) {
-	now := time.Now()
-	h := New(Options{
-		UsersRead: &userReadStub{
-			user: &domain.User{ID: "u1", HashedPassword: "hash"},
-		},
-		Hasher:       &hasherStub{compareErr: nil},
-		Totp:         &totpStub{},
-		TotpVerifier: &totpVerifierStub{},
-		UsersWrite:   &userWriteStub{},
-		UnitOfWork:   noopTx{},
-		Logger:       testLogger,
-	})
-	err := h.Execute(context.Background(), Command{UserID: "u1", Password: "password", Now: now})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestExecuteSuccessWithCode(t *testing.T) {
 	now := time.Now()
 	h := New(Options{
-		UsersRead: &userReadStub{
-			user: &domain.User{ID: "u1", HashedPassword: ""},
-		},
-		Hasher:       &hasherStub{compareErr: errors.New("no match")},
 		Totp:         &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
 		TotpVerifier: &totpVerifierStub{valid: true},
 		UsersWrite:   &userWriteStub{},
@@ -112,37 +72,45 @@ func TestExecuteSuccessWithCode(t *testing.T) {
 	}
 }
 
-func TestExecuteUserNotFound(t *testing.T) {
-	now := time.Now()
+func TestExecuteFailsWhenCodeEmpty(t *testing.T) {
 	h := New(Options{
-		UsersRead:    &userReadStub{err: domain.ErrNotFound},
-		Hasher:       &hasherStub{},
 		Totp:         &totpStub{},
 		TotpVerifier: &totpVerifierStub{},
 		UsersWrite:   &userWriteStub{},
 		UnitOfWork:   noopTx{},
 		Logger:       testLogger,
 	})
-	err := h.Execute(context.Background(), Command{UserID: "u1", Now: now})
-	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+	err := h.Execute(context.Background(), Command{UserID: "u1", Now: time.Now()})
+	if !errors.Is(err, domain.ErrMFAInvalidCode) {
+		t.Fatalf("expected ErrMFAInvalidCode for empty code, got %v", err)
+	}
+}
+
+func TestExecuteFailsWhenSecretNotFound(t *testing.T) {
+	now := time.Now()
+	h := New(Options{
+		Totp:         &totpStub{findErr: errors.New("not found")},
+		TotpVerifier: &totpVerifierStub{},
+		UsersWrite:   &userWriteStub{},
+		UnitOfWork:   noopTx{},
+		Logger:       testLogger,
+	})
+	err := h.Execute(context.Background(), Command{UserID: "u1", Code: "123456", Now: now})
+	if !errors.Is(err, domain.ErrMFAInvalidCode) {
+		t.Fatalf("expected ErrMFAInvalidCode, got %v", err)
 	}
 }
 
 func TestExecuteAuthorizationFails(t *testing.T) {
 	now := time.Now()
 	h := New(Options{
-		UsersRead: &userReadStub{
-			user: &domain.User{ID: "u1", HashedPassword: "hash"},
-		},
-		Hasher:       &hasherStub{compareErr: errors.New("wrong password")},
-		Totp:         &totpStub{findErr: errors.New("not found")},
+		Totp:         &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
 		TotpVerifier: &totpVerifierStub{valid: false},
 		UsersWrite:   &userWriteStub{},
 		UnitOfWork:   noopTx{},
 		Logger:       testLogger,
 	})
-	err := h.Execute(context.Background(), Command{UserID: "u1", Password: "wrong", Code: "wrong", Now: now})
+	err := h.Execute(context.Background(), Command{UserID: "u1", Code: "wrong", Now: now})
 	if !errors.Is(err, domain.ErrMFAInvalidCode) {
 		t.Fatalf("expected ErrMFAInvalidCode, got %v", err)
 	}
@@ -152,17 +120,13 @@ func TestExecuteTxFails(t *testing.T) {
 	upstreamErr := errors.New("db error")
 	now := time.Now()
 	h := New(Options{
-		UsersRead: &userReadStub{
-			user: &domain.User{ID: "u1", HashedPassword: "hash"},
-		},
-		Hasher:       &hasherStub{compareErr: nil},
-		Totp:         &totpStub{},
-		TotpVerifier: &totpVerifierStub{},
+		Totp:         &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
+		TotpVerifier: &totpVerifierStub{valid: true},
 		UsersWrite:   &userWriteStub{err: upstreamErr},
 		UnitOfWork:   noopTx{},
 		Logger:       testLogger,
 	})
-	err := h.Execute(context.Background(), Command{UserID: "u1", Password: "password", Now: now})
+	err := h.Execute(context.Background(), Command{UserID: "u1", Code: "123456", Now: now})
 	if !errors.Is(err, upstreamErr) {
 		t.Fatalf("expected upstream error, got %v", err)
 	}
