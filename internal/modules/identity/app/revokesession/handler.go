@@ -10,14 +10,12 @@ import (
 )
 
 type Options struct {
-	SessionsRead  ports.SessionReadRepository
 	SessionsWrite ports.SessionWriteRepository
 	RefreshStore  ports.RefreshStore
 	Logger        *slog.Logger
 }
 
 type Handler struct {
-	sessionsRead  ports.SessionReadRepository
 	sessionsWrite ports.SessionWriteRepository
 	refreshStore  ports.RefreshStore
 	log           *slog.Logger
@@ -25,7 +23,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		sessionsRead:  opts.SessionsRead,
 		sessionsWrite: opts.SessionsWrite,
 		refreshStore:  opts.RefreshStore,
 		log:           opts.Logger.With("usecase", "revoke_session"),
@@ -33,7 +30,7 @@ func New(opts Options) *Handler {
 }
 
 func (h *Handler) Execute(ctx context.Context, sessionID, userID string, now time.Time) error {
-	sess, err := h.sessionsRead.FindByID(ctx, sessionID)
+	sess, err := h.sessionsWrite.FindByID(ctx, sessionID)
 	if err != nil {
 		h.log.Error("failed to find session for revocation", "session_id", sessionID, "error", err)
 		return err

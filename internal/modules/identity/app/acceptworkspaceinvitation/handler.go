@@ -13,12 +13,9 @@ import (
 )
 
 type Options struct {
-	InvitationsRead  ports.InvitationReadRepository
 	InvitationsWrite ports.InvitationWriteRepository
-	UsersRead        ports.UserReadRepository
-	MembershipsRead  ports.MembershipReadRepository
+	UsersWrite       ports.UserWriteRepository
 	MembershipsWrite ports.MembershipWriteRepository
-	RolesRead        ports.RoleReadRepository
 	RolesWrite       ports.RoleWriteRepository
 	IdGen            ports.IDGenerator
 	UnitOfWork       ports.UnitOfWork
@@ -32,12 +29,9 @@ type Command struct {
 }
 
 type Handler struct {
-	invitationsRead  ports.InvitationReadRepository
 	invitationsWrite ports.InvitationWriteRepository
-	usersRead        ports.UserReadRepository
-	membershipsRead  ports.MembershipReadRepository
+	usersWrite       ports.UserWriteRepository
 	membershipsWrite ports.MembershipWriteRepository
-	rolesRead        ports.RoleReadRepository
 	rolesWrite       ports.RoleWriteRepository
 	idGen            ports.IDGenerator
 	unitOfWork       ports.UnitOfWork
@@ -46,12 +40,9 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		invitationsRead:  opts.InvitationsRead,
 		invitationsWrite: opts.InvitationsWrite,
-		usersRead:        opts.UsersRead,
-		membershipsRead:  opts.MembershipsRead,
+		usersWrite:       opts.UsersWrite,
 		membershipsWrite: opts.MembershipsWrite,
-		rolesRead:        opts.RolesRead,
 		rolesWrite:       opts.RolesWrite,
 		idGen:            opts.IdGen,
 		unitOfWork:       opts.UnitOfWork,
@@ -60,7 +51,7 @@ func New(opts Options) *Handler {
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership, error) {
-	invitation, err := h.invitationsRead.FindByToken(ctx, cmd.Token)
+	invitation, err := h.invitationsWrite.FindByToken(ctx, cmd.Token)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvitationNotFound) {
 			h.log.Warn("invitation not found or invalid token")
@@ -77,7 +68,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership,
 		h.log.Warn("invitation already accepted", "workspace_id", invitation.WorkspaceID)
 		return nil, domain.ErrInvitationAccepted
 	}
-	user, err := h.usersRead.FindByID(ctx, cmd.UserID)
+	user, err := h.usersWrite.FindByID(ctx, cmd.UserID)
 	if err != nil {
 		h.log.Error("failed to find user for invitation acceptance", "user_id", cmd.UserID, "error", err)
 		return nil, err
@@ -86,7 +77,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership,
 		h.log.Warn("invitation email mismatch", "workspace_id", invitation.WorkspaceID, "user_id", cmd.UserID)
 		return nil, domain.ErrWorkspaceAccessDenied
 	}
-	existing, err := h.membershipsRead.FindByWorkspaceAndUser(ctx, invitation.WorkspaceID, cmd.UserID)
+	existing, err := h.membershipsWrite.FindByWorkspaceAndUser(ctx, invitation.WorkspaceID, cmd.UserID)
 	if err == nil && existing != nil {
 		h.log.Warn("user is already a member of workspace", "workspace_id", invitation.WorkspaceID, "user_id", cmd.UserID)
 		return nil, domain.ErrInvitationAccepted
@@ -95,7 +86,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Membership,
 		h.log.Error("failed to check existing membership", "workspace_id", invitation.WorkspaceID, "error", err)
 		return nil, err
 	}
-	invitationRoles, err := h.rolesRead.ListByInvitation(ctx, invitation.ID)
+	invitationRoles, err := h.rolesWrite.ListByInvitation(ctx, invitation.ID)
 	if err != nil {
 		h.log.Error("failed to list invitation roles", "workspace_id", invitation.WorkspaceID, "error", err)
 		return nil, err

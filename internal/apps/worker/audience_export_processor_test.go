@@ -53,6 +53,14 @@ func (s *exportJobRepoStub) MarkExportJobFailed(ctx context.Context, workspaceID
 	return nil
 }
 
+func (s *exportJobRepoStub) FindExportJobByID(ctx context.Context, workspaceID, jobID string) (*domain.AudienceExportJob, error) {
+	return nil, nil
+}
+
+func (s *exportJobRepoStub) ListExportJobs(ctx context.Context, query audienceports.ExportJobListQuery) ([]domain.AudienceExportJob, string, error) {
+	return nil, "", nil
+}
+
 type exportContactRepoStub struct {
 	contacts []domain.Contact
 }

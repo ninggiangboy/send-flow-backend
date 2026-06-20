@@ -30,7 +30,8 @@ func (m *webhookProcessorDeliveryRead) ListByWorkspace(ctx context.Context, work
 }
 
 type webhookProcessorDeliveryWrite struct {
-	claimed []domain.WebhookDelivery
+	claimed    []domain.WebhookDelivery
+	deliveries map[string]domain.WebhookDelivery
 }
 
 func (m *webhookProcessorDeliveryWrite) Create(ctx context.Context, delivery domain.WebhookDelivery) error {
@@ -56,6 +57,20 @@ func (m *webhookProcessorDeliveryWrite) ScheduleRetry(ctx context.Context, deliv
 func (m *webhookProcessorDeliveryWrite) ClaimPendingDeliveries(ctx context.Context, limit int, now time.Time) ([]domain.WebhookDelivery, error) {
 	return m.claimed, nil
 }
+func (m *webhookProcessorDeliveryWrite) FindByID(ctx context.Context, workspaceID, deliveryID string) (*domain.WebhookDelivery, error) {
+	if m.deliveries != nil {
+		if d, ok := m.deliveries[deliveryID]; ok {
+			return &d, nil
+		}
+	}
+	return nil, nil
+}
+func (m *webhookProcessorDeliveryWrite) FindByWebhookAndEvent(ctx context.Context, webhookID, sourceEventID string) (*domain.WebhookDelivery, error) {
+	return nil, nil
+}
+func (m *webhookProcessorDeliveryWrite) ListByWorkspace(ctx context.Context, workspaceID string, filter ports.DeliveryFilter) ([]domain.WebhookDelivery, string, error) {
+	return nil, "", nil
+}
 
 type webhookProcessorConfigRead struct{}
 
@@ -77,10 +92,29 @@ func (m *webhookProcessorConfigRead) ListSubscribed(ctx context.Context, workspa
 	return nil, nil
 }
 
+type webhookProcessorConfigWrite struct {
+	*webhookProcessorConfigRead
+}
+
+func (m *webhookProcessorConfigWrite) Create(ctx context.Context, config domain.WebhookConfig) error {
+	return nil
+}
+
+func (m *webhookProcessorConfigWrite) Update(ctx context.Context, config domain.WebhookConfig) error {
+	return nil
+}
+
+func (m *webhookProcessorConfigWrite) Disable(ctx context.Context, workspaceID, webhookID string, disabledAt time.Time) error {
+	return nil
+}
+
 type webhookProcessorAttemptWrite struct{}
 
 func (m *webhookProcessorAttemptWrite) Create(ctx context.Context, attempt domain.WebhookDeliveryAttempt) error {
 	return nil
+}
+func (m *webhookProcessorAttemptWrite) ListByDelivery(ctx context.Context, deliveryID string) ([]domain.WebhookDeliveryAttempt, error) {
+	return nil, nil
 }
 
 type webhookProcessorTx struct{}
@@ -143,8 +177,9 @@ func TestDueWebhookDeliveryProcessor_RecordsPipelineOutcomes(t *testing.T) {
 	idCounter := 0
 	svc := webhooksapp.NewService(webhooksapp.Options{
 		ConfigRead:    &webhookProcessorConfigRead{},
+		ConfigWrite:   &webhookProcessorConfigWrite{&webhookProcessorConfigRead{}},
 		DeliveryRead:  &webhookProcessorDeliveryRead{deliveries: deliveryByID},
-		DeliveryWrite: &webhookProcessorDeliveryWrite{claimed: deliveries},
+		DeliveryWrite: &webhookProcessorDeliveryWrite{claimed: deliveries, deliveries: deliveryByID},
 		AttemptWrite:  &webhookProcessorAttemptWrite{},
 		TxManager:     &webhookProcessorTx{},
 		Deliverer:     &webhookProcessorDeliverer{},

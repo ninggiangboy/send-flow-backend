@@ -66,11 +66,11 @@ func NewService(opts Options) *Service {
 	if opts.IDGen == nil {
 		opts.IDGen = id.NewUUIDGenerator().New
 	}
-
+	if opts.MessagesRead == nil {
+		opts.MessagesRead = opts.MessagesWrite
+	}
 	acceptTransactionalH := accepttransactionalsend.New(
-		opts.TxRequestsRead,
 		opts.TxRequestsWrite,
-		opts.MessagesRead,
 		opts.MessagesWrite,
 		opts.SenderChecker,
 		opts.ContentRenderer,
@@ -99,7 +99,6 @@ func NewService(opts Options) *Service {
 	handleCampaignH := handlecampaignscheduled.New(queueCampaignH, opts.Logger)
 
 	handleProviderH := handleproviderevent.New(
-		opts.MessagesRead,
 		opts.MessagesWrite,
 		opts.TxRequestsWrite,
 		opts.RecipientSuppressor,
@@ -111,11 +110,8 @@ func NewService(opts Options) *Service {
 	)
 
 	processDueMsgsH := processduemessages.New(
-		opts.MessagesRead,
 		opts.MessagesWrite,
-		opts.AttemptsRead,
 		opts.AttemptsWrite,
-		opts.RetryStatesRead,
 		opts.RetryStatesWrite,
 		opts.SenderChecker,
 		opts.SuppressionChecker,

@@ -13,14 +13,14 @@ import (
 )
 
 type Options struct {
-	UsersRead     ports.UserReadRepository
+	UsersWrite    ports.UserWriteRepository
 	TotpSecretGen ports.TOTPSecretGenerator
 	Totp          ports.TOTPRepository
 	Logger        *slog.Logger
 }
 
 type Handler struct {
-	usersRead     ports.UserReadRepository
+	usersWrite    ports.UserWriteRepository
 	totpSecretGen ports.TOTPSecretGenerator
 	totp          ports.TOTPRepository
 	log           *slog.Logger
@@ -33,7 +33,7 @@ type Result struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		usersRead:     opts.UsersRead,
+		usersWrite:    opts.UsersWrite,
 		totpSecretGen: opts.TotpSecretGen,
 		totp:          opts.Totp,
 		log:           opts.Logger.With("usecase", "mfa_totp_setup"),
@@ -41,7 +41,7 @@ func New(opts Options) *Handler {
 }
 
 func (h *Handler) Execute(ctx context.Context, userID string, now time.Time) (*Result, error) {
-	user, err := h.usersRead.FindByID(ctx, userID)
+	user, err := h.usersWrite.FindByID(ctx, userID)
 	if err != nil {
 		h.log.Error("failed to find user for MFA setup", "user_id", userID, "error", err)
 		return nil, err

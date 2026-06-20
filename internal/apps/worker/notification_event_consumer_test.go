@@ -40,6 +40,18 @@ func (m *mockNotifMsgWrite) ClaimRetryingMessages(ctx context.Context, limit int
 	return nil, nil
 }
 
+func (m *mockNotifMsgWrite) FindByID(context.Context, string) (*domain.NotificationMessage, error) {
+	return nil, nil
+}
+
+func (m *mockNotifMsgWrite) List(context.Context, domain.NotificationFilter) ([]domain.NotificationMessage, string, error) {
+	return nil, "", nil
+}
+
+func (m *mockNotifMsgWrite) FindPendingForRetry(context.Context, int) ([]domain.NotificationMessage, error) {
+	return nil, nil
+}
+
 type mockNotifAttemptWrite struct {
 	create func(ctx context.Context, attempt domain.NotificationAttempt) error
 }
@@ -49,6 +61,10 @@ func (m *mockNotifAttemptWrite) Create(ctx context.Context, attempt domain.Notif
 		return m.create(ctx, attempt)
 	}
 	return nil
+}
+
+func (m *mockNotifAttemptWrite) FindByMessageID(context.Context, string) ([]domain.NotificationAttempt, error) {
+	return nil, nil
 }
 
 type mockNotifEmailSender struct {

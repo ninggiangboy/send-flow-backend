@@ -62,7 +62,6 @@ func NewService(opts Options) *Service {
 	logger := opts.Logger
 
 	createH := createsenderdomain.New(createsenderdomain.Options{
-		DomainsRead:     opts.DomainsRead,
 		DomainsWrite:    opts.DomainsWrite,
 		AccessChecker:   opts.AccessChecker,
 		IDGen:           opts.IDGen,
@@ -70,7 +69,6 @@ func NewService(opts Options) *Service {
 		Logger:          logger,
 	})
 	refreshH := refreshsenderdomaindnsstatus.New(refreshsenderdomaindnsstatus.Options{
-		DomainsRead:     opts.DomainsRead,
 		DomainsWrite:    opts.DomainsWrite,
 		DNSResolver:     opts.DNSResolver,
 		AccessChecker:   opts.AccessChecker,
@@ -78,7 +76,6 @@ func NewService(opts Options) *Service {
 		Logger:          logger,
 	})
 	disableH := disablesenderdomain.New(disablesenderdomain.Options{
-		DomainsRead:   opts.DomainsRead,
 		DomainsWrite:  opts.DomainsWrite,
 		AccessChecker: opts.AccessChecker,
 		Logger:        logger,

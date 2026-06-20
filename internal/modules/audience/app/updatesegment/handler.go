@@ -11,7 +11,6 @@ import (
 )
 
 type Options struct {
-	SegmentsRead  ports.SegmentReadRepository
 	SegmentsWrite ports.SegmentWriteRepository
 	AccessChecker ports.WorkspaceAccessChecker
 	Logger        *slog.Logger
@@ -28,7 +27,6 @@ type Command struct {
 }
 
 type Handler struct {
-	segmentsRead  ports.SegmentReadRepository
 	segmentsWrite ports.SegmentWriteRepository
 	accessChecker ports.WorkspaceAccessChecker
 	log           *slog.Logger
@@ -36,7 +34,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		segmentsRead:  opts.SegmentsRead,
 		segmentsWrite: opts.SegmentsWrite,
 		accessChecker: opts.AccessChecker,
 		log:           opts.Logger.With("usecase", "update_segment"),
@@ -54,7 +51,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Segment, er
 		return nil, err
 	}
 
-	segment, err := h.segmentsRead.FindSegmentByID(ctx, cmd.WorkspaceID, cmd.SegmentID)
+	segment, err := h.segmentsWrite.FindSegmentByID(ctx, cmd.WorkspaceID, cmd.SegmentID)
 	if err != nil {
 		if errors.Is(err, domain.ErrSegmentNotFound) {
 			return nil, err

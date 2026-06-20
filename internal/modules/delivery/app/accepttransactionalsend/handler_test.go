@@ -38,8 +38,9 @@ func (m *mockTxRequestReadRepo) FindByID(ctx context.Context, workspaceID, reque
 
 type mockTxRequestWriteRepo struct {
 	ports.TransactionalRequestWriteRepository
-	create func(ctx context.Context, request domain.TransactionalSendRequest) error
-	update func(ctx context.Context, request domain.TransactionalSendRequest) error
+	create               func(ctx context.Context, request domain.TransactionalSendRequest) error
+	update               func(ctx context.Context, request domain.TransactionalSendRequest) error
+	findByIdempotencyKey func(ctx context.Context, workspaceID, idempotencyKey string) (*domain.TransactionalSendRequest, error)
 }
 
 func (m *mockTxRequestWriteRepo) Create(ctx context.Context, request domain.TransactionalSendRequest) error {
@@ -54,6 +55,13 @@ func (m *mockTxRequestWriteRepo) Update(ctx context.Context, request domain.Tran
 		return nil
 	}
 	return m.update(ctx, request)
+}
+
+func (m *mockTxRequestWriteRepo) FindByIdempotencyKey(ctx context.Context, workspaceID, idempotencyKey string) (*domain.TransactionalSendRequest, error) {
+	if m.findByIdempotencyKey == nil {
+		return nil, domain.ErrTransactionalRequestNotFound
+	}
+	return m.findByIdempotencyKey(ctx, workspaceID, idempotencyKey)
 }
 
 type mockMessageReadRepo struct {
@@ -79,10 +87,18 @@ func (m *mockMessageReadRepo) List(ctx context.Context, query ports.MessageListQ
 type mockMessageWriteRepo struct {
 	ports.MessageWriteRepository
 	createMany func(ctx context.Context, messages []domain.Message) ([]string, error)
+	list       func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error)
 }
 
 func (m *mockMessageWriteRepo) CreateMany(ctx context.Context, messages []domain.Message) ([]string, error) {
 	return m.createMany(ctx, messages)
+}
+
+func (m *mockMessageWriteRepo) List(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error) {
+	if m.list == nil {
+		return nil, "", nil
+	}
+	return m.list(ctx, query)
 }
 
 type mockSenderChecker struct {
@@ -211,9 +227,7 @@ func baseRawInput() Input {
 }
 
 func defaultMocks() (
-	*mockTxRequestReadRepo,
 	*mockTxRequestWriteRepo,
-	*mockMessageReadRepo,
 	*mockMessageWriteRepo,
 	*mockSenderChecker,
 	*mockContentRenderer,
@@ -224,11 +238,9 @@ func defaultMocks() (
 	*mockOutboxWriter,
 	*mockTxManager,
 ) {
-	return &mockTxRequestReadRepo{},
-		&mockTxRequestWriteRepo{
+	return &mockTxRequestWriteRepo{
 			create: func(ctx context.Context, request domain.TransactionalSendRequest) error { return nil },
 		},
-		&mockMessageReadRepo{},
 		&mockMessageWriteRepo{
 			createMany: func(ctx context.Context, messages []domain.Message) ([]string, error) {
 				ids := make([]string, len(messages))
@@ -271,9 +283,7 @@ func defaultMocks() (
 }
 
 func testHandler(
-	txReqR ports.TransactionalRequestReadRepository,
 	txReqW ports.TransactionalRequestWriteRepository,
-	msgR ports.MessageReadRepository,
 	msgW ports.MessageWriteRepository,
 	sc ports.SenderReadinessChecker,
 	cr ports.ContentRenderer,
@@ -284,7 +294,7 @@ func testHandler(
 	outbox ports.OutboxWriter,
 	txMgr ports.UnitOfWork,
 ) *Handler {
-	return New(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStor, outbox, txMgr,
+	return New(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStor, outbox, txMgr,
 		func() (string, error) { return "id_gen_1", nil },
 		testLogger(), nil, nil, nil)
 }
@@ -292,7 +302,7 @@ func testHandler(
 // Tests
 
 func TestTemplateMode_ValidInput_Success(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
 
 	var requestCreated bool
 	txReqW.create = func(ctx context.Context, req domain.TransactionalSendRequest) error {
@@ -331,7 +341,7 @@ func TestTemplateMode_ValidInput_Success(t *testing.T) {
 		return nil
 	}
 
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 	result, err := h.Execute(context.Background(), baseTemplateInput())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -355,8 +365,8 @@ func TestTemplateMode_ValidInput_Success(t *testing.T) {
 }
 
 func TestRawMode_ValidInput_Success(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	result, err := h.Execute(context.Background(), baseRawInput())
 	if err != nil {
@@ -368,8 +378,8 @@ func TestRawMode_ValidInput_Success(t *testing.T) {
 }
 
 func TestDuplicateRecipients_ReturnsError(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	input := baseTemplateInput()
 	input.CC = []domain.RecipientTarget{{Email: "alice@example.com"}}
@@ -381,11 +391,11 @@ func TestDuplicateRecipients_ReturnsError(t *testing.T) {
 }
 
 func TestSuppressedRecipient_ReturnsError(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
 	sup.checkSuppression = func(ctx context.Context, workspaceID, emailNormalized, scope string) (*ports.SuppressionDecision, error) {
 		return &ports.SuppressionDecision{Suppressed: true, Reason: "manual_block"}, nil
 	}
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	_, err := h.Execute(context.Background(), baseTemplateInput())
 	if !errors.Is(err, domain.ErrSuppressedRecipient) {
@@ -394,11 +404,11 @@ func TestSuppressedRecipient_ReturnsError(t *testing.T) {
 }
 
 func TestSenderDomainNotReady_ReturnsError(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
 	sc.getSenderReadiness = func(ctx context.Context, workspaceID, senderDomainID string) (*ports.SenderReadiness, error) {
 		return &ports.SenderReadiness{Ready: false}, nil
 	}
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	_, err := h.Execute(context.Background(), baseTemplateInput())
 	if !errors.Is(err, domain.ErrSenderDomainNotVerified) {
@@ -407,8 +417,8 @@ func TestSenderDomainNotReady_ReturnsError(t *testing.T) {
 }
 
 func TestInvalidMode_ReturnsError(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	input := baseTemplateInput()
 	input.Mode = "invalid"
@@ -420,8 +430,8 @@ func TestInvalidMode_ReturnsError(t *testing.T) {
 }
 
 func TestTemplateModeWithAttachments_ReturnsError(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	input := baseTemplateInput()
 	input.Attachments = []AttachmentStream{
@@ -435,8 +445,8 @@ func TestTemplateModeWithAttachments_ReturnsError(t *testing.T) {
 }
 
 func TestRawModeWithoutObjectStorage_ReturnsError(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, _, outbox, txMgr := defaultMocks()
-	h := New(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo,
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, _, outbox, txMgr := defaultMocks()
+	h := New(txReqW, msgW, sc, cr, sup, attRepo, evtRepo,
 		nil, // objectStorage = nil
 		outbox, txMgr,
 		func() (string, error) { return "id_gen_1", nil },
@@ -457,8 +467,8 @@ func TestRawModeWithoutObjectStorage_ReturnsError(t *testing.T) {
 }
 
 func TestHandleIdempotencyReturnsAllMessageIDs(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
-	txReqR.findByIdempotencyKey = func(ctx context.Context, workspaceID, idempotencyKey string) (*domain.TransactionalSendRequest, error) {
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	txReqW.findByIdempotencyKey = func(ctx context.Context, workspaceID, idempotencyKey string) (*domain.TransactionalSendRequest, error) {
 		return &domain.TransactionalSendRequest{
 			ID:          "txreq_1",
 			WorkspaceID: workspaceID,
@@ -467,7 +477,7 @@ func TestHandleIdempotencyReturnsAllMessageIDs(t *testing.T) {
 			CreatedAt:   now(),
 		}, nil
 	}
-	msgR.list = func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error) {
+	msgW.list = func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error) {
 		if query.TransactionalRequestID != "txreq_1" {
 			t.Fatalf("expected request txreq_1, got %s", query.TransactionalRequestID)
 		}
@@ -477,7 +487,7 @@ func TestHandleIdempotencyReturnsAllMessageIDs(t *testing.T) {
 		}, "", nil
 	}
 
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 	result, err := h.handleIdempotency(context.Background(), "ws_1", "idem_1", "hash_123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -491,7 +501,7 @@ func TestHandleIdempotencyReturnsAllMessageIDs(t *testing.T) {
 }
 
 func TestStoreAttachmentsUploadsReadableBody(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, _, outbox, txMgr := defaultMocks()
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, _, outbox, txMgr := defaultMocks()
 
 	var uploaded []byte
 	objStore := &mockObjectStorage{
@@ -505,7 +515,7 @@ func TestStoreAttachmentsUploadsReadableBody(t *testing.T) {
 		},
 	}
 
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 	_, err := h.storeAttachments(context.Background(), "ws_1", "req_1", []AttachmentStream{{
 		Filename:    "hello.txt",
 		ContentType: "text/plain",
@@ -522,7 +532,7 @@ func TestStoreAttachmentsUploadsReadableBody(t *testing.T) {
 }
 
 func TestExecuteCleansUpUploadedAttachmentsOnTxFailure(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, _, outbox, txMgr := defaultMocks()
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, _, outbox, txMgr := defaultMocks()
 	txReqW.create = func(ctx context.Context, request domain.TransactionalSendRequest) error {
 		return errors.New("db failed")
 	}
@@ -541,7 +551,7 @@ func TestExecuteCleansUpUploadedAttachmentsOnTxFailure(t *testing.T) {
 	}
 
 	idCalls := 0
-	h := New(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr,
+	h := New(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr,
 		func() (string, error) {
 			idCalls++
 			switch idCalls {
@@ -577,8 +587,8 @@ func TestExecuteCleansUpUploadedAttachmentsOnTxFailure(t *testing.T) {
 }
 
 func TestEmptyWorkspace_ReturnsValidationError(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	input := baseTemplateInput()
 	input.WorkspaceID = ""
@@ -590,8 +600,8 @@ func TestEmptyWorkspace_ReturnsValidationError(t *testing.T) {
 }
 
 func TestNoRecipients_ReturnsError(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	input := baseTemplateInput()
 	input.To = nil
@@ -609,9 +619,9 @@ func TestIdempotencyKeyReuse_SameHash_ReturnsExisting(t *testing.T) {
 	canonical := (&Handler{}).buildCanonical(input, targets)
 	expectedHash := computeRequestHash(canonical, nil)
 
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
 
-	txReqR.findByIdempotencyKey = func(ctx context.Context, workspaceID, idempotencyKey string) (*domain.TransactionalSendRequest, error) {
+	txReqW.findByIdempotencyKey = func(ctx context.Context, workspaceID, idempotencyKey string) (*domain.TransactionalSendRequest, error) {
 		return &domain.TransactionalSendRequest{
 			ID:          "existing_req",
 			Status:      domain.TxRequestStatusAccepted,
@@ -619,11 +629,11 @@ func TestIdempotencyKeyReuse_SameHash_ReturnsExisting(t *testing.T) {
 		}, nil
 	}
 
-	msgR.list = func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error) {
+	msgW.list = func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error) {
 		return []domain.Message{{ID: "existing_msg"}}, "", nil
 	}
 
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	result, err := h.Execute(context.Background(), input)
 	if err != nil {
@@ -635,9 +645,9 @@ func TestIdempotencyKeyReuse_SameHash_ReturnsExisting(t *testing.T) {
 }
 
 func TestIdempotencyKeyChanged_ReturnsConflict(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
 
-	txReqR.findByIdempotencyKey = func(ctx context.Context, workspaceID, idempotencyKey string) (*domain.TransactionalSendRequest, error) {
+	txReqW.findByIdempotencyKey = func(ctx context.Context, workspaceID, idempotencyKey string) (*domain.TransactionalSendRequest, error) {
 		return &domain.TransactionalSendRequest{
 			ID:          "existing_req",
 			Status:      domain.TxRequestStatusAccepted,
@@ -645,7 +655,7 @@ func TestIdempotencyKeyChanged_ReturnsConflict(t *testing.T) {
 		}, nil
 	}
 
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 	input := baseTemplateInput()
 	input.IdempotencyKey = "idemp_key_1"
 
@@ -656,7 +666,7 @@ func TestIdempotencyKeyChanged_ReturnsConflict(t *testing.T) {
 }
 
 func TestMultiRecipient_ToAndCC(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
 
 	var messageCount int
 	msgW.createMany = func(ctx context.Context, messages []domain.Message) ([]string, error) {
@@ -668,7 +678,7 @@ func TestMultiRecipient_ToAndCC(t *testing.T) {
 		return ids, nil
 	}
 
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	input := baseTemplateInput()
 	input.To = []domain.RecipientTarget{
@@ -692,8 +702,8 @@ func TestMultiRecipient_ToAndCC(t *testing.T) {
 }
 
 func TestRawMode_NoSubject_ReturnsError(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	input := baseRawInput()
 	input.Subject = ""
@@ -705,8 +715,8 @@ func TestRawMode_NoSubject_ReturnsError(t *testing.T) {
 }
 
 func TestRawMode_NoBody_ReturnsError(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	input := baseRawInput()
 	input.TextBody = ""
@@ -719,8 +729,8 @@ func TestRawMode_NoBody_ReturnsError(t *testing.T) {
 }
 
 func TestExceedsMaxRecipients_ReturnsError(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	input := baseTemplateInput()
 	var recipients []domain.RecipientTarget
@@ -736,7 +746,7 @@ func TestExceedsMaxRecipients_ReturnsError(t *testing.T) {
 }
 
 func TestMessageIDs_GeneratedPerRecipient(t *testing.T) {
-	txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
+	txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr := defaultMocks()
 
 	var callCount int
 	msgW.createMany = func(ctx context.Context, messages []domain.Message) ([]string, error) {
@@ -748,7 +758,7 @@ func TestMessageIDs_GeneratedPerRecipient(t *testing.T) {
 		return ids, nil
 	}
 
-	h := testHandler(txReqR, txReqW, msgR, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
+	h := testHandler(txReqW, msgW, sc, cr, sup, attRepo, evtRepo, objStore, outbox, txMgr)
 
 	input := baseTemplateInput()
 	input.To = []domain.RecipientTarget{

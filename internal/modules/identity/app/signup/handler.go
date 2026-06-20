@@ -14,7 +14,6 @@ import (
 )
 
 type Options struct {
-	UsersRead         ports.UserReadRepository
 	UsersWrite        ports.UserWriteRepository
 	Hasher            domain.PasswordHasher
 	PasswordValidator ports.PasswordValidator
@@ -29,7 +28,6 @@ type Options struct {
 }
 
 type Handler struct {
-	usersRead         ports.UserReadRepository
 	usersWrite        ports.UserWriteRepository
 	hasher            domain.PasswordHasher
 	passwordValidator ports.PasswordValidator
@@ -53,7 +51,6 @@ type Command struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		usersRead:         opts.UsersRead,
 		usersWrite:        opts.UsersWrite,
 		hasher:            opts.Hasher,
 		passwordValidator: opts.PasswordValidator,
@@ -79,7 +76,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 	if err := h.passwordValidator.Validate(cmd.Password); err != nil {
 		return nil, domain.ErrPasswordPolicy
 	}
-	existing, err := h.usersRead.FindByEmail(ctx, email.String())
+	existing, err := h.usersWrite.FindByEmail(ctx, email.String())
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		h.log.Error("failed to lookup user by email", "error", err)
 		return nil, err

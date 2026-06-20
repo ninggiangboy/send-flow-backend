@@ -23,76 +23,27 @@ type idGenStub struct {
 
 func (s idGenStub) New() (string, error) { return s.id, s.err }
 
-type invitationsReadStub struct {
-	invitation *domain.Invitation
-	err        error
+type userWriteStub struct {
+	findByID func(ctx context.Context, userID string) (*domain.User, error)
 }
 
-func (s *invitationsReadStub) FindByToken(_ context.Context, _ string) (*domain.Invitation, error) {
-	return s.invitation, s.err
+func (s *userWriteStub) Create(context.Context, domain.User) error                       { return nil }
+func (s *userWriteStub) UpdatePassword(context.Context, string, string, time.Time) error { return nil }
+func (s *userWriteStub) MarkEmailVerified(context.Context, string, time.Time) error      { return nil }
+func (s *userWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, time.Time) error {
+	return nil
 }
-func (s *invitationsReadStub) ListByWorkspace(_ context.Context, _ string) ([]domain.Invitation, error) {
+func (s *userWriteStub) FindByEmail(context.Context, string) (*domain.User, error) { return nil, nil }
+func (s *userWriteStub) FindByID(ctx context.Context, userID string) (*domain.User, error) {
+	if s.findByID != nil {
+		return s.findByID(ctx, userID)
+	}
 	return nil, nil
 }
 
-type usersReadStub struct {
-	user *domain.User
-	err  error
+type membershipsWriteStub struct {
+	findByWorkspaceAndUser func(ctx context.Context, workspaceID, userID string) (*domain.Membership, error)
 }
-
-func (s *usersReadStub) FindByID(_ context.Context, _ string) (*domain.User, error) {
-	return s.user, s.err
-}
-func (s *usersReadStub) FindByEmail(_ context.Context, _ string) (*domain.User, error) {
-	return nil, nil
-}
-
-type membershipsReadStub struct {
-	membership *domain.Membership
-	err        error
-}
-
-func (s *membershipsReadStub) FindByID(_ context.Context, _ string) (*domain.Membership, error) {
-	return s.membership, s.err
-}
-func (s *membershipsReadStub) FindByWorkspaceAndUser(_ context.Context, _, _ string) (*domain.Membership, error) {
-	return s.membership, s.err
-}
-func (s *membershipsReadStub) ListByWorkspace(_ context.Context, _ string) ([]domain.Membership, error) {
-	return nil, nil
-}
-func (s *membershipsReadStub) CountByWorkspaceAndRole(_ context.Context, _ string, _ domain.MembershipRole) (int, error) {
-	return 0, nil
-}
-
-type rolesReadStub struct {
-	roles []domain.Role
-	err   error
-}
-
-func (s *rolesReadStub) FindByID(_ context.Context, _, _ string) (*domain.Role, error) {
-	return nil, nil
-}
-func (s *rolesReadStub) FindByType(_ context.Context, _ string, _ domain.RoleType) (*domain.Role, error) {
-	return nil, nil
-}
-func (s *rolesReadStub) FindByIDs(_ context.Context, _ string, _ []string) ([]domain.Role, error) {
-	return nil, nil
-}
-func (s *rolesReadStub) ListByWorkspace(_ context.Context, _ string) ([]domain.Role, error) {
-	return nil, nil
-}
-func (s *rolesReadStub) ListByMembership(_ context.Context, _ string) ([]domain.Role, error) {
-	return nil, nil
-}
-func (s *rolesReadStub) ListByInvitation(_ context.Context, _ string) ([]domain.Role, error) {
-	return s.roles, s.err
-}
-func (s *rolesReadStub) CountMembershipsByRole(_ context.Context, _, _ string) (int, error) {
-	return 0, nil
-}
-
-type membershipsWriteStub struct{}
 
 func (s *membershipsWriteStub) Create(_ context.Context, _ domain.Membership) error { return nil }
 func (s *membershipsWriteStub) DeleteByID(_ context.Context, _ string) error        { return nil }
@@ -102,8 +53,25 @@ func (s *membershipsWriteStub) UpdateRole(_ context.Context, _ string, _ domain.
 func (s *membershipsWriteStub) UpdateStatus(_ context.Context, _ string, _ domain.MembershipStatus, _ time.Time) error {
 	return nil
 }
+func (s *membershipsWriteStub) FindByID(_ context.Context, _ string) (*domain.Membership, error) {
+	return nil, nil
+}
+func (s *membershipsWriteStub) FindByWorkspaceAndUser(ctx context.Context, workspaceID, userID string) (*domain.Membership, error) {
+	if s.findByWorkspaceAndUser != nil {
+		return s.findByWorkspaceAndUser(ctx, workspaceID, userID)
+	}
+	return nil, nil
+}
+func (s *membershipsWriteStub) ListByWorkspace(_ context.Context, _ string) ([]domain.Membership, error) {
+	return nil, nil
+}
+func (s *membershipsWriteStub) CountByWorkspaceAndRole(_ context.Context, _ string, _ domain.MembershipRole) (int, error) {
+	return 0, nil
+}
 
-type rolesWriteStub struct{}
+type rolesWriteStub struct {
+	listByInvitation func(ctx context.Context, invitationID string) ([]domain.Role, error)
+}
 
 func (s *rolesWriteStub) Create(_ context.Context, _ domain.Role) error { return nil }
 func (s *rolesWriteStub) Update(_ context.Context, _ domain.Role) error { return nil }
@@ -113,32 +81,78 @@ func (s *rolesWriteStub) ReplaceMembershipRoles(_ context.Context, _ string, _ [
 func (s *rolesWriteStub) ReplaceInvitationRoles(_ context.Context, _ string, _ []string, _ time.Time) error {
 	return nil
 }
+func (s *rolesWriteStub) FindByID(_ context.Context, _, _ string) (*domain.Role, error) {
+	return nil, nil
+}
+func (s *rolesWriteStub) FindByType(_ context.Context, _ string, _ domain.RoleType) (*domain.Role, error) {
+	return nil, nil
+}
+func (s *rolesWriteStub) FindByIDs(_ context.Context, _ string, _ []string) ([]domain.Role, error) {
+	return nil, nil
+}
+func (s *rolesWriteStub) ListByWorkspace(_ context.Context, _ string) ([]domain.Role, error) {
+	return nil, nil
+}
+func (s *rolesWriteStub) ListByMembership(_ context.Context, _ string) ([]domain.Role, error) {
+	return nil, nil
+}
+func (s *rolesWriteStub) ListByInvitation(ctx context.Context, invitationID string) ([]domain.Role, error) {
+	if s.listByInvitation != nil {
+		return s.listByInvitation(ctx, invitationID)
+	}
+	return nil, nil
+}
+func (s *rolesWriteStub) CountMembershipsByRole(_ context.Context, _, _ string) (int, error) {
+	return 0, nil
+}
 
-type invitationsWriteStub struct{}
+type invitationsWriteStub struct {
+	findByToken func(ctx context.Context, token string) (*domain.Invitation, error)
+}
 
 func (s *invitationsWriteStub) Create(_ context.Context, _ domain.Invitation) error { return nil }
 func (s *invitationsWriteStub) UpdateStatus(_ context.Context, _ string, _ domain.InvitationStatus, _ time.Time) error {
 	return nil
+}
+func (s *invitationsWriteStub) FindByToken(ctx context.Context, token string) (*domain.Invitation, error) {
+	if s.findByToken != nil {
+		return s.findByToken(ctx, token)
+	}
+	return nil, nil
+}
+func (s *invitationsWriteStub) ListByWorkspace(_ context.Context, _ string) ([]domain.Invitation, error) {
+	return nil, nil
 }
 
 func TestExecuteSuccess(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
 	h := New(Options{
-		InvitationsRead: &invitationsReadStub{invitation: &invitation},
-		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "user@example.com"}},
-		MembershipsRead: &membershipsReadStub{err: domain.ErrMembershipNotFound},
-		RolesRead: &rolesReadStub{
-			roles: []domain.Role{
-				{ID: "r1", Name: "Member", Type: domain.RoleTypeMember, Status: domain.RoleStatusActive},
+		InvitationsWrite: &invitationsWriteStub{
+			findByToken: func(_ context.Context, _ string) (*domain.Invitation, error) {
+				return &invitation, nil
 			},
 		},
-		MembershipsWrite: &membershipsWriteStub{},
-		RolesWrite:       &rolesWriteStub{},
-		InvitationsWrite: &invitationsWriteStub{},
-		IdGen:            idGenStub{id: "m1"},
-		UnitOfWork:       noopTx{},
-		Logger:           testLogger,
+		UsersWrite: &userWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return &domain.User{ID: "u1", Email: "user@example.com"}, nil
+			},
+		},
+		MembershipsWrite: &membershipsWriteStub{
+			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
+				return nil, domain.ErrMembershipNotFound
+			},
+		},
+		RolesWrite: &rolesWriteStub{
+			listByInvitation: func(_ context.Context, _ string) ([]domain.Role, error) {
+				return []domain.Role{
+					{ID: "r1", Name: "Member", Type: domain.RoleTypeMember, Status: domain.RoleStatusActive},
+				}, nil
+			},
+		},
+		IdGen:      idGenStub{id: "m1"},
+		UnitOfWork: noopTx{},
+		Logger:     testLogger,
 	})
 
 	membership, err := h.Execute(context.Background(), Command{Token: "token123", UserID: "u1", Now: now})
@@ -152,8 +166,12 @@ func TestExecuteSuccess(t *testing.T) {
 
 func TestExecuteInvalidToken(t *testing.T) {
 	h := New(Options{
-		InvitationsRead: &invitationsReadStub{err: domain.ErrInvitationNotFound},
-		Logger:          testLogger,
+		InvitationsWrite: &invitationsWriteStub{
+			findByToken: func(_ context.Context, _ string) (*domain.Invitation, error) {
+				return nil, domain.ErrInvitationNotFound
+			},
+		},
+		Logger: testLogger,
 	})
 
 	_, err := h.Execute(context.Background(), Command{Token: "invalid", UserID: "u1", Now: time.Now().UTC()})
@@ -166,8 +184,12 @@ func TestExecuteExpiredInvitation(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(-1*time.Hour), now)
 	h := New(Options{
-		InvitationsRead: &invitationsReadStub{invitation: &invitation},
-		Logger:          testLogger,
+		InvitationsWrite: &invitationsWriteStub{
+			findByToken: func(_ context.Context, _ string) (*domain.Invitation, error) {
+				return &invitation, nil
+			},
+		},
+		Logger: testLogger,
 	})
 
 	_, err := h.Execute(context.Background(), Command{Token: "token123", UserID: "u1", Now: now})
@@ -181,8 +203,12 @@ func TestExecuteAlreadyAccepted(t *testing.T) {
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
 	invitation.Status = domain.InvitationStatusAccepted
 	h := New(Options{
-		InvitationsRead: &invitationsReadStub{invitation: &invitation},
-		Logger:          testLogger,
+		InvitationsWrite: &invitationsWriteStub{
+			findByToken: func(_ context.Context, _ string) (*domain.Invitation, error) {
+				return &invitation, nil
+			},
+		},
+		Logger: testLogger,
 	})
 
 	_, err := h.Execute(context.Background(), Command{Token: "token123", UserID: "u1", Now: now})
@@ -195,9 +221,17 @@ func TestExecuteEmailMismatch(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "other@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
 	h := New(Options{
-		InvitationsRead: &invitationsReadStub{invitation: &invitation},
-		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "user@example.com"}},
-		Logger:          testLogger,
+		InvitationsWrite: &invitationsWriteStub{
+			findByToken: func(_ context.Context, _ string) (*domain.Invitation, error) {
+				return &invitation, nil
+			},
+		},
+		UsersWrite: &userWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return &domain.User{ID: "u1", Email: "user@example.com"}, nil
+			},
+		},
+		Logger: testLogger,
 	})
 
 	_, err := h.Execute(context.Background(), Command{Token: "token123", UserID: "u1", Now: now})
@@ -210,10 +244,20 @@ func TestExecuteAlreadyMember(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
 	h := New(Options{
-		InvitationsRead: &invitationsReadStub{invitation: &invitation},
-		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "user@example.com"}},
-		MembershipsRead: &membershipsReadStub{
-			membership: &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "u1"},
+		InvitationsWrite: &invitationsWriteStub{
+			findByToken: func(_ context.Context, _ string) (*domain.Invitation, error) {
+				return &invitation, nil
+			},
+		},
+		UsersWrite: &userWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return &domain.User{ID: "u1", Email: "user@example.com"}, nil
+			},
+		},
+		MembershipsWrite: &membershipsWriteStub{
+			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
+				return &domain.Membership{ID: "m1", WorkspaceID: "ws1", UserID: "u1"}, nil
+			},
 		},
 		Logger: testLogger,
 	})
@@ -228,11 +272,27 @@ func TestExecuteInvitationNoRoles(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
 	h := New(Options{
-		InvitationsRead: &invitationsReadStub{invitation: &invitation},
-		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "user@example.com"}},
-		MembershipsRead: &membershipsReadStub{err: domain.ErrMembershipNotFound},
-		RolesRead:       &rolesReadStub{roles: []domain.Role{}},
-		Logger:          testLogger,
+		InvitationsWrite: &invitationsWriteStub{
+			findByToken: func(_ context.Context, _ string) (*domain.Invitation, error) {
+				return &invitation, nil
+			},
+		},
+		UsersWrite: &userWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return &domain.User{ID: "u1", Email: "user@example.com"}, nil
+			},
+		},
+		MembershipsWrite: &membershipsWriteStub{
+			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
+				return nil, domain.ErrMembershipNotFound
+			},
+		},
+		RolesWrite: &rolesWriteStub{
+			listByInvitation: func(_ context.Context, _ string) ([]domain.Role, error) {
+				return []domain.Role{}, nil
+			},
+		},
+		Logger: testLogger,
 	})
 
 	_, err := h.Execute(context.Background(), Command{Token: "token123", UserID: "u1", Now: now})
@@ -245,12 +305,26 @@ func TestExecuteIDGenError(t *testing.T) {
 	now := time.Now().UTC()
 	invitation := domain.NewInvitation("inv1", "ws1", "user@example.com", "token123", domain.MembershipRoleMember, now.Add(24*time.Hour), now)
 	h := New(Options{
-		InvitationsRead: &invitationsReadStub{invitation: &invitation},
-		UsersRead:       &usersReadStub{user: &domain.User{ID: "u1", Email: "user@example.com"}},
-		MembershipsRead: &membershipsReadStub{err: domain.ErrMembershipNotFound},
-		RolesRead: &rolesReadStub{
-			roles: []domain.Role{
-				{ID: "r1", Name: "Member", Type: domain.RoleTypeMember, Status: domain.RoleStatusActive},
+		InvitationsWrite: &invitationsWriteStub{
+			findByToken: func(_ context.Context, _ string) (*domain.Invitation, error) {
+				return &invitation, nil
+			},
+		},
+		UsersWrite: &userWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return &domain.User{ID: "u1", Email: "user@example.com"}, nil
+			},
+		},
+		MembershipsWrite: &membershipsWriteStub{
+			findByWorkspaceAndUser: func(_ context.Context, _, _ string) (*domain.Membership, error) {
+				return nil, domain.ErrMembershipNotFound
+			},
+		},
+		RolesWrite: &rolesWriteStub{
+			listByInvitation: func(_ context.Context, _ string) ([]domain.Role, error) {
+				return []domain.Role{
+					{ID: "r1", Name: "Member", Type: domain.RoleTypeMember, Status: domain.RoleStatusActive},
+				}, nil
 			},
 		},
 		IdGen:  idGenStub{err: errors.New("idgen error")},

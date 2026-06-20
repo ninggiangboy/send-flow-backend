@@ -49,8 +49,18 @@ func (r *UserWriteRepository) SetMFAEnabledAt(ctx context.Context, userID string
 	return err
 }
 
+func (w *UserWriteRepository) FindByID(ctx context.Context, userID string) (*domain.User, error) {
+	row := w.getDB(ctx).QueryRow(ctx, `SELECT id,email,COALESCE(hashed_password,''),primary_auth_method,email_verified_at,mfa_enabled_at,created_at,updated_at FROM users WHERE id=$1`, userID)
+	return scanUser(row)
+}
+
 func (r *UserReadRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	row := r.getDB(ctx).QueryRow(ctx, `SELECT id,email,COALESCE(hashed_password,''),primary_auth_method,email_verified_at,mfa_enabled_at,created_at,updated_at FROM users WHERE email=$1`, email)
+	return scanUser(row)
+}
+
+func (w *UserWriteRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
+	row := w.getDB(ctx).QueryRow(ctx, `SELECT id,email,COALESCE(hashed_password,''),primary_auth_method,email_verified_at,mfa_enabled_at,created_at,updated_at FROM users WHERE email=$1`, email)
 	return scanUser(row)
 }
 
@@ -102,6 +112,20 @@ func (r *ExternalAccountWriteRepository) Create(ctx context.Context, a domain.Ex
 func (r *ExternalAccountWriteRepository) TouchLogin(ctx context.Context, accountID string, at time.Time) error {
 	_, err := r.getDB(ctx).Exec(ctx, `UPDATE external_auth_accounts SET last_login_at=$2, updated_at=$2 WHERE id=$1`, accountID, at)
 	return err
+}
+
+func (w *ExternalAccountWriteRepository) FindByProviderIdentity(ctx context.Context, provider, providerUserID string) (*domain.ExternalAuthAccount, error) {
+	var a domain.ExternalAuthAccount
+	var lastLoginAt *time.Time
+	err := w.getDB(ctx).QueryRow(ctx, `SELECT id,user_id,provider,provider_user_id,COALESCE(provider_email,''),provider_email_verified,linked_at,last_login_at FROM external_auth_accounts WHERE provider=$1 AND provider_user_id=$2`, provider, providerUserID).Scan(&a.ID, &a.UserID, &a.Provider, &a.ProviderUserID, &a.ProviderEmail, &a.ProviderEmailVerified, &a.LinkedAt, &lastLoginAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	a.LastLoginAt = lastLoginAt
+	return &a, nil
 }
 
 type SessionWriteRepository struct{ db platformpostgres.DBTX }
@@ -157,6 +181,47 @@ func (r *SessionWriteRepository) RevokeByUser(ctx context.Context, userID string
 func (r *SessionWriteRepository) RotateTokens(ctx context.Context, sessionID, accessJTI, refreshJTI string, expiresAt, now time.Time) error {
 	_, err := r.getDB(ctx).Exec(ctx, `UPDATE sessions SET access_jti=$2, refresh_jti=$3, expires_at=$4 WHERE id=$1`, sessionID, accessJTI, refreshJTI, expiresAt)
 	return err
+}
+
+func (w *SessionWriteRepository) FindByID(ctx context.Context, sessionID string) (*domain.Session, error) {
+	var s domain.Session
+	err := w.getDB(ctx).QueryRow(ctx, `SELECT id,user_id,auth_method,access_jti,refresh_jti,expires_at,revoked_at,COALESCE(ip_address,''),COALESCE(user_agent,''),created_at FROM sessions WHERE id=$1`, sessionID).Scan(&s.ID, &s.UserID, &s.AuthMethod, &s.AccessJTI, &s.RefreshJTI, &s.ExpiresAt, &s.RevokedAt, &s.IPAddress, &s.UserAgent, &s.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (w *SessionWriteRepository) ListByUser(ctx context.Context, userID string, now time.Time) ([]domain.Session, error) {
+	rows, err := w.getDB(ctx).Query(ctx, `SELECT id,user_id,auth_method,access_jti,refresh_jti,expires_at,revoked_at,COALESCE(ip_address,''),COALESCE(user_agent,''),created_at FROM sessions WHERE user_id=$1 AND (revoked_at IS NULL) AND expires_at > $2 ORDER BY created_at DESC`, userID, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Session
+	for rows.Next() {
+		var s domain.Session
+		if err := rows.Scan(&s.ID, &s.UserID, &s.AuthMethod, &s.AccessJTI, &s.RefreshJTI, &s.ExpiresAt, &s.RevokedAt, &s.IPAddress, &s.UserAgent, &s.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func (w *SessionWriteRepository) FindByAccessJTI(ctx context.Context, jti string) (*domain.Session, error) {
+	var s domain.Session
+	err := w.getDB(ctx).QueryRow(ctx, `SELECT id,user_id,auth_method,access_jti,refresh_jti,expires_at,revoked_at,COALESCE(ip_address,''),COALESCE(user_agent,''),created_at FROM sessions WHERE access_jti=$1`, jti).Scan(&s.ID, &s.UserID, &s.AuthMethod, &s.AccessJTI, &s.RefreshJTI, &s.ExpiresAt, &s.RevokedAt, &s.IPAddress, &s.UserAgent, &s.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
 
 func (r *SessionReadRepository) findOne(ctx context.Context, sql string, arg string) (*domain.Session, error) {
@@ -310,6 +375,33 @@ func (r *WorkspaceReadRepository) FindByID(ctx context.Context, workspaceID stri
 	return scanWorkspace(row)
 }
 
+func (w *WorkspaceWriteRepository) FindByID(ctx context.Context, workspaceID string) (*domain.Workspace, error) {
+	row := w.getDB(ctx).QueryRow(ctx, `SELECT id,name,plan,logo_icon,created_at,updated_at FROM workspaces WHERE id=$1`, workspaceID)
+	return scanWorkspace(row)
+}
+
+func (ww *WorkspaceWriteRepository) ListByUser(ctx context.Context, userID string) ([]domain.Workspace, error) {
+	rows, err := ww.getDB(ctx).Query(ctx, `
+		SELECT w.id,w.name,w.plan,w.logo_icon,w.created_at,w.updated_at
+		FROM workspaces w
+		JOIN workspace_memberships m ON m.workspace_id = w.id
+		WHERE m.user_id=$1 AND m.status='active'
+		ORDER BY w.created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Workspace
+	for rows.Next() {
+		var ws domain.Workspace
+		if err := rows.Scan(&ws.ID, &ws.Name, &ws.Plan, &ws.LogoIcon, &ws.CreatedAt, &ws.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, ws)
+	}
+	return out, rows.Err()
+}
+
 func (r *WorkspaceReadRepository) ListByUser(ctx context.Context, userID string) ([]domain.Workspace, error) {
 	rows, err := r.getDB(ctx).Query(ctx, `
 		SELECT w.id,w.name,w.plan,w.logo_icon,w.created_at,w.updated_at
@@ -393,6 +485,65 @@ func (r *RoleWriteRepository) ReplaceInvitationRoles(ctx context.Context, invita
 	return nil
 }
 
+func (r *RoleWriteRepository) FindByID(ctx context.Context, workspaceID, roleID string) (*domain.Role, error) {
+	row := r.getDB(ctx).QueryRow(ctx, `SELECT id,workspace_id,name,permissions_mask,builtin,type,status,version,created_at,updated_at FROM roles WHERE workspace_id=$1 AND id=$2`, workspaceID, roleID)
+	return scanRole(row)
+}
+
+func (r *RoleWriteRepository) FindByType(ctx context.Context, workspaceID string, roleType domain.RoleType) (*domain.Role, error) {
+	row := r.getDB(ctx).QueryRow(ctx, `SELECT id,workspace_id,name,permissions_mask,builtin,type,status,version,created_at,updated_at FROM roles WHERE workspace_id=$1 AND type=$2`, workspaceID, string(roleType))
+	return scanRole(row)
+}
+
+func (r *RoleWriteRepository) FindByIDs(ctx context.Context, workspaceID string, roleIDs []string) ([]domain.Role, error) {
+	if len(roleIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.getDB(ctx).Query(ctx, `SELECT id,workspace_id,name,permissions_mask,builtin,type,status,version,created_at,updated_at FROM roles WHERE workspace_id=$1 AND id = ANY($2) ORDER BY created_at ASC`, workspaceID, roleIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRoles(rows)
+}
+
+func (r *RoleWriteRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.Role, error) {
+	rows, err := r.getDB(ctx).Query(ctx, `SELECT id,workspace_id,name,permissions_mask,builtin,type,status,version,created_at,updated_at FROM roles WHERE workspace_id=$1 ORDER BY created_at ASC`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRoles(rows)
+}
+
+func (r *RoleWriteRepository) ListByMembership(ctx context.Context, membershipID string) ([]domain.Role, error) {
+	rows, err := r.getDB(ctx).Query(ctx, `
+		SELECT r.id,r.workspace_id,r.name,r.permissions_mask,r.builtin,r.type,r.status,r.version,r.created_at,r.updated_at
+		FROM roles r
+		JOIN membership_roles mr ON mr.role_id = r.id
+		WHERE mr.membership_id=$1
+		ORDER BY r.created_at ASC`, membershipID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRoles(rows)
+}
+
+func (r *RoleWriteRepository) ListByInvitation(ctx context.Context, invitationID string) ([]domain.Role, error) {
+	rows, err := r.getDB(ctx).Query(ctx, `
+		SELECT r.id,r.workspace_id,r.name,r.permissions_mask,r.builtin,r.type,r.status,r.version,r.created_at,r.updated_at
+		FROM roles r
+		JOIN invitation_roles ir ON ir.role_id = r.id
+		WHERE ir.invitation_id=$1
+		ORDER BY r.created_at ASC`, invitationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRoles(rows)
+}
+
 func (r *RoleReadRepository) FindByID(ctx context.Context, workspaceID, roleID string) (*domain.Role, error) {
 	row := r.getDB(ctx).QueryRow(ctx, `SELECT id,workspace_id,name,permissions_mask,builtin,type,status,version,created_at,updated_at FROM roles WHERE workspace_id=$1 AND id=$2`, workspaceID, roleID)
 	return scanRole(row)
@@ -455,6 +606,17 @@ func (r *RoleReadRepository) ListByInvitation(ctx context.Context, invitationID 
 func (r *RoleReadRepository) CountMembershipsByRole(ctx context.Context, workspaceID, roleID string) (int, error) {
 	var count int
 	err := r.getDB(ctx).QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM membership_roles mr
+		JOIN roles r ON r.id = mr.role_id
+		JOIN workspace_memberships m ON m.id = mr.membership_id
+		WHERE r.workspace_id=$1 AND r.id=$2 AND m.status='active'`, workspaceID, roleID).Scan(&count)
+	return count, err
+}
+
+func (w *RoleWriteRepository) CountMembershipsByRole(ctx context.Context, workspaceID, roleID string) (int, error) {
+	var count int
+	err := w.getDB(ctx).QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM membership_roles mr
 		JOIN roles r ON r.id = mr.role_id
@@ -535,6 +697,41 @@ func (r *MembershipWriteRepository) UpdateStatus(ctx context.Context, membership
 	return nil
 }
 
+func (r *MembershipWriteRepository) FindByID(ctx context.Context, membershipID string) (*domain.Membership, error) {
+	row := r.getDB(ctx).QueryRow(ctx, `SELECT id,workspace_id,user_id,role,status,created_at,updated_at FROM workspace_memberships WHERE id=$1`, membershipID)
+	return scanMembership(row)
+}
+
+func (r *MembershipWriteRepository) FindByWorkspaceAndUser(ctx context.Context, workspaceID, userID string) (*domain.Membership, error) {
+	row := r.getDB(ctx).QueryRow(ctx, `SELECT id,workspace_id,user_id,role,status,created_at,updated_at FROM workspace_memberships WHERE workspace_id=$1 AND user_id=$2`, workspaceID, userID)
+	return scanMembership(row)
+}
+
+func (r *MembershipWriteRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.Membership, error) {
+	rows, err := r.getDB(ctx).Query(ctx, `
+		SELECT m.id,m.workspace_id,m.user_id,COALESCE(u.email, NULL),m.role,m.status,m.created_at,m.updated_at
+		FROM workspace_memberships m
+		LEFT JOIN users u ON u.id = m.user_id
+		WHERE m.workspace_id=$1
+		ORDER BY m.created_at ASC`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Membership
+	for rows.Next() {
+		var m domain.Membership
+		var roleStr, statusStr string
+		if err := rows.Scan(&m.ID, &m.WorkspaceID, &m.UserID, &m.UserEmail, &roleStr, &statusStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+		m.Role = domain.MembershipRole(roleStr)
+		m.Status = domain.MembershipStatus(statusStr)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 func (r *MembershipReadRepository) FindByID(ctx context.Context, membershipID string) (*domain.Membership, error) {
 	row := r.getDB(ctx).QueryRow(ctx, `SELECT id,workspace_id,user_id,role,status,created_at,updated_at FROM workspace_memberships WHERE id=$1`, membershipID)
 	return scanMembership(row)
@@ -573,6 +770,12 @@ func (r *MembershipReadRepository) ListByWorkspace(ctx context.Context, workspac
 func (r *MembershipReadRepository) CountByWorkspaceAndRole(ctx context.Context, workspaceID string, role domain.MembershipRole) (int, error) {
 	var count int
 	err := r.getDB(ctx).QueryRow(ctx, `SELECT COUNT(*) FROM workspace_memberships WHERE workspace_id=$1 AND role=$2`, workspaceID, string(role)).Scan(&count)
+	return count, err
+}
+
+func (w *MembershipWriteRepository) CountByWorkspaceAndRole(ctx context.Context, workspaceID string, role domain.MembershipRole) (int, error) {
+	var count int
+	err := w.getDB(ctx).QueryRow(ctx, `SELECT COUNT(*) FROM workspace_memberships WHERE workspace_id=$1 AND role=$2`, workspaceID, string(role)).Scan(&count)
 	return count, err
 }
 
@@ -619,8 +822,33 @@ func (r *InvitationWriteRepository) UpdateStatus(ctx context.Context, invitation
 	return nil
 }
 
+func (r *InvitationWriteRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.Invitation, error) {
+	rows, err := r.getDB(ctx).Query(ctx, `SELECT id,workspace_id,email,token,role,status,expires_at,created_at,updated_at FROM workspace_invitations WHERE workspace_id=$1 ORDER BY created_at DESC`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Invitation
+	for rows.Next() {
+		var inv domain.Invitation
+		var roleStr, statusStr string
+		if err := rows.Scan(&inv.ID, &inv.WorkspaceID, &inv.Email, &inv.Token, &roleStr, &statusStr, &inv.ExpiresAt, &inv.CreatedAt, &inv.UpdatedAt); err != nil {
+			return nil, err
+		}
+		inv.Role = domain.MembershipRole(roleStr)
+		inv.Status = domain.InvitationStatus(statusStr)
+		out = append(out, inv)
+	}
+	return out, rows.Err()
+}
+
 func (r *InvitationReadRepository) FindByToken(ctx context.Context, token string) (*domain.Invitation, error) {
 	row := r.getDB(ctx).QueryRow(ctx, `SELECT id,workspace_id,email,token,role,status,expires_at,created_at,updated_at FROM workspace_invitations WHERE token=$1`, token)
+	return scanInvitation(row)
+}
+
+func (w *InvitationWriteRepository) FindByToken(ctx context.Context, token string) (*domain.Invitation, error) {
+	row := w.getDB(ctx).QueryRow(ctx, `SELECT id,workspace_id,email,token,role,status,expires_at,created_at,updated_at FROM workspace_invitations WHERE token=$1`, token)
 	return scanInvitation(row)
 }
 

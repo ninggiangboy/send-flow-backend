@@ -14,7 +14,6 @@ import (
 )
 
 type Options struct {
-	CampaignsRead    ports.CampaignReadRepository
 	CampaignsWrite   ports.CampaignWriteRepository
 	AudienceResolver ports.AudienceResolver
 	ContentService   ports.ContentService
@@ -40,7 +39,6 @@ type Result struct {
 }
 
 type Handler struct {
-	campaignsRead    ports.CampaignReadRepository
 	campaignsWrite   ports.CampaignWriteRepository
 	audienceResolver ports.AudienceResolver
 	contentService   ports.ContentService
@@ -54,7 +52,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		campaignsRead:    opts.CampaignsRead,
 		campaignsWrite:   opts.CampaignsWrite,
 		audienceResolver: opts.AudienceResolver,
 		contentService:   opts.ContentService,
@@ -80,7 +77,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 		return nil, err
 	}
 
-	campaign, err := h.campaignsRead.FindByID(ctx, cmd.WorkspaceID, cmd.CampaignID)
+	campaign, err := h.campaignsWrite.FindByID(ctx, cmd.WorkspaceID, cmd.CampaignID)
 	if err != nil {
 		if errors.Is(err, domain.ErrCampaignNotFound) {
 			return nil, err

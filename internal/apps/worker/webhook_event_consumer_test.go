@@ -73,6 +73,18 @@ func (m *mockWebhookDeliveryWrite) ClaimPendingDeliveries(ctx context.Context, l
 	return nil, nil
 }
 
+func (m *mockWebhookDeliveryWrite) FindByID(context.Context, string, string) (*webhooksdomain.WebhookDelivery, error) {
+	return nil, nil
+}
+
+func (m *mockWebhookDeliveryWrite) FindByWebhookAndEvent(context.Context, string, string) (*webhooksdomain.WebhookDelivery, error) {
+	return nil, nil
+}
+
+func (m *mockWebhookDeliveryWrite) ListByWorkspace(context.Context, string, webhooksports.DeliveryFilter) ([]webhooksdomain.WebhookDelivery, string, error) {
+	return nil, "", nil
+}
+
 type mockWebhookDeliveryRead struct{}
 
 func (m *mockWebhookDeliveryRead) FindByID(ctx context.Context, workspaceID, deliveryID string) (*webhooksdomain.WebhookDelivery, error) {

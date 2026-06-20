@@ -40,15 +40,29 @@ func (s *authTokensStub) DeleteByUserAndPurpose(_ context.Context, userID, purpo
 	return nil
 }
 
-type userReadStub struct {
-	user *domain.User
-	err  error
+type userWriteStub struct {
+	findByEmail func(ctx context.Context, email string) (*domain.User, error)
+	findByID    func(ctx context.Context, id string) (*domain.User, error)
 }
 
-func (s *userReadStub) FindByEmail(context.Context, string) (*domain.User, error) {
-	return s.user, s.err
+func (s *userWriteStub) Create(context.Context, domain.User) error                       { return nil }
+func (s *userWriteStub) UpdatePassword(context.Context, string, string, time.Time) error { return nil }
+func (s *userWriteStub) MarkEmailVerified(context.Context, string, time.Time) error      { return nil }
+func (s *userWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, time.Time) error {
+	return nil
 }
-func (s *userReadStub) FindByID(context.Context, string) (*domain.User, error) { return s.user, s.err }
+func (s *userWriteStub) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
+	if s.findByEmail != nil {
+		return s.findByEmail(ctx, email)
+	}
+	return nil, nil
+}
+func (s *userWriteStub) FindByID(ctx context.Context, id string) (*domain.User, error) {
+	if s.findByID != nil {
+		return s.findByID(ctx, id)
+	}
+	return nil, nil
+}
 
 type totpStub struct {
 	secret         *domain.TOTPSecret
@@ -112,6 +126,13 @@ func (mfaSessWrtStub) RevokeByUser(context.Context, string, time.Time) error { r
 func (mfaSessWrtStub) RotateTokens(context.Context, string, string, string, time.Time, time.Time) error {
 	return nil
 }
+func (s *mfaSessWrtStub) FindByID(context.Context, string) (*domain.Session, error) { return nil, nil }
+func (s *mfaSessWrtStub) FindByAccessJTI(context.Context, string) (*domain.Session, error) {
+	return nil, nil
+}
+func (s *mfaSessWrtStub) ListByUser(context.Context, string, time.Time) ([]domain.Session, error) {
+	return nil, nil
+}
 
 type mfaRfrshStub struct{}
 
@@ -133,8 +154,12 @@ func TestExecuteTOTPSuccess(t *testing.T) {
 	}
 	sessionFactory := usecase.NewSessionFactory(&sessIdGenStub{}, mfaTokMgrStub{}, sessWrite, mfaRfrshStub{}, testLogger)
 	h := New(Options{
-		AuthTokens:     authTokenSvc,
-		UsersRead:      &userReadStub{user: &domain.User{ID: "u1", Email: "test@example.com"}},
+		AuthTokens: authTokenSvc,
+		UsersWrite: &userWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return &domain.User{ID: "u1", Email: "test@example.com"}, nil
+			},
+		},
 		Totp:           &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
 		TokenHasher:    tokenHasherStub{},
 		TotpVerifier:   &totpVerifierStub{valid: true},
@@ -170,7 +195,11 @@ func TestExecuteRecoveryCodeSuccess(t *testing.T) {
 	sessionFactory := usecase.NewSessionFactory(&sessIdGenStub{}, mfaTokMgrStub{}, sessWrite, mfaRfrshStub{}, testLogger)
 	h := New(Options{
 		AuthTokens: authTokenSvc,
-		UsersRead:  &userReadStub{user: &domain.User{ID: "u1", Email: "test@example.com"}},
+		UsersWrite: &userWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return &domain.User{ID: "u1", Email: "test@example.com"}, nil
+			},
+		},
 		Totp: &totpStub{
 			codes: []domain.RecoveryCode{
 				{ID: "rc-1", UserID: "u1", CodeHash: "hash", CreatedAt: time.Now()},
@@ -202,7 +231,7 @@ func TestExecuteInvalidChallengeToken(t *testing.T) {
 	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: nil, err: domain.ErrUnauthorized}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
 	h := New(Options{
 		AuthTokens:  authTokenSvc,
-		UsersRead:   &userReadStub{},
+		UsersWrite:  &userWriteStub{},
 		Totp:        &totpStub{},
 		TokenHasher: tokenHasherStub{},
 		Logger:      testLogger,
@@ -221,7 +250,7 @@ func TestExecuteChallengeTokenNotFound(t *testing.T) {
 	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: nil, err: domain.ErrNotFound}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
 	h := New(Options{
 		AuthTokens:  authTokenSvc,
-		UsersRead:   &userReadStub{},
+		UsersWrite:  &userWriteStub{},
 		Totp:        &totpStub{},
 		TokenHasher: tokenHasherStub{},
 		Logger:      testLogger,
@@ -241,7 +270,7 @@ func TestExecuteConsumeAuthTokenErrorPropagated(t *testing.T) {
 	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: nil, err: upstreamErr}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
 	h := New(Options{
 		AuthTokens:  authTokenSvc,
-		UsersRead:   &userReadStub{},
+		UsersWrite:  &userWriteStub{},
 		Totp:        &totpStub{},
 		TokenHasher: tokenHasherStub{},
 		Logger:      testLogger,
@@ -259,8 +288,12 @@ func TestExecuteConsumeAuthTokenErrorPropagated(t *testing.T) {
 func TestExecuteUserNotFoundAfterToken(t *testing.T) {
 	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: validToken()}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
 	h := New(Options{
-		AuthTokens:  authTokenSvc,
-		UsersRead:   &userReadStub{err: domain.ErrNotFound},
+		AuthTokens: authTokenSvc,
+		UsersWrite: &userWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return nil, domain.ErrNotFound
+			},
+		},
 		Totp:        &totpStub{},
 		TokenHasher: tokenHasherStub{},
 		Logger:      testLogger,
@@ -279,8 +312,12 @@ func TestExecuteUserNotFoundAfterToken(t *testing.T) {
 func TestExecuteTOTPCodeInvalid(t *testing.T) {
 	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: validToken()}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
 	h := New(Options{
-		AuthTokens:   authTokenSvc,
-		UsersRead:    &userReadStub{user: &domain.User{ID: "u1"}},
+		AuthTokens: authTokenSvc,
+		UsersWrite: &userWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return &domain.User{ID: "u1"}, nil
+			},
+		},
 		Totp:         &totpStub{secret: &domain.TOTPSecret{Secret: "JBSWY3DPEHPK3PXP"}},
 		TokenHasher:  tokenHasherStub{},
 		TotpVerifier: &totpVerifierStub{valid: false},
@@ -300,8 +337,12 @@ func TestExecuteTOTPCodeInvalid(t *testing.T) {
 func TestExecuteTOTPSecretNotFound(t *testing.T) {
 	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: validToken()}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
 	h := New(Options{
-		AuthTokens:   authTokenSvc,
-		UsersRead:    &userReadStub{user: &domain.User{ID: "u1"}},
+		AuthTokens: authTokenSvc,
+		UsersWrite: &userWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return &domain.User{ID: "u1"}, nil
+			},
+		},
 		Totp:         &totpStub{findErr: errors.New("not found")},
 		TokenHasher:  tokenHasherStub{},
 		TotpVerifier: &totpVerifierStub{valid: true},
@@ -322,7 +363,11 @@ func TestExecuteRecoveryCodeNoMatch(t *testing.T) {
 	authTokenSvc := usecase.NewAuthTokenService(&authTokensStub{token: validToken()}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})
 	h := New(Options{
 		AuthTokens: authTokenSvc,
-		UsersRead:  &userReadStub{user: &domain.User{ID: "u1"}},
+		UsersWrite: &userWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return &domain.User{ID: "u1"}, nil
+			},
+		},
 		Totp: &totpStub{
 			codes: []domain.RecoveryCode{
 				{ID: "rc-1", UserID: "u1", CodeHash: "different-hash", CreatedAt: time.Now()},

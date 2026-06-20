@@ -33,6 +33,7 @@ type CampaignReadRepository interface {
 }
 
 type CampaignWriteRepository interface {
+	CampaignReadRepository
 	Create(ctx context.Context, campaign domain.Campaign) error
 	Update(ctx context.Context, campaign domain.Campaign) error
 	ReplaceCandidates(ctx context.Context, workspaceID, campaignID string, candidates []domain.CampaignMessageCandidate) error

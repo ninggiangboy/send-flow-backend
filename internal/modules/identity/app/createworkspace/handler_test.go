@@ -27,6 +27,12 @@ type workspacesWriteStub struct {
 }
 
 func (s *workspacesWriteStub) Create(_ context.Context, _ domain.Workspace) error { return s.err }
+func (s *workspacesWriteStub) FindByID(_ context.Context, _ string) (*domain.Workspace, error) {
+	return nil, nil
+}
+func (s *workspacesWriteStub) ListByUser(_ context.Context, _ string) ([]domain.Workspace, error) {
+	return nil, nil
+}
 
 type membershipsWriteStub struct {
 	err error
@@ -39,6 +45,18 @@ func (s *membershipsWriteStub) UpdateRole(_ context.Context, _ string, _ domain.
 }
 func (s *membershipsWriteStub) UpdateStatus(_ context.Context, _ string, _ domain.MembershipStatus, _ time.Time) error {
 	return nil
+}
+func (s *membershipsWriteStub) FindByID(_ context.Context, _ string) (*domain.Membership, error) {
+	return nil, nil
+}
+func (s *membershipsWriteStub) FindByWorkspaceAndUser(_ context.Context, _, _ string) (*domain.Membership, error) {
+	return nil, nil
+}
+func (s *membershipsWriteStub) ListByWorkspace(_ context.Context, _ string) ([]domain.Membership, error) {
+	return nil, nil
+}
+func (s *membershipsWriteStub) CountByWorkspaceAndRole(_ context.Context, _ string, _ domain.MembershipRole) (int, error) {
+	return 0, nil
 }
 
 type rolesWriteStub struct {
@@ -54,6 +72,27 @@ func (s *rolesWriteStub) ReplaceMembershipRoles(_ context.Context, _ string, _ [
 func (s *rolesWriteStub) ReplaceInvitationRoles(_ context.Context, _ string, _ []string, _ time.Time) error {
 	return nil
 }
+func (s *rolesWriteStub) FindByID(_ context.Context, _, _ string) (*domain.Role, error) {
+	return nil, nil
+}
+func (s *rolesWriteStub) FindByType(_ context.Context, _ string, _ domain.RoleType) (*domain.Role, error) {
+	return nil, nil
+}
+func (s *rolesWriteStub) FindByIDs(_ context.Context, _ string, _ []string) ([]domain.Role, error) {
+	return nil, nil
+}
+func (s *rolesWriteStub) ListByWorkspace(_ context.Context, _ string) ([]domain.Role, error) {
+	return nil, nil
+}
+func (s *rolesWriteStub) ListByMembership(_ context.Context, _ string) ([]domain.Role, error) {
+	return nil, nil
+}
+func (s *rolesWriteStub) ListByInvitation(_ context.Context, _ string) ([]domain.Role, error) {
+	return nil, nil
+}
+func (s *rolesWriteStub) CountMembershipsByRole(_ context.Context, _, _ string) (int, error) {
+	return 0, nil
+}
 
 type settingsWriteStub struct{}
 
@@ -62,6 +101,9 @@ func (s *settingsWriteStub) CreateDefault(_ context.Context, _ domain.WorkspaceS
 }
 func (s *settingsWriteStub) Upsert(_ context.Context, _ domain.WorkspaceSettings, _ *int64) error {
 	return nil
+}
+func (s *settingsWriteStub) GetByWorkspace(_ context.Context, _ string) (*domain.WorkspaceSettings, error) {
+	return nil, nil
 }
 
 func TestExecuteEmptyName(t *testing.T) {

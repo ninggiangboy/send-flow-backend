@@ -11,7 +11,6 @@ import (
 )
 
 type Options struct {
-	ListsRead     ports.ListReadRepository
 	ListsWrite    ports.ListWriteRepository
 	AccessChecker ports.WorkspaceAccessChecker
 	Logger        *slog.Logger
@@ -27,7 +26,6 @@ type Command struct {
 }
 
 type Handler struct {
-	listsRead     ports.ListReadRepository
 	listsWrite    ports.ListWriteRepository
 	accessChecker ports.WorkspaceAccessChecker
 	log           *slog.Logger
@@ -35,7 +33,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		listsRead:     opts.ListsRead,
 		listsWrite:    opts.ListsWrite,
 		accessChecker: opts.AccessChecker,
 		log:           opts.Logger.With("usecase", "update_list_memberships"),
@@ -57,7 +54,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.MembershipU
 		return nil, domain.ErrListMembershipPayloadInvalid
 	}
 
-	list, err := h.listsRead.FindListByID(ctx, cmd.WorkspaceID, cmd.ListID)
+	list, err := h.listsWrite.FindListByID(ctx, cmd.WorkspaceID, cmd.ListID)
 	if err != nil {
 		if errors.Is(err, domain.ErrListNotFound) {
 			return nil, err

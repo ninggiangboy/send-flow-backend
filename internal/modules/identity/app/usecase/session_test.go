@@ -33,6 +33,15 @@ func (s *sessionWriteRepoStub) RevokeByUser(context.Context, string, time.Time) 
 func (s *sessionWriteRepoStub) RotateTokens(context.Context, string, string, string, time.Time, time.Time) error {
 	return nil
 }
+func (s *sessionWriteRepoStub) FindByID(context.Context, string) (*domain.Session, error) {
+	return nil, nil
+}
+func (s *sessionWriteRepoStub) FindByAccessJTI(context.Context, string) (*domain.Session, error) {
+	return nil, nil
+}
+func (s *sessionWriteRepoStub) ListByUser(context.Context, string, time.Time) ([]domain.Session, error) {
+	return nil, nil
+}
 
 type refreshStoreStub struct {
 	calls int

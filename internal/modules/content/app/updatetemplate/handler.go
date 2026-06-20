@@ -12,14 +12,12 @@ import (
 )
 
 type Options struct {
-	TemplatesRead  ports.TemplateReadRepository
 	TemplatesWrite ports.TemplateWriteRepository
 	AccessChecker  ports.WorkspaceAccessChecker
 	Logger         *slog.Logger
 }
 
 type Handler struct {
-	templatesRead  ports.TemplateReadRepository
 	templatesWrite ports.TemplateWriteRepository
 	accessChecker  ports.WorkspaceAccessChecker
 	log            *slog.Logger
@@ -30,7 +28,6 @@ func New(opts Options) *Handler {
 		opts.Logger = slog.Default()
 	}
 	return &Handler{
-		templatesRead:  opts.TemplatesRead,
 		templatesWrite: opts.TemplatesWrite,
 		accessChecker:  opts.AccessChecker,
 		log:            opts.Logger.With("usecase", "update_template"),
@@ -64,7 +61,7 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 		return nil, err
 	}
 
-	tmpl, err := h.templatesRead.FindTemplateByID(ctx, input.WorkspaceID, input.TemplateID)
+	tmpl, err := h.templatesWrite.FindTemplateByID(ctx, input.WorkspaceID, input.TemplateID)
 	if err != nil {
 		if errors.Is(err, domain.ErrTemplateNotFound) {
 			return nil, err

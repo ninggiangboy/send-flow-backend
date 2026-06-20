@@ -653,6 +653,253 @@ func (w *MessageWriteRepository) MarkFailed(ctx context.Context, message domain.
 	return nil
 }
 
+func (w *MessageWriteRepository) CountByCampaign(ctx context.Context, workspaceID, campaignID string) (int64, error) {
+	db := w.getDB(ctx)
+	var count int64
+	err := db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM messages WHERE workspace_id = $1 AND campaign_id = $2`,
+		workspaceID, campaignID,
+	).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (w *MessageWriteRepository) FindByID(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+	db := w.getDB(ctx)
+	return scanMessageRow(db.QueryRow(ctx,
+		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
+		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
+		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
+		        message_type, source_type, status,
+		        scheduled_at, queued_at, processing_started_at,
+		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
+		        last_error_class, last_error_message, provider, provider_message_id,
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
+		 FROM messages WHERE id = $1 AND workspace_id = $2`,
+		messageID, workspaceID,
+	))
+}
+
+func (w *MessageWriteRepository) FindByIDForUpdate(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+	db := w.getDB(ctx)
+	return scanMessageRow(db.QueryRow(ctx,
+		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
+		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
+		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
+		        message_type, source_type, status,
+		        scheduled_at, queued_at, processing_started_at,
+		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
+		        last_error_class, last_error_message, provider, provider_message_id,
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
+		 FROM messages WHERE id = $1 AND workspace_id = $2 FOR UPDATE`,
+		messageID, workspaceID,
+	))
+}
+
+func (w *MessageWriteRepository) FindByTransactionalRequestID(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error) {
+	db := w.getDB(ctx)
+	return scanMessageRow(db.QueryRow(ctx,
+		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
+		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
+		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
+		        message_type, source_type, status,
+		        scheduled_at, queued_at, processing_started_at,
+		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
+		        last_error_class, last_error_message, provider, provider_message_id,
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
+		 FROM messages WHERE workspace_id = $1 AND transactional_request_id = $2`,
+		workspaceID, transactionalRequestID,
+	))
+}
+
+func (w *MessageWriteRepository) FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*domain.Message, error) {
+	db := w.getDB(ctx)
+	return scanMessageRow(db.QueryRow(ctx,
+		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
+		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
+		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
+		        message_type, source_type, status,
+		        scheduled_at, queued_at, processing_started_at,
+		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
+		        last_error_class, last_error_message, provider, provider_message_id,
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
+		 FROM messages WHERE provider = $1 AND provider_message_id = $2`,
+		provider, providerMessageID,
+	))
+}
+
+func (w *MessageWriteRepository) List(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error) {
+	db := w.getDB(ctx)
+	args := []any{query.WorkspaceID}
+	where := "WHERE workspace_id = $1"
+	argIdx := 2
+
+	if query.CampaignID != "" {
+		where += " AND campaign_id = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.CampaignID)
+		argIdx++
+	}
+	if query.TransactionalRequestID != "" {
+		where += " AND transactional_request_id = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.TransactionalRequestID)
+		argIdx++
+	}
+	if query.Status != "" {
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Status)
+		argIdx++
+	}
+	if query.MessageType != "" {
+		where += " AND message_type = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.MessageType)
+		argIdx++
+	}
+	if query.Mode != "" {
+		if query.Mode == "template" {
+			where += " AND template_id IS NOT NULL AND template_id != ''"
+		} else if query.Mode == "raw" {
+			where += " AND (template_id IS NULL OR template_id = '')"
+		}
+	}
+	if query.Provider != "" {
+		where += " AND provider = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Provider)
+		argIdx++
+	}
+	if query.RecipientEmailNormalized != "" {
+		where += " AND recipient_email_normalized = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.RecipientEmailNormalized)
+		argIdx++
+	}
+	if query.ProviderMessageID != "" {
+		where += " AND provider_message_id = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.ProviderMessageID)
+		argIdx++
+	}
+	if query.From != nil {
+		where += " AND created_at >= $" + platformpostgres.Itoa(argIdx)
+		args = append(args, *query.From)
+		argIdx++
+	}
+	if query.To != nil {
+		where += " AND created_at <= $" + platformpostgres.Itoa(argIdx)
+		args = append(args, *query.To)
+		argIdx++
+	}
+	if query.Cursor != "" {
+		where += " AND (created_at, id) < (SELECT created_at, id FROM messages WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
+		args = append(args, query.Cursor)
+		argIdx++
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = constants.DefaultPageSize
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
+	args = append(args, limit+1)
+
+	rows, err := db.Query(ctx,
+		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
+		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
+		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
+		        message_type, source_type, status,
+		        scheduled_at, queued_at, processing_started_at,
+		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
+		        last_error_class, last_error_message, provider, provider_message_id,
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
+		 FROM messages `+where, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	results, err := scanMessageRows(rows)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID
+		results = results[:limit]
+	}
+	if results == nil {
+		results = []domain.Message{}
+	}
+
+	return results, nextCursor, nil
+}
+
+func (w *MessageWriteRepository) ListDueQueued(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
+	db := w.getDB(ctx)
+	rows, err := db.Query(ctx,
+		`SELECT id, workspace_id, COALESCE(campaign_id, ''), COALESCE(campaign_candidate_id, ''), COALESCE(transactional_request_id, ''),
+		        COALESCE(contact_id, ''), recipient_email_normalized, recipient_snapshot,
+		        COALESCE(template_id, ''), COALESCE(template_version_id, ''), COALESCE(sender_domain_id, ''),
+		        message_type, source_type, status,
+		        scheduled_at, queued_at, processing_started_at,
+		        accepted_at, delivered_at, bounced_at, complained_at, failed_at,
+		        last_error_class, last_error_message, provider, provider_message_id,
+		        created_at, updated_at,
+		        subject, sender_name, recipient_role, source_api_key_id, text_body, html_body,
+		        reply_to, headers
+		 FROM messages
+		 WHERE workspace_id = $1 AND status = 'queued' AND message_type = $2
+		   AND (scheduled_at IS NULL OR scheduled_at <= $3)
+		 ORDER BY scheduled_at ASC, created_at ASC LIMIT $4`,
+		query.WorkspaceID, query.MessageType, query.Now, query.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanMessageRows(rows)
+}
+
+func (w *MessageWriteRepository) ListDistinctWorkspacesWithDue(ctx context.Context, messageType string, now time.Time) ([]string, error) {
+	db := w.getDB(ctx)
+	rows, err := db.Query(ctx,
+		`SELECT DISTINCT workspace_id FROM messages
+		 WHERE status = 'queued' AND message_type = $1
+		   AND (scheduled_at IS NULL OR scheduled_at <= $2)`,
+		messageType, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var workspaces []string
+	for rows.Next() {
+		var ws string
+		if err := rows.Scan(&ws); err != nil {
+			return nil, err
+		}
+		workspaces = append(workspaces, ws)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return workspaces, nil
+}
+
 type AttemptReadRepository struct {
 	db platformpostgres.DBTX
 }
@@ -737,6 +984,71 @@ func (r *AttemptReadRepository) ListByMessage(ctx context.Context, workspaceID, 
 
 func (r *AttemptReadRepository) NextAttemptNumber(ctx context.Context, workspaceID, messageID string) (int, error) {
 	db := r.getDB(ctx)
+	var num int
+	err := db.QueryRow(ctx,
+		`SELECT COALESCE(MAX(attempt_no), 0) + 1 FROM delivery_attempts WHERE workspace_id = $1 AND message_id = $2`,
+		workspaceID, messageID,
+	).Scan(&num)
+	if err != nil {
+		return 0, err
+	}
+	return num, nil
+}
+
+func (w *AttemptWriteRepository) ListByMessage(ctx context.Context, workspaceID, messageID string) ([]domain.DeliveryAttempt, error) {
+	db := w.getDB(ctx)
+	rows, err := db.Query(ctx,
+		`SELECT id, workspace_id, message_id, attempt_no, provider, status,
+		        request_snapshot, response_snapshot, error_class, error_message,
+		        started_at, finished_at
+		 FROM delivery_attempts WHERE workspace_id = $1 AND message_id = $2
+		 ORDER BY attempt_no`,
+		workspaceID, messageID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []domain.DeliveryAttempt
+	for rows.Next() {
+		var a domain.DeliveryAttempt
+		var reqJSON, respJSON []byte
+
+		if err := rows.Scan(
+			&a.ID, &a.WorkspaceID, &a.MessageID, &a.AttemptNo, &a.Provider, &a.Status,
+			&reqJSON, &respJSON, &a.ErrorClass, &a.ErrorMessage,
+			&a.StartedAt, &a.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		if reqJSON != nil {
+			if err := json.Unmarshal(reqJSON, &a.RequestSnapshot); err != nil {
+				return nil, err
+			}
+		}
+		if respJSON != nil {
+			if err := json.Unmarshal(respJSON, &a.ResponseSnapshot); err != nil {
+				return nil, err
+			}
+		}
+
+		results = append(results, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if results == nil {
+		results = []domain.DeliveryAttempt{}
+	}
+
+	return results, nil
+}
+
+func (w *AttemptWriteRepository) NextAttemptNumber(ctx context.Context, workspaceID, messageID string) (int, error) {
+	db := w.getDB(ctx)
 	var num int
 	err := db.QueryRow(ctx,
 		`SELECT COALESCE(MAX(attempt_no), 0) + 1 FROM delivery_attempts WHERE workspace_id = $1 AND message_id = $2`,
@@ -883,6 +1195,27 @@ func (w *RetryStateWriteRepository) Update(ctx context.Context, state domain.Ret
 	return nil
 }
 
+func (w *RetryStateWriteRepository) FindByMessage(ctx context.Context, workspaceID, messageID string) (*domain.RetryState, error) {
+	db := w.getDB(ctx)
+	var s domain.RetryState
+	err := db.QueryRow(ctx,
+		`SELECT id, workspace_id, message_id, retry_count, max_retries,
+		        next_attempt_at, last_error_class, last_error_message,
+		        status, created_at, updated_at
+		 FROM retry_states WHERE workspace_id = $1 AND message_id = $2`,
+		workspaceID, messageID,
+	).Scan(&s.ID, &s.WorkspaceID, &s.MessageID, &s.RetryCount, &s.MaxRetries,
+		&s.NextAttemptAt, &s.LastErrorClass, &s.LastErrorMessage,
+		&s.Status, &s.CreatedAt, &s.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &s, nil
+}
+
 type TransactionalRequestReadRepository struct {
 	db platformpostgres.DBTX
 }
@@ -943,6 +1276,62 @@ func (r *TransactionalRequestReadRepository) FindByIdempotencyKey(ctx context.Co
 
 func (r *TransactionalRequestReadRepository) FindByID(ctx context.Context, workspaceID, requestID string) (*domain.TransactionalSendRequest, error) {
 	db := r.getDB(ctx)
+	var req domain.TransactionalSendRequest
+	var payloadJSON []byte
+
+	err := db.QueryRow(ctx,
+		`SELECT id, workspace_id, idempotency_key, status, request_payload,
+		        created_at, updated_at, completed_at, failed_at
+		 FROM transactional_send_requests WHERE id = $1 AND workspace_id = $2`,
+		requestID, workspaceID,
+	).Scan(&req.ID, &req.WorkspaceID, &req.IdempotencyKey, &req.Status, &payloadJSON,
+		&req.CreatedAt, &req.UpdatedAt, &req.CompletedAt, &req.FailedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrTransactionalRequestNotFound
+		}
+		return nil, err
+	}
+
+	if payloadJSON != nil {
+		if err := json.Unmarshal(payloadJSON, &req.RequestPayload); err != nil {
+			return nil, err
+		}
+	}
+
+	return &req, nil
+}
+
+func (w *TransactionalRequestWriteRepository) FindByIdempotencyKey(ctx context.Context, workspaceID, idempotencyKey string) (*domain.TransactionalSendRequest, error) {
+	db := w.getDB(ctx)
+	var req domain.TransactionalSendRequest
+	var payloadJSON []byte
+
+	err := db.QueryRow(ctx,
+		`SELECT id, workspace_id, idempotency_key, status, request_payload,
+		        created_at, updated_at, completed_at, failed_at
+		 FROM transactional_send_requests WHERE workspace_id = $1 AND idempotency_key = $2`,
+		workspaceID, idempotencyKey,
+	).Scan(&req.ID, &req.WorkspaceID, &req.IdempotencyKey, &req.Status, &payloadJSON,
+		&req.CreatedAt, &req.UpdatedAt, &req.CompletedAt, &req.FailedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrTransactionalRequestNotFound
+		}
+		return nil, err
+	}
+
+	if payloadJSON != nil {
+		if err := json.Unmarshal(payloadJSON, &req.RequestPayload); err != nil {
+			return nil, err
+		}
+	}
+
+	return &req, nil
+}
+
+func (w *TransactionalRequestWriteRepository) FindByID(ctx context.Context, workspaceID, requestID string) (*domain.TransactionalSendRequest, error) {
+	db := w.getDB(ctx)
 	var req domain.TransactionalSendRequest
 	var payloadJSON []byte
 
@@ -1104,4 +1493,42 @@ func (r *OutboxRepository) Save(ctx context.Context, event ports.OutboxEvent) er
 		headersJSON, event.WorkspaceID, event.OccurredAt,
 	)
 	return err
+}
+
+// Combined repositories — satisfy the merged WriteRepository interfaces.
+
+type MessageRepository struct {
+	*MessageReadRepository
+	*MessageWriteRepository
+}
+
+func NewMessageRepository(read *MessageReadRepository, write *MessageWriteRepository) *MessageRepository {
+	return &MessageRepository{read, write}
+}
+
+type AttemptRepository struct {
+	*AttemptReadRepository
+	*AttemptWriteRepository
+}
+
+func NewAttemptRepository(read *AttemptReadRepository, write *AttemptWriteRepository) *AttemptRepository {
+	return &AttemptRepository{read, write}
+}
+
+type RetryStateRepository struct {
+	*RetryStateReadRepository
+	*RetryStateWriteRepository
+}
+
+func NewRetryStateRepository(read *RetryStateReadRepository, write *RetryStateWriteRepository) *RetryStateRepository {
+	return &RetryStateRepository{read, write}
+}
+
+type TransactionalRequestRepository struct {
+	*TransactionalRequestReadRepository
+	*TransactionalRequestWriteRepository
+}
+
+func NewTransactionalRequestRepository(read *TransactionalRequestReadRepository, write *TransactionalRequestWriteRepository) *TransactionalRequestRepository {
+	return &TransactionalRequestRepository{read, write}
 }

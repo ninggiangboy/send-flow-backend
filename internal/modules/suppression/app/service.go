@@ -44,14 +44,12 @@ func NewService(opts Options) *Service {
 			Logger:        opts.Logger,
 		}),
 		createEntryH: createentry.New(createentry.Options{
-			EntriesRead:   opts.EntriesRead,
 			EntriesWrite:  opts.EntriesWrite,
 			AccessChecker: opts.AccessChecker,
 			IDGen:         opts.IDGen,
 			Logger:        opts.Logger,
 		}),
 		createSystemEntryH: createsystementry.New(createsystementry.Options{
-			EntriesRead:  opts.EntriesRead,
 			EntriesWrite: opts.EntriesWrite,
 			IDGen:        opts.IDGen,
 			Logger:       opts.Logger,
@@ -61,7 +59,6 @@ func NewService(opts Options) *Service {
 			Logger:      opts.Logger,
 		}),
 		removeEntryH: removeentry.New(removeentry.Options{
-			EntriesRead:   opts.EntriesRead,
 			EntriesWrite:  opts.EntriesWrite,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,

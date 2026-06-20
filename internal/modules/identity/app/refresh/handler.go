@@ -14,18 +14,16 @@ import (
 type Options struct {
 	Tokens        ports.TokenManager
 	RefreshStore  ports.RefreshStore
-	SessionsRead  ports.SessionReadRepository
 	SessionsWrite ports.SessionWriteRepository
-	UsersRead     ports.UserReadRepository
+	UsersWrite    ports.UserWriteRepository
 	Logger        *slog.Logger
 }
 
 type Handler struct {
 	tokens        ports.TokenManager
 	refreshStore  ports.RefreshStore
-	sessionsRead  ports.SessionReadRepository
 	sessionsWrite ports.SessionWriteRepository
-	usersRead     ports.UserReadRepository
+	usersWrite    ports.UserWriteRepository
 	log           *slog.Logger
 }
 
@@ -38,9 +36,8 @@ func New(opts Options) *Handler {
 	return &Handler{
 		tokens:        opts.Tokens,
 		refreshStore:  opts.RefreshStore,
-		sessionsRead:  opts.SessionsRead,
 		sessionsWrite: opts.SessionsWrite,
-		usersRead:     opts.UsersRead,
+		usersWrite:    opts.UsersWrite,
 		log:           opts.Logger.With("usecase", "refresh"),
 	}
 }
@@ -64,12 +61,12 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 		h.log.Warn("invalid refresh token: session ID mismatch", "session_id", claims.SessionID)
 		return nil, domain.ErrUnauthorized
 	}
-	sess, err := h.sessionsRead.FindByID(ctx, claims.SessionID)
+	sess, err := h.sessionsWrite.FindByID(ctx, claims.SessionID)
 	if err != nil || !sess.IsActive(cmd.Now) || sess.RefreshJTI != claims.JWTID {
 		h.log.Warn("invalid refresh token: session inactive or JTI mismatch", "session_id", claims.SessionID)
 		return nil, domain.ErrUnauthorized
 	}
-	user, err := h.usersRead.FindByID(ctx, sess.UserID)
+	user, err := h.usersWrite.FindByID(ctx, sess.UserID)
 	if err != nil {
 		h.log.Warn("invalid refresh token: user not found", "user_id", sess.UserID)
 		return nil, domain.ErrUnauthorized

@@ -12,7 +12,7 @@ import (
 )
 
 type Options struct {
-	UsersRead       ports.UserReadRepository
+	UsersWrite      ports.UserWriteRepository
 	Hasher          domain.PasswordHasher
 	AuthTokens      *usecase.AuthTokenService
 	SessionFactory  *usecase.SessionFactory
@@ -21,7 +21,7 @@ type Options struct {
 }
 
 type Handler struct {
-	usersRead       ports.UserReadRepository
+	usersWrite      ports.UserWriteRepository
 	hasher          domain.PasswordHasher
 	authTokens      *usecase.AuthTokenService
 	sessionFactory  *usecase.SessionFactory
@@ -39,7 +39,7 @@ type Command struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		usersRead:       opts.UsersRead,
+		usersWrite:      opts.UsersWrite,
 		hasher:          opts.Hasher,
 		authTokens:      opts.AuthTokens,
 		sessionFactory:  opts.SessionFactory,
@@ -54,7 +54,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.LoginResul
 		h.log.Warn("invalid credentials: email parse failed")
 		return nil, domain.ErrInvalidCredentials
 	}
-	user, err := h.usersRead.FindByEmail(ctx, email.String())
+	user, err := h.usersWrite.FindByEmail(ctx, email.String())
 	if err != nil {
 		if !errors.Is(err, domain.ErrNotFound) {
 			h.log.Error("failed to lookup user by email", "error", err)

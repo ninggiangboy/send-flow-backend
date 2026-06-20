@@ -28,11 +28,26 @@ func (m *mockConfigRead) ListSubscribed(ctx context.Context, workspaceID, eventT
 }
 
 type mockConfigWrite struct {
-	createFn  func(ctx context.Context, config domain.WebhookConfig) error
-	updateFn  func(ctx context.Context, config domain.WebhookConfig) error
-	disableFn func(ctx context.Context, workspaceID, webhookID string, disabledAt time.Time) error
+	createFn          func(ctx context.Context, config domain.WebhookConfig) error
+	updateFn          func(ctx context.Context, config domain.WebhookConfig) error
+	disableFn         func(ctx context.Context, workspaceID, webhookID string, disabledAt time.Time) error
+	findByIDFn        func(ctx context.Context, workspaceID, webhookID string) (*domain.WebhookConfig, error)
+	listByWorkspaceFn func(ctx context.Context, workspaceID string) ([]domain.WebhookConfig, error)
+	listSubscribedFn  func(ctx context.Context, workspaceID, eventType string) ([]domain.WebhookConfig, error)
 }
 
+func (m *mockConfigWrite) FindByID(ctx context.Context, workspaceID, webhookID string) (*domain.WebhookConfig, error) {
+	if m.findByIDFn == nil {
+		return nil, domain.ErrConfigNotFound
+	}
+	return m.findByIDFn(ctx, workspaceID, webhookID)
+}
+func (m *mockConfigWrite) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.WebhookConfig, error) {
+	return m.listByWorkspaceFn(ctx, workspaceID)
+}
+func (m *mockConfigWrite) ListSubscribed(ctx context.Context, workspaceID, eventType string) ([]domain.WebhookConfig, error) {
+	return m.listSubscribedFn(ctx, workspaceID, eventType)
+}
 func (m *mockConfigWrite) Create(ctx context.Context, config domain.WebhookConfig) error {
 	return m.createFn(ctx, config)
 }
@@ -60,12 +75,28 @@ func (m *mockDeliveryRead) ListByWorkspace(ctx context.Context, workspaceID stri
 }
 
 type mockDeliveryWrite struct {
-	createFn         func(ctx context.Context, delivery domain.WebhookDelivery) error
-	markDeliveringFn func(ctx context.Context, deliveryID string, now time.Time) error
-	markSucceededFn  func(ctx context.Context, deliveryID string, result domain.DeliveryResult) error
-	markFailedFn     func(ctx context.Context, deliveryID string, result domain.DeliveryResult) error
-	scheduleRetryFn  func(ctx context.Context, deliveryID string, nextAttemptAt time.Time) error
-	claimPendingFn   func(ctx context.Context, limit int, now time.Time) ([]domain.WebhookDelivery, error)
+	createFn                func(ctx context.Context, delivery domain.WebhookDelivery) error
+	markDeliveringFn        func(ctx context.Context, deliveryID string, now time.Time) error
+	markSucceededFn         func(ctx context.Context, deliveryID string, result domain.DeliveryResult) error
+	markFailedFn            func(ctx context.Context, deliveryID string, result domain.DeliveryResult) error
+	scheduleRetryFn         func(ctx context.Context, deliveryID string, nextAttemptAt time.Time) error
+	claimPendingFn          func(ctx context.Context, limit int, now time.Time) ([]domain.WebhookDelivery, error)
+	findByIDFn              func(ctx context.Context, workspaceID, deliveryID string) (*domain.WebhookDelivery, error)
+	findByWebhookAndEventFn func(ctx context.Context, webhookID, sourceEventID string) (*domain.WebhookDelivery, error)
+	listByWorkspaceFn       func(ctx context.Context, workspaceID string, filter ports.DeliveryFilter) ([]domain.WebhookDelivery, string, error)
+}
+
+func (m *mockDeliveryWrite) FindByID(ctx context.Context, workspaceID, deliveryID string) (*domain.WebhookDelivery, error) {
+	if m.findByIDFn == nil {
+		return nil, domain.ErrDeliveryNotFound
+	}
+	return m.findByIDFn(ctx, workspaceID, deliveryID)
+}
+func (m *mockDeliveryWrite) FindByWebhookAndEvent(ctx context.Context, webhookID, sourceEventID string) (*domain.WebhookDelivery, error) {
+	return m.findByWebhookAndEventFn(ctx, webhookID, sourceEventID)
+}
+func (m *mockDeliveryWrite) ListByWorkspace(ctx context.Context, workspaceID string, filter ports.DeliveryFilter) ([]domain.WebhookDelivery, string, error) {
+	return m.listByWorkspaceFn(ctx, workspaceID, filter)
 }
 
 func (m *mockDeliveryWrite) Create(ctx context.Context, delivery domain.WebhookDelivery) error {
@@ -96,11 +127,15 @@ func (m *mockAttemptRead) ListByDelivery(ctx context.Context, deliveryID string)
 }
 
 type mockAttemptWrite struct {
-	createFn func(ctx context.Context, attempt domain.WebhookDeliveryAttempt) error
+	createFn         func(ctx context.Context, attempt domain.WebhookDeliveryAttempt) error
+	listByDeliveryFn func(ctx context.Context, deliveryID string) ([]domain.WebhookDeliveryAttempt, error)
 }
 
 func (m *mockAttemptWrite) Create(ctx context.Context, attempt domain.WebhookDeliveryAttempt) error {
 	return m.createFn(ctx, attempt)
+}
+func (m *mockAttemptWrite) ListByDelivery(ctx context.Context, deliveryID string) ([]domain.WebhookDeliveryAttempt, error) {
+	return m.listByDeliveryFn(ctx, deliveryID)
 }
 
 type mockTxManager struct {

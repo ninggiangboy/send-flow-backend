@@ -10,7 +10,6 @@ import (
 )
 
 type Options struct {
-	EntriesRead   ports.SuppressionReadRepository
 	EntriesWrite  ports.SuppressionWriteRepository
 	AccessChecker ports.WorkspaceAccessChecker
 	IDGen         func() (string, error)
@@ -28,7 +27,6 @@ type Command struct {
 }
 
 type Handler struct {
-	entriesRead   ports.SuppressionReadRepository
 	entriesWrite  ports.SuppressionWriteRepository
 	accessChecker ports.WorkspaceAccessChecker
 	idGen         func() (string, error)
@@ -37,7 +35,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		entriesRead:   opts.EntriesRead,
 		entriesWrite:  opts.EntriesWrite,
 		accessChecker: opts.AccessChecker,
 		idGen:         opts.IDGen,

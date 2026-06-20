@@ -66,7 +66,9 @@ func (s *userWriteStub) MarkEmailVerified(ctx context.Context, userID string, at
 func (s *userWriteStub) SetMFAEnabledAt(ctx context.Context, userID string, enabledAt *time.Time, at time.Time) error {
 	return nil
 }
-func (s *userWriteStub) Create(ctx context.Context, user domain.User) error { return nil }
+func (s *userWriteStub) Create(ctx context.Context, user domain.User) error        { return nil }
+func (s *userWriteStub) FindByEmail(context.Context, string) (*domain.User, error) { return nil, nil }
+func (s *userWriteStub) FindByID(context.Context, string) (*domain.User, error)    { return nil, nil }
 
 type noopTx struct{}
 
@@ -83,6 +85,15 @@ func (s *sessionsWriteStub) RevokeByID(ctx context.Context, sessionID string, no
 }
 func (s *sessionsWriteStub) RotateTokens(ctx context.Context, sessionID, accessJTI, refreshJTI string, expiresAt, now time.Time) error {
 	return nil
+}
+func (s *sessionsWriteStub) FindByID(context.Context, string) (*domain.Session, error) {
+	return nil, nil
+}
+func (s *sessionsWriteStub) FindByAccessJTI(context.Context, string) (*domain.Session, error) {
+	return nil, nil
+}
+func (s *sessionsWriteStub) ListByUser(context.Context, string, time.Time) ([]domain.Session, error) {
+	return nil, nil
 }
 
 func TestExecute_PasswordPolicyViolation(t *testing.T) {

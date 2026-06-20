@@ -94,7 +94,6 @@ func NewService(opts Options) *Service {
 		artifactSigner: opts.ArtifactSigner,
 		downloadURLTTL: opts.DownloadURLTTL,
 		createContactH: createcontact.New(createcontact.Options{
-			ContactsRead:  opts.ContactsRead,
 			ContactsWrite: opts.ContactsWrite,
 			AccessChecker: opts.AccessChecker,
 			IDGen:         opts.IDGen,
@@ -111,13 +110,11 @@ func NewService(opts Options) *Service {
 			Logger:        opts.Logger,
 		}),
 		updateContactH: updatecontact.New(updatecontact.Options{
-			ContactsRead:  opts.ContactsRead,
 			ContactsWrite: opts.ContactsWrite,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
 		archiveContactH: archivecontact.New(archivecontact.Options{
-			ContactsRead:  opts.ContactsRead,
 			ContactsWrite: opts.ContactsWrite,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
@@ -134,7 +131,6 @@ func NewService(opts Options) *Service {
 			Logger:        opts.Logger,
 		}),
 		updateListMembershipsH: updatelistmemberships.New(updatelistmemberships.Options{
-			ListsRead:     opts.ListsRead,
 			ListsWrite:    opts.ListsWrite,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
@@ -151,7 +147,6 @@ func NewService(opts Options) *Service {
 			Logger:        opts.Logger,
 		}),
 		updateSegmentH: updatesegment.New(updatesegment.Options{
-			SegmentsRead:  opts.SegmentsRead,
 			SegmentsWrite: opts.SegmentsWrite,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
@@ -174,8 +169,8 @@ func NewService(opts Options) *Service {
 		}),
 		startAudienceExportH: startaudienceexport.New(startaudienceexport.Options{
 			ExportJobsWrite: opts.ExportJobsWrite,
-			ContactsRead:    opts.ContactsRead,
-			SegmentsRead:    opts.SegmentsRead,
+			ContactsWrite:   opts.ContactsWrite,
+			SegmentsWrite:   opts.SegmentsWrite,
 			AccessChecker:   opts.AccessChecker,
 			ExportEnabled:   opts.ExportEnabled,
 			IDGen:           opts.IDGen,

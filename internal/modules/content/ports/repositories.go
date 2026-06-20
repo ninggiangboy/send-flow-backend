@@ -15,6 +15,7 @@ type TemplateReadRepository interface {
 }
 
 type TemplateWriteRepository interface {
+	TemplateReadRepository
 	CreateTemplate(ctx context.Context, template domain.Template) error
 	UpdateTemplate(ctx context.Context, template domain.Template) error
 	PublishTemplateVersion(ctx context.Context, template domain.Template, version domain.TemplateVersion) error

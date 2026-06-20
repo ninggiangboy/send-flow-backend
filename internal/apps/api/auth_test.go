@@ -631,3 +631,7 @@ func (m *noopSettingsWrite) CreateDefault(_ context.Context, _ domain.WorkspaceS
 func (m *noopSettingsWrite) Upsert(_ context.Context, _ domain.WorkspaceSettings, _ *int64) error {
 	return nil
 }
+
+func (m *noopSettingsWrite) GetByWorkspace(_ context.Context, _ string) (*domain.WorkspaceSettings, error) {
+	return nil, nil
+}

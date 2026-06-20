@@ -16,9 +16,7 @@ import (
 type Options struct {
 	Providers      map[string]ports.OAuthProvider
 	OauthState     ports.OAuthStateStore
-	ExternalsRead  ports.ExternalAccountReadRepository
 	ExternalsWrite ports.ExternalAccountWriteRepository
-	UsersRead      ports.UserReadRepository
 	UsersWrite     ports.UserWriteRepository
 	IdGen          ports.IDGenerator
 	UnitOfWork     ports.UnitOfWork
@@ -29,9 +27,7 @@ type Options struct {
 type Handler struct {
 	providers      map[string]ports.OAuthProvider
 	oauthState     ports.OAuthStateStore
-	externalsRead  ports.ExternalAccountReadRepository
 	externalsWrite ports.ExternalAccountWriteRepository
-	usersRead      ports.UserReadRepository
 	usersWrite     ports.UserWriteRepository
 	idGen          ports.IDGenerator
 	unitOfWork     ports.UnitOfWork
@@ -54,9 +50,7 @@ func New(opts Options) *Handler {
 	return &Handler{
 		providers:      opts.Providers,
 		oauthState:     opts.OauthState,
-		externalsRead:  opts.ExternalsRead,
 		externalsWrite: opts.ExternalsWrite,
-		usersRead:      opts.UsersRead,
 		usersWrite:     opts.UsersWrite,
 		idGen:          opts.IdGen,
 		unitOfWork:     opts.UnitOfWork,
@@ -85,14 +79,14 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 		h.log.Error("OAuth provider exchange failed", "provider", cmd.Provider, "error", err)
 		return nil, nil, fmt.Errorf("oauth exchange: %w", err)
 	}
-	account, err := h.externalsRead.FindByProviderIdentity(ctx, cmd.Provider, identity.ProviderUserID)
+	account, err := h.externalsWrite.FindByProviderIdentity(ctx, cmd.Provider, identity.ProviderUserID)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		h.log.Error("failed to find external account", "provider", cmd.Provider, "error", err)
 		return nil, nil, err
 	}
 	var user *domain.User
 	if account != nil {
-		user, err = h.usersRead.FindByID(ctx, account.UserID)
+		user, err = h.usersWrite.FindByID(ctx, account.UserID)
 		if err != nil {
 			h.log.Error("failed to find linked user", "provider", cmd.Provider, "user_id", account.UserID, "error", err)
 			return nil, nil, err
@@ -108,7 +102,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 			return nil, nil, domain.ErrUnauthorized
 		}
 		linkAccount := func(txCtx context.Context) error {
-			fetched, err := h.usersRead.FindByEmail(txCtx, email.String())
+			fetched, err := h.usersWrite.FindByEmail(txCtx, email.String())
 			if err != nil && !errors.Is(err, domain.ErrNotFound) {
 				return fmt.Errorf("find user by email: %w", err)
 			}

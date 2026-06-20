@@ -56,6 +56,8 @@ func (s *userWriteStub) MarkEmailVerified(context.Context, string, time.Time) er
 func (s *userWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, time.Time) error {
 	return s.err
 }
+func (s *userWriteStub) FindByEmail(context.Context, string) (*domain.User, error) { return nil, nil }
+func (s *userWriteStub) FindByID(context.Context, string) (*domain.User, error)    { return nil, nil }
 
 func TestExecuteSuccessWithCode(t *testing.T) {
 	now := time.Now()

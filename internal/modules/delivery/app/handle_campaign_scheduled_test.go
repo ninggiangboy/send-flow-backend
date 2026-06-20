@@ -69,6 +69,38 @@ func (m *mockMessageWriteRepository) MarkFailed(_ context.Context, _ domain.Mess
 	return nil
 }
 
+func (m *mockMessageWriteRepository) FindByID(_ context.Context, _, _ string) (*domain.Message, error) {
+	return nil, domain.ErrMessageNotFound
+}
+
+func (m *mockMessageWriteRepository) FindByIDForUpdate(_ context.Context, _, _ string) (*domain.Message, error) {
+	return nil, domain.ErrMessageNotFound
+}
+
+func (m *mockMessageWriteRepository) FindByTransactionalRequestID(_ context.Context, _, _ string) (*domain.Message, error) {
+	return nil, domain.ErrMessageNotFound
+}
+
+func (m *mockMessageWriteRepository) FindByProviderMessageID(_ context.Context, _, _ string) (*domain.Message, error) {
+	return nil, domain.ErrMessageNotFound
+}
+
+func (m *mockMessageWriteRepository) List(_ context.Context, _ ports.MessageListQuery) ([]domain.Message, string, error) {
+	return nil, "", nil
+}
+
+func (m *mockMessageWriteRepository) ListDueQueued(_ context.Context, _ ports.DueMessageQuery) ([]domain.Message, error) {
+	return nil, nil
+}
+
+func (m *mockMessageWriteRepository) ListDistinctWorkspacesWithDue(_ context.Context, _ string, _ time.Time) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockMessageWriteRepository) CountByCampaign(_ context.Context, _, _ string) (int64, error) {
+	return 0, nil
+}
+
 type mockOutboxWriter struct {
 	saveFunc func(ctx context.Context, event ports.OutboxEvent) error
 }

@@ -16,7 +16,6 @@ type MetricsRecorder interface {
 }
 
 type Options struct {
-	DomainsRead     ports.SenderDomainReadRepository
 	DomainsWrite    ports.SenderDomainWriteRepository
 	DNSResolver     ports.DNSResolver
 	AccessChecker   ports.WorkspaceAccessChecker
@@ -32,7 +31,6 @@ type Command struct {
 }
 
 type Handler struct {
-	domainsRead     ports.SenderDomainReadRepository
 	domainsWrite    ports.SenderDomainWriteRepository
 	dnsResolver     ports.DNSResolver
 	accessChecker   ports.WorkspaceAccessChecker
@@ -42,7 +40,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		domainsRead:     opts.DomainsRead,
 		domainsWrite:    opts.DomainsWrite,
 		dnsResolver:     opts.DNSResolver,
 		accessChecker:   opts.AccessChecker,
@@ -56,7 +53,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*senderdomain.Sende
 		return nil, nil, err
 	}
 
-	sd, records, err := h.domainsRead.FindByID(ctx, cmd.WorkspaceID, cmd.DomainID)
+	sd, records, err := h.domainsWrite.FindByID(ctx, cmd.WorkspaceID, cmd.DomainID)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -16,6 +16,7 @@ type UserReadRepository interface {
 }
 
 type UserWriteRepository interface {
+	UserReadRepository
 	Create(ctx context.Context, user domain.User) error
 	UpdatePassword(ctx context.Context, userID, hashedPassword string, at time.Time) error
 	MarkEmailVerified(ctx context.Context, userID string, at time.Time) error
@@ -27,6 +28,7 @@ type ExternalAccountReadRepository interface {
 }
 
 type ExternalAccountWriteRepository interface {
+	ExternalAccountReadRepository
 	Create(ctx context.Context, account domain.ExternalAuthAccount) error
 	TouchLogin(ctx context.Context, accountID string, at time.Time) error
 }
@@ -38,6 +40,7 @@ type SessionReadRepository interface {
 }
 
 type SessionWriteRepository interface {
+	SessionReadRepository
 	Create(ctx context.Context, session domain.Session) error
 	RevokeByID(ctx context.Context, sessionID string, now time.Time) error
 	RevokeByUser(ctx context.Context, userID string, now time.Time) error

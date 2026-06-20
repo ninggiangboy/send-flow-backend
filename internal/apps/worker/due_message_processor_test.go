@@ -10,8 +10,8 @@ import (
 
 func TestDueMessageProcessor_Poll(t *testing.T) {
 	svc := deliveryapp.NewService(deliveryapp.Options{
-		MessagesRead: &mockMessageReadRepo{},
-		Logger:       testConsumerLogger(),
+		MessagesWrite: &mockMessageWrite{},
+		Logger:        testConsumerLogger(),
 	})
 	p := NewDueMessageProcessor(svc, testConsumerLogger(), time.Minute, 100, "marketing")
 
@@ -30,8 +30,8 @@ func TestDueMessageRunnerNamesAreMessageTypeSpecific(t *testing.T) {
 	}
 
 	svc := deliveryapp.NewService(deliveryapp.Options{
-		MessagesRead: &mockMessageReadRepo{},
-		Logger:       testConsumerLogger(),
+		MessagesWrite: &mockMessageWrite{},
+		Logger:        testConsumerLogger(),
 	})
 
 	marketingProcessor := NewDueMessageProcessor(svc, testConsumerLogger(), time.Minute, 100, "marketing")

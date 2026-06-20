@@ -11,7 +11,6 @@ import (
 )
 
 type Options struct {
-	ContactsRead  ports.ContactReadRepository
 	ContactsWrite ports.ContactWriteRepository
 	AccessChecker ports.WorkspaceAccessChecker
 	Logger        *slog.Logger
@@ -31,7 +30,6 @@ type Command struct {
 }
 
 type Handler struct {
-	contactsRead  ports.ContactReadRepository
 	contactsWrite ports.ContactWriteRepository
 	accessChecker ports.WorkspaceAccessChecker
 	log           *slog.Logger
@@ -39,7 +37,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		contactsRead:  opts.ContactsRead,
 		contactsWrite: opts.ContactsWrite,
 		accessChecker: opts.AccessChecker,
 		log:           opts.Logger.With("usecase", "update_contact"),
@@ -57,7 +54,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Contact, er
 		return nil, err
 	}
 
-	contact, err := h.contactsRead.FindContactByID(ctx, cmd.WorkspaceID, cmd.ContactID)
+	contact, err := h.contactsWrite.FindContactByID(ctx, cmd.WorkspaceID, cmd.ContactID)
 	if err != nil {
 		if errors.Is(err, domain.ErrContactNotFound) {
 			return nil, err
@@ -71,7 +68,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Contact, er
 		if normalized == "" {
 			return nil, domain.ErrContactPayloadInvalid
 		}
-		existing, _ := h.contactsRead.FindContactByEmail(ctx, cmd.WorkspaceID, normalized)
+		existing, _ := h.contactsWrite.FindContactByEmail(ctx, cmd.WorkspaceID, normalized)
 		if existing != nil && existing.ID != cmd.ContactID {
 			return nil, domain.ErrContactEmailConflict
 		}

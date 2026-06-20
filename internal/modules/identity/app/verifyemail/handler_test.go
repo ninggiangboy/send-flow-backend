@@ -55,6 +55,8 @@ func (s *userWriteStub) UpdatePassword(ctx context.Context, userID, hashedPasswo
 func (s *userWriteStub) SetMFAEnabledAt(ctx context.Context, userID string, enabledAt *time.Time, at time.Time) error {
 	return nil
 }
+func (s *userWriteStub) FindByEmail(context.Context, string) (*domain.User, error) { return nil, nil }
+func (s *userWriteStub) FindByID(context.Context, string) (*domain.User, error)    { return nil, nil }
 
 func TestExecute_InvalidToken(t *testing.T) {
 	authTokenSvc := usecase.NewAuthTokenService(&authTokenRepoStub{err: domain.ErrNotFound}, tokenGenStub{}, idGenStub{}, tokenHasherStub{})

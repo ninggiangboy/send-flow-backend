@@ -13,6 +13,7 @@ type SenderDomainReadRepository interface {
 }
 
 type SenderDomainWriteRepository interface {
+	SenderDomainReadRepository
 	Create(ctx context.Context, senderDomain domain.SenderDomain, records []domain.DNSRecord) error
 	UpdateDomain(ctx context.Context, senderDomain domain.SenderDomain) error
 	ReplaceDNSRecordStatuses(ctx context.Context, senderDomainID string, records []domain.DNSRecord) error

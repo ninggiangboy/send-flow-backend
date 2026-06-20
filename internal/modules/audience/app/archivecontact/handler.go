@@ -11,7 +11,6 @@ import (
 )
 
 type Options struct {
-	ContactsRead  ports.ContactReadRepository
 	ContactsWrite ports.ContactWriteRepository
 	AccessChecker ports.WorkspaceAccessChecker
 	Logger        *slog.Logger
@@ -25,7 +24,6 @@ type Command struct {
 }
 
 type Handler struct {
-	contactsRead  ports.ContactReadRepository
 	contactsWrite ports.ContactWriteRepository
 	accessChecker ports.WorkspaceAccessChecker
 	log           *slog.Logger
@@ -33,7 +31,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		contactsRead:  opts.ContactsRead,
 		contactsWrite: opts.ContactsWrite,
 		accessChecker: opts.AccessChecker,
 		log:           opts.Logger.With("usecase", "archive_contact"),
@@ -51,7 +48,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		return err
 	}
 
-	if _, err := h.contactsRead.FindContactByID(ctx, cmd.WorkspaceID, cmd.ContactID); err != nil {
+	if _, err := h.contactsWrite.FindContactByID(ctx, cmd.WorkspaceID, cmd.ContactID); err != nil {
 		if errors.Is(err, domain.ErrContactNotFound) {
 			return err
 		}

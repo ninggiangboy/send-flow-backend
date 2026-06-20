@@ -56,14 +56,12 @@ func NewService(opts Options) *Service {
 	})
 
 	updateH := updatecampaigndraft.New(updatecampaigndraft.Options{
-		CampaignsRead:  opts.CampaignsRead,
 		CampaignsWrite: opts.CampaignsWrite,
 		AccessChecker:  opts.AccessChecker,
 		Logger:         log,
 	})
 
 	scheduleH := schedulecampaign.New(schedulecampaign.Options{
-		CampaignsRead:    opts.CampaignsRead,
 		CampaignsWrite:   opts.CampaignsWrite,
 		AudienceResolver: opts.AudienceResolver,
 		ContentService:   opts.ContentService,
@@ -76,21 +74,18 @@ func NewService(opts Options) *Service {
 	})
 
 	cancelH := cancelcampaign.New(cancelcampaign.Options{
-		CampaignsRead:  opts.CampaignsRead,
 		CampaignsWrite: opts.CampaignsWrite,
 		AccessChecker:  opts.AccessChecker,
 		Logger:         log,
 	})
 
 	pauseH := pausecampaign.New(pausecampaign.Options{
-		CampaignsRead:  opts.CampaignsRead,
 		CampaignsWrite: opts.CampaignsWrite,
 		AccessChecker:  opts.AccessChecker,
 		Logger:         log,
 	})
 
 	resumeH := resumecampaign.New(resumecampaign.Options{
-		CampaignsRead:  opts.CampaignsRead,
 		CampaignsWrite: opts.CampaignsWrite,
 		AccessChecker:  opts.AccessChecker,
 		Logger:         log,

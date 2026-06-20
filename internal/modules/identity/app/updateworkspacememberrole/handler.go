@@ -12,9 +12,7 @@ import (
 )
 
 type Options struct {
-	MembershipsRead  ports.MembershipReadRepository
 	MembershipsWrite ports.MembershipWriteRepository
-	RolesRead        ports.RoleReadRepository
 	RolesWrite       ports.RoleWriteRepository
 	UnitOfWork       ports.UnitOfWork
 	Logger           *slog.Logger
@@ -29,9 +27,7 @@ type Command struct {
 }
 
 type Handler struct {
-	membershipsRead  ports.MembershipReadRepository
 	membershipsWrite ports.MembershipWriteRepository
-	rolesRead        ports.RoleReadRepository
 	rolesWrite       ports.RoleWriteRepository
 	unitOfWork       ports.UnitOfWork
 	log              *slog.Logger
@@ -39,9 +35,7 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		membershipsRead:  opts.MembershipsRead,
 		membershipsWrite: opts.MembershipsWrite,
-		rolesRead:        opts.RolesRead,
 		rolesWrite:       opts.RolesWrite,
 		unitOfWork:       opts.UnitOfWork,
 		log:              opts.Logger.With("usecase", "update_workspace_member_role"),
@@ -49,7 +43,7 @@ func New(opts Options) *Handler {
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) error {
-	updaterMembership, err := h.membershipsRead.FindByWorkspaceAndUser(ctx, cmd.WorkspaceID, cmd.UpdaterID)
+	updaterMembership, err := h.membershipsWrite.FindByWorkspaceAndUser(ctx, cmd.WorkspaceID, cmd.UpdaterID)
 	if err != nil {
 		if errors.Is(err, domain.ErrMembershipNotFound) {
 			h.log.Warn("role update denied: updater is not a member", "workspace_id", cmd.WorkspaceID, "updater_id", cmd.UpdaterID)
@@ -58,7 +52,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		h.log.Error("failed to find updater membership", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
 	}
-	updaterRoles, err := h.rolesRead.ListByMembership(ctx, updaterMembership.ID)
+	updaterRoles, err := h.rolesWrite.ListByMembership(ctx, updaterMembership.ID)
 	if err != nil {
 		h.log.Error("failed to list updater roles", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
@@ -67,7 +61,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		h.log.Warn("role update denied: insufficient permissions", "workspace_id", cmd.WorkspaceID, "updater_id", cmd.UpdaterID)
 		return domain.ErrMembershipManageDenied
 	}
-	targetMembership, err := h.membershipsRead.FindByID(ctx, cmd.MembershipID)
+	targetMembership, err := h.membershipsWrite.FindByID(ctx, cmd.MembershipID)
 	if err != nil {
 		h.log.Error("failed to find target membership", "workspace_id", cmd.WorkspaceID, "membership_id", cmd.MembershipID, "error", err)
 		return err
@@ -79,7 +73,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 	if len(cmd.RoleIDs) == 0 {
 		return domain.ErrInvalidRole
 	}
-	roles, err := h.rolesRead.FindByIDs(ctx, cmd.WorkspaceID, cmd.RoleIDs)
+	roles, err := h.rolesWrite.FindByIDs(ctx, cmd.WorkspaceID, cmd.RoleIDs)
 	if err != nil {
 		h.log.Error("failed to find roles", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
@@ -92,18 +86,18 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 			return domain.ErrInvalidRole
 		}
 	}
-	targetRoles, err := h.rolesRead.ListByMembership(ctx, targetMembership.ID)
+	targetRoles, err := h.rolesWrite.ListByMembership(ctx, targetMembership.ID)
 	if err != nil {
 		h.log.Error("failed to list target roles", "workspace_id", cmd.WorkspaceID, "error", err)
 		return err
 	}
 	if domain.LegacyMembershipRole(targetRoles) == domain.MembershipRoleOwner && domain.LegacyMembershipRole(roles) != domain.MembershipRoleOwner {
-		ownerRole, err := h.rolesRead.FindByType(ctx, cmd.WorkspaceID, domain.RoleTypeOwner)
+		ownerRole, err := h.rolesWrite.FindByType(ctx, cmd.WorkspaceID, domain.RoleTypeOwner)
 		if err != nil {
 			h.log.Error("failed to find owner role", "workspace_id", cmd.WorkspaceID, "error", err)
 			return err
 		}
-		count, err := h.rolesRead.CountMembershipsByRole(ctx, cmd.WorkspaceID, ownerRole.ID)
+		count, err := h.rolesWrite.CountMembershipsByRole(ctx, cmd.WorkspaceID, ownerRole.ID)
 		if err != nil {
 			h.log.Error("failed to count owner memberships", "workspace_id", cmd.WorkspaceID, "error", err)
 			return err

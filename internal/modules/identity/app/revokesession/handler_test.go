@@ -27,7 +27,8 @@ func (s *sessionReadStub) ListByUser(context.Context, string, time.Time) ([]doma
 }
 
 type sessionWriteStub struct {
-	revoked bool
+	revoked  bool
+	findByID func(ctx context.Context, sessionID string) (*domain.Session, error)
 }
 
 func (s *sessionWriteStub) Create(context.Context, domain.Session) error { return nil }
@@ -38,6 +39,18 @@ func (s *sessionWriteStub) RevokeByID(context.Context, string, time.Time) error 
 func (s *sessionWriteStub) RevokeByUser(context.Context, string, time.Time) error { return nil }
 func (s *sessionWriteStub) RotateTokens(context.Context, string, string, string, time.Time, time.Time) error {
 	return nil
+}
+func (s *sessionWriteStub) FindByID(ctx context.Context, sessionID string) (*domain.Session, error) {
+	if s.findByID != nil {
+		return s.findByID(ctx, sessionID)
+	}
+	return nil, nil
+}
+func (s *sessionWriteStub) FindByAccessJTI(context.Context, string) (*domain.Session, error) {
+	return nil, nil
+}
+func (s *sessionWriteStub) ListByUser(context.Context, string, time.Time) ([]domain.Session, error) {
+	return nil, nil
 }
 
 type refreshStoreStub struct {
@@ -56,9 +69,10 @@ func (s *refreshStoreStub) Replace(context.Context, string, string, string, time
 
 func TestExecuteRevokesAndDeletesRefreshToken(t *testing.T) {
 	refresh := &refreshStoreStub{}
-	write := &sessionWriteStub{}
+	write := &sessionWriteStub{findByID: func(_ context.Context, _ string) (*domain.Session, error) {
+		return &domain.Session{ID: "s1", UserID: "u1", RefreshJTI: "r1", ExpiresAt: time.Now().UTC().Add(1 * time.Hour)}, nil
+	}}
 	h := New(Options{
-		SessionsRead:  &sessionReadStub{sess: &domain.Session{ID: "s1", UserID: "u1", RefreshJTI: "r1", ExpiresAt: time.Now().UTC().Add(1 * time.Hour)}},
 		SessionsWrite: write,
 		RefreshStore:  refresh,
 		Logger:        testLogger,
@@ -73,10 +87,11 @@ func TestExecuteRevokesAndDeletesRefreshToken(t *testing.T) {
 
 func TestExecuteAlreadyRevokedIsNoop(t *testing.T) {
 	refresh := &refreshStoreStub{}
-	write := &sessionWriteStub{}
 	revokedAt := time.Now().UTC().Add(-1 * time.Minute)
+	write := &sessionWriteStub{findByID: func(_ context.Context, _ string) (*domain.Session, error) {
+		return &domain.Session{ID: "s1", UserID: "u1", RefreshJTI: "r1", RevokedAt: &revokedAt, ExpiresAt: time.Now().UTC().Add(1 * time.Hour)}, nil
+	}}
 	h := New(Options{
-		SessionsRead:  &sessionReadStub{sess: &domain.Session{ID: "s1", UserID: "u1", RefreshJTI: "r1", RevokedAt: &revokedAt, ExpiresAt: time.Now().UTC().Add(1 * time.Hour)}},
 		SessionsWrite: write,
 		RefreshStore:  refresh,
 		Logger:        testLogger,
@@ -94,9 +109,10 @@ func TestExecuteAlreadyRevokedIsNoop(t *testing.T) {
 
 func TestExecuteRejectsNonOwnedSession(t *testing.T) {
 	refresh := &refreshStoreStub{}
-	write := &sessionWriteStub{}
+	write := &sessionWriteStub{findByID: func(_ context.Context, _ string) (*domain.Session, error) {
+		return &domain.Session{ID: "s1", UserID: "u1", RefreshJTI: "r1", ExpiresAt: time.Now().UTC().Add(1 * time.Hour)}, nil
+	}}
 	h := New(Options{
-		SessionsRead:  &sessionReadStub{sess: &domain.Session{ID: "s1", UserID: "u1", RefreshJTI: "r1", ExpiresAt: time.Now().UTC().Add(1 * time.Hour)}},
 		SessionsWrite: write,
 		RefreshStore:  refresh,
 		Logger:        testLogger,

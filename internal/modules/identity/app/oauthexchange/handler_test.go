@@ -36,6 +36,13 @@ func (oauthSessWrtStub) RevokeByUser(context.Context, string, time.Time) error {
 func (oauthSessWrtStub) RotateTokens(context.Context, string, string, string, time.Time, time.Time) error {
 	return nil
 }
+func (oauthSessWrtStub) FindByID(context.Context, string) (*domain.Session, error) { return nil, nil }
+func (oauthSessWrtStub) FindByAccessJTI(context.Context, string) (*domain.Session, error) {
+	return nil, nil
+}
+func (oauthSessWrtStub) ListByUser(context.Context, string, time.Time) ([]domain.Session, error) {
+	return nil, nil
+}
 
 type oauthRfrshStub struct{}
 
@@ -90,6 +97,9 @@ func (s *externalWriteStub) TouchLogin(context.Context, string, time.Time) error
 	s.touched = true
 	return nil
 }
+func (s *externalWriteStub) FindByProviderIdentity(context.Context, string, string) (*domain.ExternalAuthAccount, error) {
+	return nil, nil
+}
 
 type userReadStub struct {
 	user *domain.User
@@ -101,7 +111,9 @@ func (s *userReadStub) FindByEmail(context.Context, string) (*domain.User, error
 }
 func (s *userReadStub) FindByID(context.Context, string) (*domain.User, error) { return s.user, s.err }
 
-type userWriteStub struct{}
+type userWriteStub struct {
+	findByEmail func(ctx context.Context, email string) (*domain.User, error)
+}
 
 func (s *userWriteStub) Create(context.Context, domain.User) error { return nil }
 func (s *userWriteStub) UpdatePassword(context.Context, string, string, time.Time) error {
@@ -111,6 +123,13 @@ func (s *userWriteStub) MarkEmailVerified(context.Context, string, time.Time) er
 func (s *userWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, time.Time) error {
 	return nil
 }
+func (s *userWriteStub) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
+	if s.findByEmail != nil {
+		return s.findByEmail(ctx, email)
+	}
+	return nil, nil
+}
+func (s *userWriteStub) FindByID(context.Context, string) (*domain.User, error) { return nil, nil }
 
 func TestExecuteInvalidState(t *testing.T) {
 	h := New(Options{
@@ -131,10 +150,10 @@ func TestExecuteSuccessWithExistingAccount(t *testing.T) {
 			"google": &providerStub{identity: &domain.OAuthIdentity{ProviderUserID: "pid-1", Email: "a@example.com"}},
 		},
 		OauthState:     &oauthStateStoreStub{state: &ports.OAuthState{Provider: "google", RedirectURI: "http://localhost/cb", CodeVerifier: "v"}},
-		ExternalsRead:  &externalReadStub{acc: &domain.ExternalAuthAccount{ID: "acc1", UserID: "u1"}},
 		ExternalsWrite: &externalWriteStub{},
-		UsersRead:      &userReadStub{user: &domain.User{ID: "u1", Email: "a@example.com"}},
-		UsersWrite:     &userWriteStub{},
+		UsersWrite: &userWriteStub{findByEmail: func(_ context.Context, _ string) (*domain.User, error) {
+			return &domain.User{ID: "u1", Email: "a@example.com"}, nil
+		}},
 		IdGen:          oauthIdGenStub{},
 		UnitOfWork:     noopTx{},
 		SessionFactory: sessionFactory,

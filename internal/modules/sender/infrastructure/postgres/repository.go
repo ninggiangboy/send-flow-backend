@@ -116,6 +116,78 @@ func (r *ReadRepository) findRecordsByDomainID(ctx context.Context, senderDomain
 	return records, rows.Err()
 }
 
+func (w *WriteRepository) FindByID(ctx context.Context, workspaceID, domainID string) (*domain.SenderDomain, []domain.DNSRecord, error) {
+	var sd domain.SenderDomain
+	err := w.db.QueryRow(ctx,
+		`SELECT id, workspace_id, domain, provider, status, verified_at, disabled_at, created_at, updated_at FROM sender_domains WHERE id = $1 AND workspace_id = $2`,
+		domainID, workspaceID,
+	).Scan(&sd.ID, &sd.WorkspaceID, &sd.Domain, &sd.Provider, &sd.Status, &sd.VerifiedAt, &sd.DisabledAt, &sd.CreatedAt, &sd.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, domain.ErrDomainNotFound
+		}
+		return nil, nil, err
+	}
+
+	rows, err := w.db.Query(ctx,
+		`SELECT id, sender_domain_id, record_type, host, expected_value, COALESCE(current_value, ''), status, last_checked_at, COALESCE(failure_reason, ''), created_at, updated_at FROM sender_domain_dns_records WHERE sender_domain_id = $1 ORDER BY record_type, host`,
+		domainID,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	var records []domain.DNSRecord
+	for rows.Next() {
+		var rec domain.DNSRecord
+		if err := rows.Scan(&rec.ID, &rec.SenderDomainID, &rec.RecordType, &rec.Host, &rec.ExpectedValue, &rec.CurrentValue, &rec.Status, &rec.LastCheckedAt, &rec.FailureReason, &rec.CreatedAt, &rec.UpdatedAt); err != nil {
+			return nil, nil, err
+		}
+		records = append(records, rec)
+	}
+	if records == nil {
+		records = []domain.DNSRecord{}
+	}
+	return &sd, records, rows.Err()
+}
+
+func (w *WriteRepository) FindByDomain(ctx context.Context, workspaceID, normalizedDomain string) (*domain.SenderDomain, error) {
+	var sd domain.SenderDomain
+	err := w.db.QueryRow(ctx,
+		`SELECT id, workspace_id, domain, provider, status, verified_at, disabled_at, created_at, updated_at FROM sender_domains WHERE workspace_id = $1 AND domain = $2`,
+		workspaceID, normalizedDomain,
+	).Scan(&sd.ID, &sd.WorkspaceID, &sd.Domain, &sd.Provider, &sd.Status, &sd.VerifiedAt, &sd.DisabledAt, &sd.CreatedAt, &sd.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrDomainNotFound
+		}
+		return nil, err
+	}
+	return &sd, nil
+}
+
+func (w *WriteRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.SenderDomain, error) {
+	rows, err := w.db.Query(ctx, `SELECT id, workspace_id, domain, provider, status, verified_at, disabled_at, created_at, updated_at FROM sender_domains WHERE workspace_id = $1 ORDER BY created_at DESC`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []domain.SenderDomain
+	for rows.Next() {
+		var sd domain.SenderDomain
+		if err := rows.Scan(&sd.ID, &sd.WorkspaceID, &sd.Domain, &sd.Provider, &sd.Status, &sd.VerifiedAt, &sd.DisabledAt, &sd.CreatedAt, &sd.UpdatedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, sd)
+	}
+	if results == nil {
+		results = []domain.SenderDomain{}
+	}
+	return results, rows.Err()
+}
+
 func (w *WriteRepository) Create(ctx context.Context, senderDomain domain.SenderDomain, records []domain.DNSRecord) error {
 	tx, err := w.beginTx(ctx)
 	if err != nil {
@@ -196,4 +268,15 @@ func (w *WriteRepository) beginTx(ctx context.Context) (pgx.Tx, error) {
 		return conn.Begin(ctx)
 	}
 	return nil, errors.New("write repository requires a pool or conn that supports Begin")
+}
+
+// Combined repository — satisfies the merged SenderDomainWriteRepository interface.
+
+type SenderDomainRepository struct {
+	*ReadRepository
+	*WriteRepository
+}
+
+func NewSenderDomainRepository(read *ReadRepository, write *WriteRepository) *SenderDomainRepository {
+	return &SenderDomainRepository{read, write}
 }

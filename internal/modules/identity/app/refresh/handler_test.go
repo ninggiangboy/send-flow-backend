@@ -44,33 +44,27 @@ func (s *refreshStoreStub) Replace(ctx context.Context, oldRefreshJTI, newRefres
 	return s.replace(ctx, oldRefreshJTI, newRefreshJTI, sessionID, ttl)
 }
 
-type sessionsReadStub struct {
-	findByID func(ctx context.Context, sessionID string) (*domain.Session, error)
-}
-
-func (s *sessionsReadStub) FindByID(ctx context.Context, sessionID string) (*domain.Session, error) {
-	return s.findByID(ctx, sessionID)
-}
-func (s *sessionsReadStub) FindByAccessJTI(ctx context.Context, jti string) (*domain.Session, error) {
-	return nil, nil
-}
-func (s *sessionsReadStub) ListByUser(ctx context.Context, userID string, now time.Time) ([]domain.Session, error) {
-	return nil, nil
-}
-
-type usersReadStub struct {
+type usersWriteStub struct {
 	findByID func(ctx context.Context, userID string) (*domain.User, error)
 }
 
-func (s *usersReadStub) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
-	return nil, nil
+func (s *usersWriteStub) Create(context.Context, domain.User) error                       { return nil }
+func (s *usersWriteStub) UpdatePassword(context.Context, string, string, time.Time) error { return nil }
+func (s *usersWriteStub) MarkEmailVerified(context.Context, string, time.Time) error      { return nil }
+func (s *usersWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, time.Time) error {
+	return nil
 }
-func (s *usersReadStub) FindByID(ctx context.Context, userID string) (*domain.User, error) {
-	return s.findByID(ctx, userID)
+func (s *usersWriteStub) FindByEmail(context.Context, string) (*domain.User, error) { return nil, nil }
+func (s *usersWriteStub) FindByID(ctx context.Context, userID string) (*domain.User, error) {
+	if s.findByID != nil {
+		return s.findByID(ctx, userID)
+	}
+	return nil, nil
 }
 
 type sessionsWriteStub struct {
 	rotateTokens func(ctx context.Context, sessionID, accessJTI, refreshJTI string, expiresAt, now time.Time) error
+	findByID     func(ctx context.Context, sessionID string) (*domain.Session, error)
 }
 
 func (s *sessionsWriteStub) Create(ctx context.Context, session domain.Session) error {
@@ -84,6 +78,18 @@ func (s *sessionsWriteStub) RevokeByUser(ctx context.Context, userID string, now
 }
 func (s *sessionsWriteStub) RotateTokens(ctx context.Context, sessionID, accessJTI, refreshJTI string, expiresAt, now time.Time) error {
 	return s.rotateTokens(ctx, sessionID, accessJTI, refreshJTI, expiresAt, now)
+}
+func (s *sessionsWriteStub) FindByID(ctx context.Context, sessionID string) (*domain.Session, error) {
+	if s.findByID != nil {
+		return s.findByID(ctx, sessionID)
+	}
+	return nil, nil
+}
+func (s *sessionsWriteStub) FindByAccessJTI(context.Context, string) (*domain.Session, error) {
+	return nil, nil
+}
+func (s *sessionsWriteStub) ListByUser(context.Context, string, time.Time) ([]domain.Session, error) {
+	return nil, nil
 }
 
 func TestRefreshSuccess(t *testing.T) {
@@ -116,20 +122,18 @@ func TestRefreshSuccess(t *testing.T) {
 				return nil
 			},
 		},
-		SessionsRead: &sessionsReadStub{
+		SessionsWrite: &sessionsWriteStub{
 			findByID: func(_ context.Context, _ string) (*domain.Session, error) {
 				cp := sess
 				return &cp, nil
 			},
-		},
-		UsersRead: &usersReadStub{
-			findByID: func(_ context.Context, _ string) (*domain.User, error) {
-				return &domain.User{ID: "u1", Email: "a@example.com"}, nil
-			},
-		},
-		SessionsWrite: &sessionsWriteStub{
 			rotateTokens: func(_ context.Context, _, _, _ string, _, _ time.Time) error {
 				return nil
+			},
+		},
+		UsersWrite: &usersWriteStub{
+			findByID: func(_ context.Context, _ string) (*domain.User, error) {
+				return &domain.User{ID: "u1", Email: "a@example.com"}, nil
 			},
 		},
 	})
@@ -235,7 +239,7 @@ func TestRefresh_SessionInactive(t *testing.T) {
 				return "sess-1", nil
 			},
 		},
-		SessionsRead: &sessionsReadStub{
+		SessionsWrite: &sessionsWriteStub{
 			findByID: func(_ context.Context, _ string) (*domain.Session, error) {
 				return &domain.Session{
 					ID: "sess-1", UserID: "u1", RefreshJTI: "jti-1",
@@ -264,7 +268,7 @@ func TestRefresh_SessionExpired(t *testing.T) {
 				return "sess-1", nil
 			},
 		},
-		SessionsRead: &sessionsReadStub{
+		SessionsWrite: &sessionsWriteStub{
 			findByID: func(_ context.Context, _ string) (*domain.Session, error) {
 				// expired session
 				return &domain.Session{
@@ -294,7 +298,7 @@ func TestRefresh_SessionJTIMismatch(t *testing.T) {
 				return "sess-1", nil
 			},
 		},
-		SessionsRead: &sessionsReadStub{
+		SessionsWrite: &sessionsWriteStub{
 			findByID: func(_ context.Context, _ string) (*domain.Session, error) {
 				return &domain.Session{
 					ID: "sess-1", UserID: "u1", RefreshJTI: "different-jti",
@@ -323,12 +327,12 @@ func TestRefresh_UserNotFound(t *testing.T) {
 				return "sess-1", nil
 			},
 		},
-		SessionsRead: &sessionsReadStub{
+		SessionsWrite: &sessionsWriteStub{
 			findByID: func(_ context.Context, _ string) (*domain.Session, error) {
 				return &domain.Session{ID: "sess-1", UserID: "u1", RefreshJTI: "jti-1", ExpiresAt: now.Add(24 * time.Hour)}, nil
 			},
 		},
-		UsersRead: &usersReadStub{
+		UsersWrite: &usersWriteStub{
 			findByID: func(_ context.Context, _ string) (*domain.User, error) {
 				return nil, domain.ErrNotFound
 			},

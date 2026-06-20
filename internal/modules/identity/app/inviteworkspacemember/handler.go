@@ -15,11 +15,9 @@ import (
 )
 
 type Options struct {
-	MembershipsRead  ports.MembershipReadRepository
 	MembershipsWrite ports.MembershipWriteRepository
-	RolesRead        ports.RoleReadRepository
 	RolesWrite       ports.RoleWriteRepository
-	UsersRead        ports.UserReadRepository
+	UsersWrite       ports.UserWriteRepository
 	IdGen            ports.IDGenerator
 	InvitationsWrite ports.InvitationWriteRepository
 	OutboxWriter     ports.OutboxWriter
@@ -40,11 +38,9 @@ type Result struct {
 }
 
 type Handler struct {
-	membershipsRead  ports.MembershipReadRepository
 	membershipsWrite ports.MembershipWriteRepository
-	rolesRead        ports.RoleReadRepository
 	rolesWrite       ports.RoleWriteRepository
-	usersRead        ports.UserReadRepository
+	usersWrite       ports.UserWriteRepository
 	idGen            ports.IDGenerator
 	invitationsWrite ports.InvitationWriteRepository
 	outboxWriter     ports.OutboxWriter
@@ -54,11 +50,9 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		membershipsRead:  opts.MembershipsRead,
 		membershipsWrite: opts.MembershipsWrite,
-		rolesRead:        opts.RolesRead,
 		rolesWrite:       opts.RolesWrite,
-		usersRead:        opts.UsersRead,
+		usersWrite:       opts.UsersWrite,
 		idGen:            opts.IdGen,
 		invitationsWrite: opts.InvitationsWrite,
 		outboxWriter:     opts.OutboxWriter,
@@ -68,7 +62,7 @@ func New(opts Options) *Handler {
 }
 
 func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
-	inviterMembership, err := h.membershipsRead.FindByWorkspaceAndUser(ctx, cmd.WorkspaceID, cmd.InviterID)
+	inviterMembership, err := h.membershipsWrite.FindByWorkspaceAndUser(ctx, cmd.WorkspaceID, cmd.InviterID)
 	if err != nil {
 		if errors.Is(err, domain.ErrMembershipNotFound) {
 			h.log.Warn("invitation denied: inviter is not a member", "workspace_id", cmd.WorkspaceID, "inviter_id", cmd.InviterID)
@@ -77,7 +71,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 		h.log.Error("failed to find inviter membership", "workspace_id", cmd.WorkspaceID, "error", err)
 		return nil, err
 	}
-	inviterRoles, err := h.rolesRead.ListByMembership(ctx, inviterMembership.ID)
+	inviterRoles, err := h.rolesWrite.ListByMembership(ctx, inviterMembership.ID)
 	if err != nil {
 		h.log.Error("failed to list inviter roles", "workspace_id", cmd.WorkspaceID, "error", err)
 		return nil, err
@@ -89,7 +83,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 	if len(cmd.RoleIDs) == 0 {
 		return nil, domain.ErrInvitationPayloadInvalid
 	}
-	assignedRoles, err := h.rolesRead.FindByIDs(ctx, cmd.WorkspaceID, cmd.RoleIDs)
+	assignedRoles, err := h.rolesWrite.FindByIDs(ctx, cmd.WorkspaceID, cmd.RoleIDs)
 	if err != nil {
 		h.log.Error("failed to find roles for invitation", "workspace_id", cmd.WorkspaceID, "error", err)
 		return nil, err
@@ -106,18 +100,18 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*Result, error) {
 	if email == "" {
 		return nil, domain.ErrInvitationPayloadInvalid
 	}
-	inviter, err := h.usersRead.FindByID(ctx, cmd.InviterID)
+	inviter, err := h.usersWrite.FindByID(ctx, cmd.InviterID)
 	if err != nil {
 		h.log.Error("failed to lookup inviter", "inviter_id", cmd.InviterID, "error", err)
 		return nil, err
 	}
-	invitedUser, err := h.usersRead.FindByEmail(ctx, email)
+	invitedUser, err := h.usersWrite.FindByEmail(ctx, email)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		h.log.Error("failed to lookup invited user", "workspace_id", cmd.WorkspaceID, "error", err)
 		return nil, err
 	}
 	if invitedUser != nil {
-		existingMembership, err := h.membershipsRead.FindByWorkspaceAndUser(ctx, cmd.WorkspaceID, invitedUser.ID)
+		existingMembership, err := h.membershipsWrite.FindByWorkspaceAndUser(ctx, cmd.WorkspaceID, invitedUser.ID)
 		if err == nil && existingMembership != nil {
 			h.log.Warn("invitation denied: user is already a member", "workspace_id", cmd.WorkspaceID)
 			return nil, domain.ErrInvitationPayloadInvalid

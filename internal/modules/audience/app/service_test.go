@@ -33,9 +33,12 @@ func (m *mockContactRead) ListContacts(ctx context.Context, query ports.ContactL
 
 type mockContactWrite struct {
 	ports.ContactWriteRepository
-	create  func(ctx context.Context, contact domain.Contact) error
-	update  func(ctx context.Context, contact domain.Contact) error
-	archive func(ctx context.Context, workspaceID, contactID string, archivedAt time.Time) error
+	create      func(ctx context.Context, contact domain.Contact) error
+	update      func(ctx context.Context, contact domain.Contact) error
+	archive     func(ctx context.Context, workspaceID, contactID string, archivedAt time.Time) error
+	findByID    func(ctx context.Context, workspaceID, contactID string) (*domain.Contact, error)
+	findByEmail func(ctx context.Context, workspaceID, emailNormalized string) (*domain.Contact, error)
+	list        func(ctx context.Context, query ports.ContactListQuery) ([]domain.Contact, string, error)
 }
 
 func (m *mockContactWrite) CreateContact(ctx context.Context, contact domain.Contact) error {
@@ -48,6 +51,27 @@ func (m *mockContactWrite) UpdateContact(ctx context.Context, contact domain.Con
 
 func (m *mockContactWrite) ArchiveContact(ctx context.Context, workspaceID, contactID string, archivedAt time.Time) error {
 	return m.archive(ctx, workspaceID, contactID, archivedAt)
+}
+
+func (m *mockContactWrite) FindContactByID(ctx context.Context, workspaceID, contactID string) (*domain.Contact, error) {
+	if m.findByID == nil {
+		return nil, domain.ErrContactNotFound
+	}
+	return m.findByID(ctx, workspaceID, contactID)
+}
+
+func (m *mockContactWrite) FindContactByEmail(ctx context.Context, workspaceID, emailNormalized string) (*domain.Contact, error) {
+	if m.findByEmail == nil {
+		return nil, domain.ErrContactNotFound
+	}
+	return m.findByEmail(ctx, workspaceID, emailNormalized)
+}
+
+func (m *mockContactWrite) ListContacts(ctx context.Context, query ports.ContactListQuery) ([]domain.Contact, string, error) {
+	if m.list == nil {
+		return nil, "", nil
+	}
+	return m.list(ctx, query)
 }
 
 type mockAccessChecker struct {
@@ -80,9 +104,10 @@ func (m *mockListRead) CountContactsByList(ctx context.Context, workspaceID stri
 
 type mockListWrite struct {
 	ports.ListWriteRepository
-	create  func(ctx context.Context, list domain.AudienceList) error
-	replace func(ctx context.Context, workspaceID, listID string, contactIDs []string, now time.Time) (domain.MembershipUpdateResult, error)
-	merge   func(ctx context.Context, workspaceID, listID string, contactIDs []string, now time.Time) (domain.MembershipUpdateResult, error)
+	create   func(ctx context.Context, list domain.AudienceList) error
+	replace  func(ctx context.Context, workspaceID, listID string, contactIDs []string, now time.Time) (domain.MembershipUpdateResult, error)
+	merge    func(ctx context.Context, workspaceID, listID string, contactIDs []string, now time.Time) (domain.MembershipUpdateResult, error)
+	findByID func(ctx context.Context, workspaceID, listID string) (*domain.AudienceList, error)
 }
 
 func (m *mockListWrite) CreateList(ctx context.Context, list domain.AudienceList) error {
@@ -95,6 +120,13 @@ func (m *mockListWrite) ReplaceListMemberships(ctx context.Context, workspaceID,
 
 func (m *mockListWrite) MergeListMemberships(ctx context.Context, workspaceID, listID string, contactIDs []string, now time.Time) (domain.MembershipUpdateResult, error) {
 	return m.merge(ctx, workspaceID, listID, contactIDs, now)
+}
+
+func (m *mockListWrite) FindListByID(ctx context.Context, workspaceID, listID string) (*domain.AudienceList, error) {
+	if m.findByID == nil {
+		return nil, domain.ErrListNotFound
+	}
+	return m.findByID(ctx, workspaceID, listID)
 }
 
 type mockSegmentRead struct {
@@ -113,8 +145,10 @@ func (m *mockSegmentRead) ListSegments(ctx context.Context, query ports.SegmentL
 
 type mockSegmentWrite struct {
 	ports.SegmentWriteRepository
-	create func(ctx context.Context, segment domain.Segment) error
-	update func(ctx context.Context, segment domain.Segment) error
+	create   func(ctx context.Context, segment domain.Segment) error
+	update   func(ctx context.Context, segment domain.Segment) error
+	findByID func(ctx context.Context, workspaceID, segmentID string) (*domain.Segment, error)
+	list     func(ctx context.Context, query ports.SegmentListQuery) ([]domain.Segment, string, error)
 }
 
 func (m *mockSegmentWrite) CreateSegment(ctx context.Context, segment domain.Segment) error {
@@ -123,6 +157,20 @@ func (m *mockSegmentWrite) CreateSegment(ctx context.Context, segment domain.Seg
 
 func (m *mockSegmentWrite) UpdateSegment(ctx context.Context, segment domain.Segment) error {
 	return m.update(ctx, segment)
+}
+
+func (m *mockSegmentWrite) FindSegmentByID(ctx context.Context, workspaceID, segmentID string) (*domain.Segment, error) {
+	if m.findByID == nil {
+		return nil, domain.ErrSegmentNotFound
+	}
+	return m.findByID(ctx, workspaceID, segmentID)
+}
+
+func (m *mockSegmentWrite) ListSegments(ctx context.Context, query ports.SegmentListQuery) ([]domain.Segment, string, error) {
+	if m.list == nil {
+		return nil, "", nil
+	}
+	return m.list(ctx, query)
 }
 
 type mockImportJobWrite struct {
@@ -220,7 +268,7 @@ func TestCreateContact(t *testing.T) {
 
 func TestCreateContactEmailConflict(t *testing.T) {
 	svc := NewService(Options{
-		ContactsRead: &mockContactRead{
+		ContactsWrite: &mockContactWrite{
 			findByEmail: func(ctx context.Context, workspaceID, emailNormalized string) (*domain.Contact, error) {
 				return &domain.Contact{ID: "existing", EmailNormalized: emailNormalized}, nil
 			},
@@ -293,12 +341,10 @@ func TestGetContact(t *testing.T) {
 func TestArchiveContact(t *testing.T) {
 	archived := false
 	svc := NewService(Options{
-		ContactsRead: &mockContactRead{
+		ContactsWrite: &mockContactWrite{
 			findByID: func(ctx context.Context, workspaceID, contactID string) (*domain.Contact, error) {
 				return &domain.Contact{ID: contactID}, nil
 			},
-		},
-		ContactsWrite: &mockContactWrite{
 			archive: func(ctx context.Context, workspaceID, contactID string, archivedAt time.Time) error {
 				archived = true
 				return nil
@@ -423,7 +469,7 @@ func TestStartAudienceImport(t *testing.T) {
 func TestStartAudienceExport(t *testing.T) {
 	created := false
 	svc := NewService(Options{
-		ContactsRead: &mockContactRead{
+		ContactsWrite: &mockContactWrite{
 			list: func(ctx context.Context, query ports.ContactListQuery) ([]domain.Contact, string, error) {
 				return []domain.Contact{
 					{ID: "ct_1", Status: domain.ContactStatusActive},
@@ -431,7 +477,7 @@ func TestStartAudienceExport(t *testing.T) {
 				}, "", nil
 			},
 		},
-		SegmentsRead: &mockSegmentRead{
+		SegmentsWrite: &mockSegmentWrite{
 			findByID: func(ctx context.Context, workspaceID, segmentID string) (*domain.Segment, error) {
 				return nil, domain.ErrSegmentNotFound
 			},

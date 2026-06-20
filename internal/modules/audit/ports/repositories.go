@@ -12,6 +12,7 @@ type EntryReadRepository interface {
 }
 
 type EntryWriteRepository interface {
+	EntryReadRepository
 	Append(ctx context.Context, entry domain.AuditEntry) error
 }
 

@@ -289,3 +289,14 @@ func (w *TemplateWriteRepository) beginTx(ctx context.Context) (pgx.Tx, error) {
 	}
 	return nil, errors.New("write repository requires a pool or conn that supports Begin")
 }
+
+// Combined repository — satisfies the merged TemplateWriteRepository interface.
+
+type TemplateRepository struct {
+	*TemplateReadRepository
+	*TemplateWriteRepository
+}
+
+func NewTemplateRepository(read *TemplateReadRepository, write *TemplateWriteRepository) *TemplateRepository {
+	return &TemplateRepository{read, write}
+}

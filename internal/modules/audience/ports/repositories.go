@@ -47,6 +47,7 @@ type ContactReadRepository interface {
 }
 
 type ContactWriteRepository interface {
+	ContactReadRepository
 	CreateContact(ctx context.Context, contact domain.Contact) error
 	UpdateContact(ctx context.Context, contact domain.Contact) error
 	ArchiveContact(ctx context.Context, workspaceID, contactID string, archivedAt time.Time) error
@@ -59,6 +60,7 @@ type ListReadRepository interface {
 }
 
 type ListWriteRepository interface {
+	ListReadRepository
 	CreateList(ctx context.Context, list domain.AudienceList) error
 	ReplaceListMemberships(ctx context.Context, workspaceID, listID string, contactIDs []string, now time.Time) (domain.MembershipUpdateResult, error)
 	MergeListMemberships(ctx context.Context, workspaceID, listID string, contactIDs []string, now time.Time) (domain.MembershipUpdateResult, error)
@@ -70,6 +72,7 @@ type SegmentReadRepository interface {
 }
 
 type SegmentWriteRepository interface {
+	SegmentReadRepository
 	CreateSegment(ctx context.Context, segment domain.Segment) error
 	UpdateSegment(ctx context.Context, segment domain.Segment) error
 }
@@ -87,6 +90,7 @@ type ImportCounts struct {
 }
 
 type ImportJobWriteRepository interface {
+	ImportJobReadRepository
 	CreateImportJob(ctx context.Context, job domain.AudienceImportJob) error
 	UpdateImportJob(ctx context.Context, job domain.AudienceImportJob) error
 	ClaimQueuedImportJobs(ctx context.Context, limit int, now time.Time) ([]domain.AudienceImportJob, error)
@@ -108,6 +112,7 @@ type ExportJobReadRepository interface {
 }
 
 type ExportJobWriteRepository interface {
+	ExportJobReadRepository
 	CreateExportJob(ctx context.Context, job domain.AudienceExportJob) error
 	UpdateExportJob(ctx context.Context, job domain.AudienceExportJob) error
 	ClaimQueuedExportJobs(ctx context.Context, limit int, now time.Time) ([]domain.AudienceExportJob, error)

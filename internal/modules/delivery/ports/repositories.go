@@ -44,6 +44,7 @@ type MessageReadRepository interface {
 }
 
 type MessageWriteRepository interface {
+	MessageReadRepository
 	CreateMany(ctx context.Context, messages []domain.Message) ([]string, error)
 	Update(ctx context.Context, message domain.Message) error
 	ClaimDueMessages(ctx context.Context, query DueMessageQuery, now time.Time) ([]domain.Message, error)
@@ -62,6 +63,7 @@ type AttemptReadRepository interface {
 }
 
 type AttemptWriteRepository interface {
+	AttemptReadRepository
 	Create(ctx context.Context, attempt domain.DeliveryAttempt) error
 	Update(ctx context.Context, attempt domain.DeliveryAttempt) error
 }
@@ -71,6 +73,7 @@ type RetryStateReadRepository interface {
 }
 
 type RetryStateWriteRepository interface {
+	RetryStateReadRepository
 	Create(ctx context.Context, state domain.RetryState) error
 	Update(ctx context.Context, state domain.RetryState) error
 }
@@ -81,6 +84,7 @@ type TransactionalRequestReadRepository interface {
 }
 
 type TransactionalRequestWriteRepository interface {
+	TransactionalRequestReadRepository
 	Create(ctx context.Context, request domain.TransactionalSendRequest) error
 	Update(ctx context.Context, request domain.TransactionalSendRequest) error
 	UpdateStatus(ctx context.Context, workspaceID, requestID, status string, now time.Time) error

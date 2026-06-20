@@ -32,9 +32,9 @@ func (m *mockSuppressionReadRepo) FindActiveByEmail(ctx context.Context, query p
 }
 
 type mockSuppressionWriteRepo struct {
-	ports.SuppressionWriteRepository
-	create func(ctx context.Context, entry domain.SuppressionEntry) error
-	remove func(ctx context.Context, workspaceID, entryID string, removedAt time.Time) error
+	create            func(ctx context.Context, entry domain.SuppressionEntry) error
+	remove            func(ctx context.Context, workspaceID, entryID string, removedAt time.Time) error
+	findActiveByEmail func(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error)
 }
 
 func (m *mockSuppressionWriteRepo) Create(ctx context.Context, entry domain.SuppressionEntry) error {
@@ -43,6 +43,21 @@ func (m *mockSuppressionWriteRepo) Create(ctx context.Context, entry domain.Supp
 
 func (m *mockSuppressionWriteRepo) Remove(ctx context.Context, workspaceID, entryID string, removedAt time.Time) error {
 	return m.remove(ctx, workspaceID, entryID, removedAt)
+}
+
+func (m *mockSuppressionWriteRepo) FindByID(context.Context, string, string) (*domain.SuppressionEntry, error) {
+	return nil, nil
+}
+
+func (m *mockSuppressionWriteRepo) List(context.Context, ports.SuppressionListQuery) ([]domain.SuppressionEntry, string, error) {
+	return nil, "", nil
+}
+
+func (m *mockSuppressionWriteRepo) FindActiveByEmail(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error) {
+	if m.findActiveByEmail != nil {
+		return m.findActiveByEmail(ctx, query)
+	}
+	return nil, nil
 }
 
 func testLogger() *slog.Logger {
@@ -54,11 +69,6 @@ func TestCreateSystemEntry_CreatesWithoutPermission(t *testing.T) {
 	createdEntry := &domain.SuppressionEntry{}
 
 	svc := NewService(Options{
-		EntriesRead: &mockSuppressionReadRepo{
-			findActiveByEmail: func(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error) {
-				return nil, nil
-			},
-		},
 		EntriesWrite: &mockSuppressionWriteRepo{
 			create: func(ctx context.Context, entry domain.SuppressionEntry) error {
 				createdEntry = &entry
@@ -111,12 +121,10 @@ func TestCreateSystemEntry_DuplicateIsIdempotent(t *testing.T) {
 	createCalled := false
 
 	svc := NewService(Options{
-		EntriesRead: &mockSuppressionReadRepo{
+		EntriesWrite: &mockSuppressionWriteRepo{
 			findActiveByEmail: func(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error) {
 				return existingEntry, nil
 			},
-		},
-		EntriesWrite: &mockSuppressionWriteRepo{
 			create: func(ctx context.Context, entry domain.SuppressionEntry) error {
 				createCalled = true
 				return nil

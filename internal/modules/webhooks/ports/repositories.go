@@ -17,6 +17,7 @@ type ConfigReadRepository interface {
 }
 
 type ConfigWriteRepository interface {
+	ConfigReadRepository
 	Create(ctx context.Context, config domain.WebhookConfig) error
 	Update(ctx context.Context, config domain.WebhookConfig) error
 	Disable(ctx context.Context, workspaceID, webhookID string, disabledAt time.Time) error
@@ -39,6 +40,7 @@ type DeliveryReadRepository interface {
 }
 
 type DeliveryWriteRepository interface {
+	DeliveryReadRepository
 	Create(ctx context.Context, delivery domain.WebhookDelivery) error
 	MarkDelivering(ctx context.Context, deliveryID string, now time.Time) error
 	MarkSucceeded(ctx context.Context, deliveryID string, result domain.DeliveryResult) error
@@ -52,6 +54,7 @@ type AttemptReadRepository interface {
 }
 
 type AttemptWriteRepository interface {
+	AttemptReadRepository
 	Create(ctx context.Context, attempt domain.WebhookDeliveryAttempt) error
 }
 

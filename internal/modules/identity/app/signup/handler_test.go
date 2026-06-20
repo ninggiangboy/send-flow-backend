@@ -18,19 +18,11 @@ func (noopTx) WithinTx(ctx context.Context, fn func(ctx context.Context) error) 
 
 var testLogger = slog.Default()
 
-type userReadStub struct {
-	user *domain.User
-	err  error
-}
-
-func (s *userReadStub) FindByEmail(context.Context, string) (*domain.User, error) {
-	return s.user, s.err
-}
-func (s *userReadStub) FindByID(context.Context, string) (*domain.User, error) { return s.user, s.err }
-
 type userWriteStub struct {
-	last *domain.User
-	err  error
+	last        *domain.User
+	err         error
+	findByEmail func(ctx context.Context, email string) (*domain.User, error)
+	findByID    func(ctx context.Context, userID string) (*domain.User, error)
 }
 
 func (s *userWriteStub) Create(_ context.Context, u domain.User) error {
@@ -46,6 +38,18 @@ func (s *userWriteStub) UpdatePassword(context.Context, string, string, time.Tim
 func (s *userWriteStub) MarkEmailVerified(context.Context, string, time.Time) error { return nil }
 func (s *userWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, time.Time) error {
 	return nil
+}
+func (s *userWriteStub) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
+	if s.findByEmail != nil {
+		return s.findByEmail(ctx, email)
+	}
+	return nil, nil
+}
+func (s *userWriteStub) FindByID(ctx context.Context, userID string) (*domain.User, error) {
+	if s.findByID != nil {
+		return s.findByID(ctx, userID)
+	}
+	return nil, nil
 }
 
 type hasherStub struct {
@@ -68,8 +72,7 @@ func (s idGenStub) New() (string, error) { return s.id, nil }
 
 func TestExecuteReturnsDuplicateWhenEmailExists(t *testing.T) {
 	h := New(Options{
-		UsersRead:         &userReadStub{user: &domain.User{ID: "u1"}},
-		UsersWrite:        &userWriteStub{},
+		UsersWrite:        &userWriteStub{findByEmail: func(_ context.Context, _ string) (*domain.User, error) { return &domain.User{ID: "u1"}, nil }},
 		Hasher:            &hasherStub{hash: "h"},
 		PasswordValidator: noopPasswordValidator{},
 		Logger:            testLogger,
@@ -104,6 +107,13 @@ func (s *sessWriteStub) RevokeByID(context.Context, string, time.Time) error   {
 func (s *sessWriteStub) RevokeByUser(context.Context, string, time.Time) error { return nil }
 func (s *sessWriteStub) RotateTokens(context.Context, string, string, string, time.Time, time.Time) error {
 	return nil
+}
+func (s *sessWriteStub) FindByID(context.Context, string) (*domain.Session, error) { return nil, nil }
+func (s *sessWriteStub) FindByAccessJTI(context.Context, string) (*domain.Session, error) {
+	return nil, nil
+}
+func (s *sessWriteStub) ListByUser(context.Context, string, time.Time) ([]domain.Session, error) {
+	return nil, nil
 }
 
 type refreshStoreStub struct {
@@ -140,9 +150,8 @@ func TestExecuteSuccess(t *testing.T) {
 	}
 	sessionFactory := usecase.NewSessionFactory(&sessionIDGen, tokenMgr, sessWrite, refreshStore, testLogger)
 	h := New(Options{
-		UsersRead:         &userReadStub{err: domain.ErrNotFound},
+		UsersWrite:        &userWriteStub{findByEmail: func(_ context.Context, _ string) (*domain.User, error) { return nil, domain.ErrNotFound }},
 		IdGen:             idGenStub{id: "u1"},
-		UsersWrite:        &userWriteStub{},
 		Hasher:            &hasherStub{hash: "hashed"},
 		PasswordValidator: noopPasswordValidator{},
 		Logger:            testLogger,

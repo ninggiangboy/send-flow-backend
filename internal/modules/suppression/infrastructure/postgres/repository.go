@@ -117,6 +117,133 @@ func (r *ReadRepository) List(ctx context.Context, query ports.SuppressionListQu
 	return results, nextCursor, nil
 }
 
+func (w *WriteRepository) FindByID(ctx context.Context, workspaceID, entryID string) (*domain.SuppressionEntry, error) {
+	var e domain.SuppressionEntry
+	err := w.db.QueryRow(ctx,
+		`SELECT id, workspace_id, email, email_normalized, scope, reason, status, COALESCE(note, ''), created_at, updated_at, removed_at FROM suppression_entries WHERE id = $1 AND workspace_id = $2`,
+		entryID, workspaceID,
+	).Scan(&e.ID, &e.WorkspaceID, &e.Email, &e.EmailNormalized, &e.Scope, &e.Reason, &e.Status, &e.Note, &e.CreatedAt, &e.UpdatedAt, &e.RemovedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrEntryNotFound
+		}
+		return nil, err
+	}
+	return &e, nil
+}
+
+func (w *WriteRepository) List(ctx context.Context, query ports.SuppressionListQuery) ([]domain.SuppressionEntry, string, error) {
+	args := []any{query.WorkspaceID}
+	where := "WHERE workspace_id = $1"
+	argIdx := 2
+
+	if query.Email != "" {
+		where += " AND email_normalized = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Email)
+		argIdx++
+	}
+	if query.Scope != "" {
+		where += " AND scope = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Scope)
+		argIdx++
+	}
+	if query.Reason != "" {
+		where += " AND reason = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Reason)
+		argIdx++
+	}
+	if query.From != nil {
+		where += " AND created_at >= $" + platformpostgres.Itoa(argIdx)
+		args = append(args, *query.From)
+		argIdx++
+	}
+	if query.To != nil {
+		where += " AND created_at <= $" + platformpostgres.Itoa(argIdx)
+		args = append(args, *query.To)
+		argIdx++
+	}
+	if query.Cursor != "" {
+		where += " AND (created_at, id) < (SELECT created_at, id FROM suppression_entries WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
+		args = append(args, query.Cursor)
+		argIdx++
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = constants.DefaultPageSize
+	}
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
+	args = append(args, limit+1)
+
+	rows, err := w.db.Query(ctx,
+		`SELECT id, workspace_id, email, email_normalized, scope, reason, status, COALESCE(note, ''), created_at, updated_at, removed_at FROM suppression_entries `+where, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []domain.SuppressionEntry
+	for rows.Next() {
+		var e domain.SuppressionEntry
+		if err := rows.Scan(&e.ID, &e.WorkspaceID, &e.Email, &e.EmailNormalized, &e.Scope, &e.Reason, &e.Status, &e.Note, &e.CreatedAt, &e.UpdatedAt, &e.RemovedAt); err != nil {
+			return nil, "", err
+		}
+		results = append(results, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID
+		results = results[:limit]
+	}
+	if results == nil {
+		results = []domain.SuppressionEntry{}
+	}
+	return results, nextCursor, nil
+}
+
+func (w *WriteRepository) FindActiveByEmail(ctx context.Context, query ports.SuppressionCheckQuery) (*domain.SuppressionEntry, error) {
+	args := []any{query.WorkspaceID, query.EmailNormalized, domain.SuppressionStatusActive}
+	where := "WHERE workspace_id = $1 AND email_normalized = $2 AND status = $3"
+	argIdx := 4
+
+	if len(query.Scopes) > 0 {
+		placeholders := make([]string, len(query.Scopes))
+		for i, s := range query.Scopes {
+			placeholders[i] = "$" + platformpostgres.Itoa(argIdx)
+			args = append(args, s)
+			argIdx++
+		}
+		where += " AND scope IN (" + strings.Join(placeholders, ",") + ")"
+	}
+	if len(query.Reasons) > 0 {
+		placeholders := make([]string, len(query.Reasons))
+		for i, r := range query.Reasons {
+			placeholders[i] = "$" + platformpostgres.Itoa(argIdx)
+			args = append(args, r)
+			argIdx++
+		}
+		where += " AND reason IN (" + strings.Join(placeholders, ",") + ")"
+	}
+
+	where += " ORDER BY reason = 'complaint' DESC, reason = 'bounce' DESC, reason = 'unsubscribe' DESC, reason = 'manual_block' DESC, created_at DESC LIMIT 1"
+
+	var e domain.SuppressionEntry
+	err := w.db.QueryRow(ctx,
+		`SELECT id, workspace_id, email, email_normalized, scope, reason, status, COALESCE(note, ''), created_at, updated_at, removed_at FROM suppression_entries `+where, args...).Scan(
+		&e.ID, &e.WorkspaceID, &e.Email, &e.EmailNormalized, &e.Scope, &e.Reason, &e.Status, &e.Note, &e.CreatedAt, &e.UpdatedAt, &e.RemovedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &e, nil
+}
+
 func (w *WriteRepository) Create(ctx context.Context, e domain.SuppressionEntry) error {
 	_, err := w.db.Exec(ctx,
 		`INSERT INTO suppression_entries (id, workspace_id, email, email_normalized, scope, reason, status, note, created_at, updated_at, removed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
@@ -176,4 +303,15 @@ func (w *WriteRepository) Remove(ctx context.Context, workspaceID, entryID strin
 		return domain.ErrEntryNotFound
 	}
 	return nil
+}
+
+// Combined repository — satisfies the merged SuppressionWriteRepository interface.
+
+type SuppressionRepository struct {
+	*ReadRepository
+	*WriteRepository
+}
+
+func NewSuppressionRepository(read *ReadRepository, write *WriteRepository) *SuppressionRepository {
+	return &SuppressionRepository{read, write}
 }

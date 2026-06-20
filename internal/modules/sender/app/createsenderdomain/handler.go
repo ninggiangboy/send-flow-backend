@@ -16,7 +16,6 @@ type MetricsRecorder interface {
 }
 
 type Options struct {
-	DomainsRead     ports.SenderDomainReadRepository
 	DomainsWrite    ports.SenderDomainWriteRepository
 	AccessChecker   ports.WorkspaceAccessChecker
 	IDGen           func() (string, error)
@@ -33,7 +32,6 @@ type Command struct {
 }
 
 type Handler struct {
-	domainsRead     ports.SenderDomainReadRepository
 	domainsWrite    ports.SenderDomainWriteRepository
 	accessChecker   ports.WorkspaceAccessChecker
 	idGen           func() (string, error)
@@ -43,7 +41,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		domainsRead:     opts.DomainsRead,
 		domainsWrite:    opts.DomainsWrite,
 		accessChecker:   opts.AccessChecker,
 		idGen:           opts.IDGen,
@@ -67,7 +64,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*senderdomain.Sende
 		return nil, nil, err
 	}
 
-	existing, err := h.domainsRead.FindByDomain(ctx, cmd.WorkspaceID, normalizedDomain)
+	existing, err := h.domainsWrite.FindByDomain(ctx, cmd.WorkspaceID, normalizedDomain)
 	if err != nil && !errors.Is(err, senderdomain.ErrDomainNotFound) {
 		return nil, nil, err
 	}

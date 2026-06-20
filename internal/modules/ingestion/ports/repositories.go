@@ -15,6 +15,7 @@ type RawEventReadRepository interface {
 }
 
 type RawEventWriteRepository interface {
+	RawEventReadRepository
 	Create(ctx context.Context, event domain.ProviderWebhookEvent) error
 }
 
@@ -24,6 +25,7 @@ type NormalizedEventReadRepository interface {
 }
 
 type NormalizedEventWriteRepository interface {
+	NormalizedEventReadRepository
 	Create(ctx context.Context, event domain.NormalizedProviderEvent) error
 }
 

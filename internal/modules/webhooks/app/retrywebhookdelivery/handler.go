@@ -14,10 +14,9 @@ import (
 )
 
 type Options struct {
-	DeliveryRead    ports.DeliveryReadRepository
 	DeliveryWrite   ports.DeliveryWriteRepository
 	AttemptWrite    ports.AttemptWriteRepository
-	ConfigRead      ports.ConfigReadRepository
+	ConfigWrite     ports.ConfigWriteRepository
 	TxManager       ports.TransactionManager
 	OutboxWriter    ports.OutboxWriter
 	AccessChecker   ports.WorkspaceAccessChecker
@@ -34,10 +33,9 @@ type Command struct {
 }
 
 type Handler struct {
-	deliveryRead    ports.DeliveryReadRepository
 	deliveryWrite   ports.DeliveryWriteRepository
 	attemptWrite    ports.AttemptWriteRepository
-	configRead      ports.ConfigReadRepository
+	configWrite     ports.ConfigWriteRepository
 	txManager       ports.TransactionManager
 	outboxWriter    ports.OutboxWriter
 	accessChecker   ports.WorkspaceAccessChecker
@@ -49,10 +47,9 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		deliveryRead:    opts.DeliveryRead,
 		deliveryWrite:   opts.DeliveryWrite,
 		attemptWrite:    opts.AttemptWrite,
-		configRead:      opts.ConfigRead,
+		configWrite:     opts.ConfigWrite,
 		txManager:       opts.TxManager,
 		outboxWriter:    opts.OutboxWriter,
 		accessChecker:   opts.AccessChecker,
@@ -70,7 +67,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		return err
 	}
 
-	delivery, err := h.deliveryRead.FindByID(ctx, cmd.WorkspaceID, cmd.DeliveryID)
+	delivery, err := h.deliveryWrite.FindByID(ctx, cmd.WorkspaceID, cmd.DeliveryID)
 	if err != nil {
 		if errors.Is(err, domain.ErrDeliveryNotFound) {
 			return err
@@ -83,7 +80,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		return domain.ErrRetryConflict
 	}
 
-	cfg, err := h.configRead.FindByID(ctx, cmd.WorkspaceID, delivery.WebhookID)
+	cfg, err := h.configWrite.FindByID(ctx, cmd.WorkspaceID, delivery.WebhookID)
 	if err != nil {
 		if errors.Is(err, domain.ErrConfigNotFound) {
 			return domain.ErrConfigNotFound

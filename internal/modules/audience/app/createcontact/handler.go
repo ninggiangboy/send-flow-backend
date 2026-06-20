@@ -11,7 +11,6 @@ import (
 )
 
 type Options struct {
-	ContactsRead  ports.ContactReadRepository
 	ContactsWrite ports.ContactWriteRepository
 	AccessChecker ports.WorkspaceAccessChecker
 	IDGen         func() (string, error)
@@ -30,7 +29,6 @@ type Command struct {
 }
 
 type Handler struct {
-	contactsRead  ports.ContactReadRepository
 	contactsWrite ports.ContactWriteRepository
 	accessChecker ports.WorkspaceAccessChecker
 	idGen         func() (string, error)
@@ -39,7 +37,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		contactsRead:  opts.ContactsRead,
 		contactsWrite: opts.ContactsWrite,
 		accessChecker: opts.AccessChecker,
 		idGen:         opts.IDGen,
@@ -68,7 +65,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Contact, er
 		return nil, domain.ErrContactPayloadInvalid
 	}
 
-	existing, _ := h.contactsRead.FindContactByEmail(ctx, cmd.WorkspaceID, normalized)
+	existing, _ := h.contactsWrite.FindContactByEmail(ctx, cmd.WorkspaceID, normalized)
 	if existing != nil {
 		return nil, domain.ErrContactEmailConflict
 	}

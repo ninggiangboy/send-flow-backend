@@ -45,11 +45,10 @@ func TestProcessDueMessages_Accepted(t *testing.T) {
 		return nil
 	}
 
-	attemptRead := opts.AttemptsRead.(*mockAttemptReadRepo)
-	attemptRead.nextAttemptNumber = func(ctx context.Context, workspaceID, messageID string) (int, error) {
+	attemptWrite := opts.AttemptsWrite.(*mockAttemptWriteRepo)
+	attemptWrite.nextAttemptNumber = func(ctx context.Context, workspaceID, messageID string) (int, error) {
 		return 1, nil
 	}
-	attemptWrite := opts.AttemptsWrite.(*mockAttemptWriteRepo)
 	attemptWrite.create = func(ctx context.Context, attempt domain.DeliveryAttempt) error {
 		return nil
 	}
@@ -198,11 +197,10 @@ func TestProcessDueMessages_ProviderPermanentFailure(t *testing.T) {
 		return nil
 	}
 
-	attemptRead := opts.AttemptsRead.(*mockAttemptReadRepo)
-	attemptRead.nextAttemptNumber = func(ctx context.Context, workspaceID, messageID string) (int, error) {
+	attemptWrite := opts.AttemptsWrite.(*mockAttemptWriteRepo)
+	attemptWrite.nextAttemptNumber = func(ctx context.Context, workspaceID, messageID string) (int, error) {
 		return 1, nil
 	}
-	attemptWrite := opts.AttemptsWrite.(*mockAttemptWriteRepo)
 	attemptWrite.create = func(ctx context.Context, attempt domain.DeliveryAttempt) error {
 		return nil
 	}
@@ -245,11 +243,10 @@ func TestProcessDueMessages_ProviderTemporaryFailure(t *testing.T) {
 		return nil
 	}
 
-	attemptRead := opts.AttemptsRead.(*mockAttemptReadRepo)
-	attemptRead.nextAttemptNumber = func(ctx context.Context, workspaceID, messageID string) (int, error) {
+	attemptWrite := opts.AttemptsWrite.(*mockAttemptWriteRepo)
+	attemptWrite.nextAttemptNumber = func(ctx context.Context, workspaceID, messageID string) (int, error) {
 		return 1, nil
 	}
-	attemptWrite := opts.AttemptsWrite.(*mockAttemptWriteRepo)
 	attemptWrite.create = func(ctx context.Context, attempt domain.DeliveryAttempt) error {
 		return nil
 	}
@@ -328,11 +325,10 @@ func TestProcessDueMessages_AggregatesPipelineOutcomes(t *testing.T) {
 	write.markFailed = func(ctx context.Context, message domain.Message) error { return nil }
 	write.update = func(ctx context.Context, message domain.Message) error { return nil }
 
-	attemptRead := opts.AttemptsRead.(*mockAttemptReadRepo)
-	attemptRead.nextAttemptNumber = func(ctx context.Context, workspaceID, messageID string) (int, error) {
+	attemptWrite := opts.AttemptsWrite.(*mockAttemptWriteRepo)
+	attemptWrite.nextAttemptNumber = func(ctx context.Context, workspaceID, messageID string) (int, error) {
 		return 1, nil
 	}
-	attemptWrite := opts.AttemptsWrite.(*mockAttemptWriteRepo)
 	attemptWrite.create = func(ctx context.Context, attempt domain.DeliveryAttempt) error { return nil }
 	attemptWrite.update = func(ctx context.Context, attempt domain.DeliveryAttempt) error { return nil }
 

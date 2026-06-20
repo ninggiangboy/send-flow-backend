@@ -11,6 +11,7 @@ type WorkspaceSettingsReadRepository interface {
 }
 
 type WorkspaceSettingsWriteRepository interface {
+	WorkspaceSettingsReadRepository
 	CreateDefault(ctx context.Context, settings domain.WorkspaceSettings) error
 	Upsert(ctx context.Context, settings domain.WorkspaceSettings, expectedVersion *int64) error
 }

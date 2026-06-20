@@ -14,7 +14,7 @@ import (
 
 type Options struct {
 	AuthTokens     *usecase.AuthTokenService
-	UsersRead      ports.UserReadRepository
+	UsersWrite     ports.UserWriteRepository
 	Totp           ports.TOTPRepository
 	TokenHasher    ports.TokenHasher
 	TotpVerifier   ports.TOTPCodeVerifier
@@ -24,7 +24,7 @@ type Options struct {
 
 type Handler struct {
 	authTokens     *usecase.AuthTokenService
-	usersRead      ports.UserReadRepository
+	usersWrite     ports.UserWriteRepository
 	totp           ports.TOTPRepository
 	tokenHasher    ports.TokenHasher
 	totpVerifier   ports.TOTPCodeVerifier
@@ -44,7 +44,7 @@ type Command struct {
 func New(opts Options) *Handler {
 	return &Handler{
 		authTokens:     opts.AuthTokens,
-		usersRead:      opts.UsersRead,
+		usersWrite:     opts.UsersWrite,
 		totp:           opts.Totp,
 		tokenHasher:    opts.TokenHasher,
 		totpVerifier:   opts.TotpVerifier,
@@ -63,7 +63,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*usecase.SessionCon
 		h.log.Error("failed to consume MFA challenge token", "error", err)
 		return nil, err
 	}
-	user, err := h.usersRead.FindByID(ctx, record.UserID)
+	user, err := h.usersWrite.FindByID(ctx, record.UserID)
 	if err != nil {
 		h.log.Error("failed to find user for MFA login", "user_id", record.UserID, "error", err)
 		return nil, err

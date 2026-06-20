@@ -10,7 +10,6 @@ import (
 )
 
 type Options struct {
-	EntriesRead  ports.SuppressionReadRepository
 	EntriesWrite ports.SuppressionWriteRepository
 	IDGen        func() (string, error)
 	Logger       *slog.Logger
@@ -29,7 +28,6 @@ type Command struct {
 }
 
 type Handler struct {
-	entriesRead  ports.SuppressionReadRepository
 	entriesWrite ports.SuppressionWriteRepository
 	idGen        func() (string, error)
 	log          *slog.Logger
@@ -37,7 +35,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		entriesRead:  opts.EntriesRead,
 		entriesWrite: opts.EntriesWrite,
 		idGen:        opts.IDGen,
 		log:          opts.Logger.With("usecase", "create_system_suppression_entry"),
@@ -60,7 +57,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Suppression
 		return nil, false, domain.ErrScopeInvalid
 	}
 
-	existing, err := h.entriesRead.FindActiveByEmail(ctx, ports.SuppressionCheckQuery{
+	existing, err := h.entriesWrite.FindActiveByEmail(ctx, ports.SuppressionCheckQuery{
 		WorkspaceID:     cmd.WorkspaceID,
 		EmailNormalized: emailNormalized,
 		Scopes:          []string{cmd.Scope},

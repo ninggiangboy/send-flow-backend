@@ -104,7 +104,7 @@ func TestProviderEventConsumer_ValidEvent(t *testing.T) {
 	handled := false
 
 	svc := deliveryapp.NewService(deliveryapp.Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWrite{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*deliverydomain.Message, error) {
 				return &deliverydomain.Message{
 					ID:                       "msg_1",
@@ -114,11 +114,10 @@ func TestProviderEventConsumer_ValidEvent(t *testing.T) {
 				}, nil
 			},
 		},
-		MessagesWrite: &mockMessageWrite{},
-		OutboxWriter:  &mockOutbox{},
-		TxManager:     &mockTxManager{},
-		IDGen:         func() (string, error) { return "evt_out_1", nil },
-		Logger:        testConsumerLogger(),
+		OutboxWriter: &mockOutbox{},
+		TxManager:    &mockTxManager{},
+		IDGen:        func() (string, error) { return "evt_out_1", nil },
+		Logger:       testConsumerLogger(),
 	})
 
 	consumer := testProviderEventConsumer(svc)
@@ -222,7 +221,7 @@ func TestProviderEventConsumer_RetryableError(t *testing.T) {
 	wantErr := errors.New("database connection failed")
 
 	svc := deliveryapp.NewService(deliveryapp.Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWrite{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*deliverydomain.Message, error) {
 				return nil, wantErr
 			},

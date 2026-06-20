@@ -48,6 +48,34 @@ func (r *SettingsReadRepository) GetByWorkspace(ctx context.Context, workspaceID
 	return mapToSettings(workspaceID, data, version, updatedByUserID, createdAt, updatedAt), nil
 }
 
+func (w *SettingsWriteRepository) GetByWorkspace(ctx context.Context, workspaceID string) (*domain.WorkspaceSettings, error) {
+	var settingsJSON []byte
+	var version int64
+	var updatedByUserID *string
+	var createdAt, updatedAt time.Time
+
+	err := w.getDB(ctx).QueryRow(ctx, `
+		SELECT settings_json, version, updated_by_user_id, created_at, updated_at
+		FROM workspace_settings
+		WHERE workspace_id = $1
+	`, workspaceID).Scan(&settingsJSON, &version, &updatedByUserID, &createdAt, &updatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, domain.ErrSettingsNotFound
+		}
+		return nil, fmt.Errorf("get workspace settings: %w", err)
+	}
+
+	var data map[string]any
+	if len(settingsJSON) > 0 {
+		if err := json.Unmarshal(settingsJSON, &data); err != nil {
+			return nil, fmt.Errorf("unmarshal settings json: %w", err)
+		}
+	}
+
+	return mapToSettings(workspaceID, data, version, updatedByUserID, createdAt, updatedAt), nil
+}
+
 type SettingsWriteRepository struct {
 	db platformpostgres.DBTX
 }

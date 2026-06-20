@@ -10,7 +10,6 @@ import (
 )
 
 type Options struct {
-	DomainsRead   ports.SenderDomainReadRepository
 	DomainsWrite  ports.SenderDomainWriteRepository
 	AccessChecker ports.WorkspaceAccessChecker
 	Logger        *slog.Logger
@@ -24,7 +23,6 @@ type Command struct {
 }
 
 type Handler struct {
-	domainsRead   ports.SenderDomainReadRepository
 	domainsWrite  ports.SenderDomainWriteRepository
 	accessChecker ports.WorkspaceAccessChecker
 	log           *slog.Logger
@@ -32,7 +30,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		domainsRead:   opts.DomainsRead,
 		domainsWrite:  opts.DomainsWrite,
 		accessChecker: opts.AccessChecker,
 		log:           opts.Logger.With("usecase", "disablesenderdomain"),
@@ -44,7 +41,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*senderdomain.Sende
 		return nil, nil, err
 	}
 
-	sd, records, err := h.domainsRead.FindByID(ctx, cmd.WorkspaceID, cmd.DomainID)
+	sd, records, err := h.domainsWrite.FindByID(ctx, cmd.WorkspaceID, cmd.DomainID)
 	if err != nil {
 		return nil, nil, err
 	}

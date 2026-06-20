@@ -112,6 +112,42 @@ func (w *fakeDomainWriteRepo) ReplaceDNSRecordStatuses(_ context.Context, sender
 	return nil
 }
 
+func (w *fakeDomainWriteRepo) FindByID(_ context.Context, workspaceID, domainID string) (*senderdomain.SenderDomain, []senderdomain.DNSRecord, error) {
+	w.store.mu.Lock()
+	defer w.store.mu.Unlock()
+	sd, ok := w.store.domains[domainID]
+	if !ok || sd.WorkspaceID != workspaceID {
+		return nil, nil, senderdomain.ErrDomainNotFound
+	}
+	recs := w.store.records[domainID]
+	out := make([]senderdomain.DNSRecord, len(recs))
+	copy(out, recs)
+	return &sd, out, nil
+}
+
+func (w *fakeDomainWriteRepo) FindByDomain(_ context.Context, workspaceID, normalizedDomain string) (*senderdomain.SenderDomain, error) {
+	w.store.mu.Lock()
+	defer w.store.mu.Unlock()
+	for _, sd := range w.store.domains {
+		if sd.WorkspaceID == workspaceID && sd.Domain == normalizedDomain {
+			return &sd, nil
+		}
+	}
+	return nil, senderdomain.ErrDomainNotFound
+}
+
+func (w *fakeDomainWriteRepo) ListByWorkspace(_ context.Context, workspaceID string) ([]senderdomain.SenderDomain, error) {
+	w.store.mu.Lock()
+	defer w.store.mu.Unlock()
+	var result []senderdomain.SenderDomain
+	for _, sd := range w.store.domains {
+		if sd.WorkspaceID == workspaceID {
+			result = append(result, sd)
+		}
+	}
+	return result, nil
+}
+
 type fakeDNSResolver struct {
 	txtResults   map[string][]string
 	txtErrors    map[string]error

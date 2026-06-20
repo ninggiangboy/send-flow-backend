@@ -11,7 +11,6 @@ import (
 )
 
 type Options struct {
-	EntriesRead   ports.SuppressionReadRepository
 	EntriesWrite  ports.SuppressionWriteRepository
 	AccessChecker ports.WorkspaceAccessChecker
 	Logger        *slog.Logger
@@ -25,7 +24,6 @@ type Command struct {
 }
 
 type Handler struct {
-	entriesRead   ports.SuppressionReadRepository
 	entriesWrite  ports.SuppressionWriteRepository
 	accessChecker ports.WorkspaceAccessChecker
 	log           *slog.Logger
@@ -33,7 +31,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		entriesRead:   opts.EntriesRead,
 		entriesWrite:  opts.EntriesWrite,
 		accessChecker: opts.AccessChecker,
 		log:           opts.Logger.With("usecase", "remove_suppression_entry"),
@@ -51,7 +48,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) error {
 		return err
 	}
 
-	entry, err := h.entriesRead.FindByID(ctx, cmd.WorkspaceID, cmd.EntryID)
+	entry, err := h.entriesWrite.FindByID(ctx, cmd.WorkspaceID, cmd.EntryID)
 	if err != nil {
 		if errors.Is(err, domain.ErrEntryNotFound) {
 			return err

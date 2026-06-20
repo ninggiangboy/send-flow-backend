@@ -134,7 +134,6 @@ func NewService(opts Options) *Service {
 	sessionFactory := usecase.NewSessionFactory(opts.IDGen, opts.Tokens, opts.SessionsWrite, opts.RefreshStore, opts.Logger)
 
 	signupH := signup.New(signup.Options{
-		UsersRead:         opts.UsersRead,
 		UsersWrite:        opts.UsersWrite,
 		Hasher:            opts.Hasher,
 		PasswordValidator: opts.PasswordValidator,
@@ -148,7 +147,7 @@ func NewService(opts Options) *Service {
 		Logger:            opts.Logger,
 	})
 	loginH := login.New(login.Options{
-		UsersRead:       opts.UsersRead,
+		UsersWrite:      opts.UsersWrite,
 		Hasher:          opts.Hasher,
 		AuthTokens:      authTokenSvc,
 		SessionFactory:  sessionFactory,
@@ -166,9 +165,7 @@ func NewService(opts Options) *Service {
 	oauthExchangeH := oauthexchange.New(oauthexchange.Options{
 		Providers:      providerMap,
 		OauthState:     opts.OAuthState,
-		ExternalsRead:  opts.ExternalsRead,
 		ExternalsWrite: opts.ExternalsWrite,
-		UsersRead:      opts.UsersRead,
 		UsersWrite:     opts.UsersWrite,
 		IdGen:          opts.IDGen,
 		UnitOfWork:     opts.UnitOfWork,
@@ -178,7 +175,6 @@ func NewService(opts Options) *Service {
 	getMeH := getme.New(opts.UsersRead, opts.Logger)
 	listSessionsH := listsessions.New(opts.SessionsRead, opts.Logger)
 	revokeH := revokesession.New(revokesession.Options{
-		SessionsRead:  opts.SessionsRead,
 		SessionsWrite: opts.SessionsWrite,
 		RefreshStore:  opts.RefreshStore,
 		Logger:        opts.Logger,
@@ -187,9 +183,8 @@ func NewService(opts Options) *Service {
 	refreshH := refresh.New(refresh.Options{
 		Tokens:        opts.Tokens,
 		RefreshStore:  opts.RefreshStore,
-		SessionsRead:  opts.SessionsRead,
 		SessionsWrite: opts.SessionsWrite,
-		UsersRead:     opts.UsersRead,
+		UsersWrite:    opts.UsersWrite,
 		Logger:        opts.Logger,
 	})
 	reqVerifyH := requestemailverification.New(requestemailverification.Options{
@@ -222,7 +217,7 @@ func NewService(opts Options) *Service {
 	})
 	mfaLoginH := mfalogin.New(mfalogin.Options{
 		AuthTokens:     authTokenSvc,
-		UsersRead:      opts.UsersRead,
+		UsersWrite:     opts.UsersWrite,
 		Totp:           opts.TOTP,
 		TokenHasher:    opts.TokenHasher,
 		TotpVerifier:   opts.TOTPVerifier,
@@ -230,7 +225,7 @@ func NewService(opts Options) *Service {
 		Logger:         opts.Logger,
 	})
 	mfaSetupH := mfatotpsetup.New(mfatotpsetup.Options{
-		UsersRead:     opts.UsersRead,
+		UsersWrite:    opts.UsersWrite,
 		TotpSecretGen: opts.TOTPSecretGen,
 		Totp:          opts.TOTP,
 		Logger:        opts.Logger,
@@ -263,11 +258,9 @@ func NewService(opts Options) *Service {
 		Logger:           opts.Logger,
 	})
 	inviteMemberH := inviteworkspacemember.New(inviteworkspacemember.Options{
-		MembershipsRead:  opts.MembershipsRead,
 		MembershipsWrite: opts.MembershipsWrite,
-		RolesRead:        opts.RolesRead,
 		RolesWrite:       opts.RolesWrite,
-		UsersRead:        opts.UsersRead,
+		UsersWrite:       opts.UsersWrite,
 		IdGen:            opts.IDGen,
 		InvitationsWrite: opts.InvitationsWrite,
 		OutboxWriter:     opts.OutboxWriter,
@@ -275,27 +268,21 @@ func NewService(opts Options) *Service {
 		Logger:           opts.Logger,
 	})
 	acceptInviteH := acceptworkspaceinvitation.New(acceptworkspaceinvitation.Options{
-		InvitationsRead:  opts.InvitationsRead,
 		InvitationsWrite: opts.InvitationsWrite,
-		UsersRead:        opts.UsersRead,
-		MembershipsRead:  opts.MembershipsRead,
+		UsersWrite:       opts.UsersWrite,
 		MembershipsWrite: opts.MembershipsWrite,
-		RolesRead:        opts.RolesRead,
 		RolesWrite:       opts.RolesWrite,
 		IdGen:            opts.IDGen,
 		UnitOfWork:       opts.UnitOfWork,
 		Logger:           opts.Logger,
 	})
 	removeMemberH := removeworkspacemember.New(removeworkspacemember.Options{
-		MembershipsRead:  opts.MembershipsRead,
 		MembershipsWrite: opts.MembershipsWrite,
-		RolesRead:        opts.RolesRead,
+		RolesWrite:       opts.RolesWrite,
 		Logger:           opts.Logger,
 	})
 	updateRoleH := updateworkspacememberrole.New(updateworkspacememberrole.Options{
-		MembershipsRead:  opts.MembershipsRead,
 		MembershipsWrite: opts.MembershipsWrite,
-		RolesRead:        opts.RolesRead,
 		RolesWrite:       opts.RolesWrite,
 		UnitOfWork:       opts.UnitOfWork,
 		Logger:           opts.Logger,

@@ -14,6 +14,7 @@ type TrackingLinkReadRepository interface {
 }
 
 type TrackingLinkWriteRepository interface {
+	TrackingLinkReadRepository
 	Create(ctx context.Context, link domain.TrackingLink) error
 }
 
@@ -23,6 +24,7 @@ type TrackingEventReadRepository interface {
 }
 
 type TrackingEventWriteRepository interface {
+	TrackingEventReadRepository
 	Create(ctx context.Context, event domain.TrackingEvent) error
 }
 

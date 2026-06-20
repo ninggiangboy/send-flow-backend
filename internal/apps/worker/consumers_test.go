@@ -36,6 +36,7 @@ func (m *mockCampaignReader) ListCandidates(ctx context.Context, workspaceID, ca
 
 type mockMessageWrite struct {
 	createMany func(ctx context.Context, messages []domain.Message) ([]string, error)
+	findByID   func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
 }
 
 func (m *mockMessageWrite) CreateMany(ctx context.Context, messages []domain.Message) ([]string, error) {
@@ -71,6 +72,34 @@ func (m *mockMessageWrite) MarkDelayed(ctx context.Context, message domain.Messa
 	return nil
 }
 func (m *mockMessageWrite) MarkFailed(ctx context.Context, message domain.Message) error { return nil }
+
+func (m *mockMessageWrite) FindByID(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+	if m.findByID != nil {
+		return m.findByID(ctx, workspaceID, messageID)
+	}
+	return nil, domain.ErrMessageNotFound
+}
+func (m *mockMessageWrite) FindByIDForUpdate(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+	return m.FindByID(ctx, workspaceID, messageID)
+}
+func (m *mockMessageWrite) FindByTransactionalRequestID(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error) {
+	return nil, nil
+}
+func (m *mockMessageWrite) FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*domain.Message, error) {
+	return nil, nil
+}
+func (m *mockMessageWrite) List(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error) {
+	return nil, "", nil
+}
+func (m *mockMessageWrite) ListDueQueued(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
+	return nil, nil
+}
+func (m *mockMessageWrite) ListDistinctWorkspacesWithDue(ctx context.Context, messageType string, now time.Time) ([]string, error) {
+	return nil, nil
+}
+func (m *mockMessageWrite) CountByCampaign(ctx context.Context, workspaceID, campaignID string) (int64, error) {
+	return 0, nil
+}
 
 type mockOutbox struct {
 	save func(ctx context.Context, event ports.OutboxEvent) error

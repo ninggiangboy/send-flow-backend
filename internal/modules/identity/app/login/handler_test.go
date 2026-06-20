@@ -14,15 +14,23 @@ import (
 
 var testLogger = slog.Default()
 
-type userReadStub struct {
-	user *domain.User
-	err  error
+type userWriteStub struct {
+	findByEmail func(ctx context.Context, email string) (*domain.User, error)
 }
 
-func (s *userReadStub) FindByEmail(context.Context, string) (*domain.User, error) {
-	return s.user, s.err
+func (s *userWriteStub) Create(context.Context, domain.User) error                       { return nil }
+func (s *userWriteStub) UpdatePassword(context.Context, string, string, time.Time) error { return nil }
+func (s *userWriteStub) MarkEmailVerified(context.Context, string, time.Time) error      { return nil }
+func (s *userWriteStub) SetMFAEnabledAt(context.Context, string, *time.Time, time.Time) error {
+	return nil
 }
-func (s *userReadStub) FindByID(context.Context, string) (*domain.User, error) { return s.user, s.err }
+func (s *userWriteStub) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
+	if s.findByEmail != nil {
+		return s.findByEmail(ctx, email)
+	}
+	return nil, nil
+}
+func (s *userWriteStub) FindByID(context.Context, string) (*domain.User, error) { return nil, nil }
 
 type hasherStub struct{ err error }
 
@@ -31,9 +39,9 @@ func (s *hasherStub) Compare(string, string) error { return s.err }
 
 func TestExecuteReturnsInvalidCredentials(t *testing.T) {
 	h := New(Options{
-		UsersRead: &userReadStub{err: errors.New("db error")},
-		Hasher:    &hasherStub{},
-		Logger:    testLogger,
+		UsersWrite: &userWriteStub{findByEmail: func(_ context.Context, _ string) (*domain.User, error) { return nil, errors.New("db error") }},
+		Hasher:     &hasherStub{},
+		Logger:     testLogger,
 	})
 	_, err := h.Execute(context.Background(), Command{Email: "a@example.com", Password: "pw", Now: time.Now().UTC()})
 	if !errors.Is(err, domain.ErrInvalidCredentials) {
@@ -61,6 +69,13 @@ func (s *sessWrtStub) RevokeByUser(context.Context, string, time.Time) error { r
 func (s *sessWrtStub) RotateTokens(context.Context, string, string, string, time.Time, time.Time) error {
 	return nil
 }
+func (s *sessWrtStub) FindByID(context.Context, string) (*domain.Session, error) { return nil, nil }
+func (s *sessWrtStub) FindByAccessJTI(context.Context, string) (*domain.Session, error) {
+	return nil, nil
+}
+func (s *sessWrtStub) ListByUser(context.Context, string, time.Time) ([]domain.Session, error) {
+	return nil, nil
+}
 
 type rfrshStub struct{}
 
@@ -74,7 +89,9 @@ func (s *rfrshStub) Replace(context.Context, string, string, string, time.Durati
 func TestExecuteSuccess(t *testing.T) {
 	sessionFactory := usecase.NewSessionFactory(&sessFactStub{}, &tokMgrStub{}, &sessWrtStub{}, &rfrshStub{}, testLogger)
 	h := New(Options{
-		UsersRead:      &userReadStub{user: &domain.User{ID: "u1", Email: "a@example.com", HashedPassword: "hash"}},
+		UsersWrite: &userWriteStub{findByEmail: func(_ context.Context, _ string) (*domain.User, error) {
+			return &domain.User{ID: "u1", Email: "a@example.com", HashedPassword: "hash"}, nil
+		}},
 		Hasher:         &hasherStub{},
 		Logger:         testLogger,
 		SessionFactory: sessionFactory,

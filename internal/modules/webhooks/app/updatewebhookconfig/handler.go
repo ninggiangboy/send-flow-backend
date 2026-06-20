@@ -13,7 +13,6 @@ import (
 )
 
 type Options struct {
-	ConfigRead    ports.ConfigReadRepository
 	ConfigWrite   ports.ConfigWriteRepository
 	TxManager     ports.TransactionManager
 	OutboxWriter  ports.OutboxWriter
@@ -34,7 +33,6 @@ type Command struct {
 }
 
 type Handler struct {
-	configRead    ports.ConfigReadRepository
 	configWrite   ports.ConfigWriteRepository
 	txManager     ports.TransactionManager
 	outboxWriter  ports.OutboxWriter
@@ -46,7 +44,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		configRead:    opts.ConfigRead,
 		configWrite:   opts.ConfigWrite,
 		txManager:     opts.TxManager,
 		outboxWriter:  opts.OutboxWriter,
@@ -64,7 +61,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.WebhookConf
 		return nil, err
 	}
 
-	cfg, err := h.configRead.FindByID(ctx, cmd.WorkspaceID, cmd.WebhookID)
+	cfg, err := h.configWrite.FindByID(ctx, cmd.WorkspaceID, cmd.WebhookID)
 	if err != nil {
 		if errors.Is(err, domain.ErrConfigNotFound) {
 			return nil, err

@@ -73,9 +73,7 @@ type Result struct {
 }
 
 type Handler struct {
-	txRequestsRead     ports.TransactionalRequestReadRepository
 	txRequestsWrite    ports.TransactionalRequestWriteRepository
-	messagesRead       ports.MessageReadRepository
 	messagesWrite      ports.MessageWriteRepository
 	senderChecker      ports.SenderReadinessChecker
 	contentRenderer    ports.ContentRenderer
@@ -93,9 +91,7 @@ type Handler struct {
 }
 
 func New(
-	txRequestsRead ports.TransactionalRequestReadRepository,
 	txRequestsWrite ports.TransactionalRequestWriteRepository,
-	messagesRead ports.MessageReadRepository,
 	messagesWrite ports.MessageWriteRepository,
 	senderChecker ports.SenderReadinessChecker,
 	contentRenderer ports.ContentRenderer,
@@ -112,9 +108,7 @@ func New(
 	quotaEnforcer ports.QuotaEnforcer,
 ) *Handler {
 	return &Handler{
-		txRequestsRead:     txRequestsRead,
 		txRequestsWrite:    txRequestsWrite,
-		messagesRead:       messagesRead,
 		messagesWrite:      messagesWrite,
 		senderChecker:      senderChecker,
 		contentRenderer:    contentRenderer,
@@ -708,7 +702,7 @@ func (h *Handler) handleIdempotency(ctx context.Context, workspaceID, idempotenc
 		}
 	}
 
-	existingReq, err := h.txRequestsRead.FindByIdempotencyKey(ctx, workspaceID, idempotencyKey)
+	existingReq, err := h.txRequestsWrite.FindByIdempotencyKey(ctx, workspaceID, idempotencyKey)
 	if err != nil {
 		if errors.Is(err, domain.ErrTransactionalRequestNotFound) {
 			return nil, nil
@@ -754,7 +748,7 @@ func (h *Handler) recoverFromUniqueViolation(ctx context.Context, workspaceID, i
 }
 
 func (h *Handler) loadExistingRequestResult(ctx context.Context, workspaceID, idempotencyKey, requestHash string, acceptedAtFallback time.Time) (*Result, error) {
-	existingReq, lookupErr := h.txRequestsRead.FindByIdempotencyKey(ctx, workspaceID, idempotencyKey)
+	existingReq, lookupErr := h.txRequestsWrite.FindByIdempotencyKey(ctx, workspaceID, idempotencyKey)
 	if lookupErr != nil {
 		h.log.Error("failed to lookup conflicting request on unique violation recovery", "idempotency_key", idempotencyKey, "error", lookupErr)
 		return nil, domain.ErrTemporarilyUnavailable
@@ -784,7 +778,7 @@ func (h *Handler) loadExistingRequestResult(ctx context.Context, workspaceID, id
 }
 
 func (h *Handler) listRequestMessageIDs(ctx context.Context, workspaceID, requestID string) ([]string, error) {
-	messages, _, err := h.messagesRead.List(ctx, ports.MessageListQuery{
+	messages, _, err := h.messagesWrite.List(ctx, ports.MessageListQuery{
 		WorkspaceID:            workspaceID,
 		TransactionalRequestID: requestID,
 		Limit:                  maxRecipients,

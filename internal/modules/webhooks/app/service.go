@@ -83,7 +83,6 @@ func NewService(opts Options) *Service {
 			Logger:        logger,
 		}),
 		updateWebhookConfigH: updatewebhookconfig.New(updatewebhookconfig.Options{
-			ConfigRead:    opts.ConfigRead,
 			ConfigWrite:   opts.ConfigWrite,
 			TxManager:     opts.TxManager,
 			OutboxWriter:  opts.OutboxWriter,
@@ -102,7 +101,6 @@ func NewService(opts Options) *Service {
 			Logger:        logger,
 		}),
 		rotateSecretH: rotatesecret.New(rotatesecret.Options{
-			ConfigRead:    opts.ConfigRead,
 			ConfigWrite:   opts.ConfigWrite,
 			TxManager:     opts.TxManager,
 			OutboxWriter:  opts.OutboxWriter,
@@ -113,10 +111,9 @@ func NewService(opts Options) *Service {
 		}),
 		deliverWebhookH: deliverWebhookH,
 		processDueDeliveryH: processduedelivery.New(processduedelivery.Options{
-			DeliveryRead:    opts.DeliveryRead,
 			DeliveryWrite:   opts.DeliveryWrite,
 			AttemptWrite:    opts.AttemptWrite,
-			ConfigRead:      opts.ConfigRead,
+			ConfigWrite:     opts.ConfigWrite,
 			TxManager:       opts.TxManager,
 			OutboxWriter:    opts.OutboxWriter,
 			DeliverWebhookH: deliverWebhookH,
@@ -125,10 +122,9 @@ func NewService(opts Options) *Service {
 			Logger:          logger,
 		}),
 		retryWebhookDeliveryH: retrywebhookdelivery.New(retrywebhookdelivery.Options{
-			DeliveryRead:    opts.DeliveryRead,
 			DeliveryWrite:   opts.DeliveryWrite,
 			AttemptWrite:    opts.AttemptWrite,
-			ConfigRead:      opts.ConfigRead,
+			ConfigWrite:     opts.ConfigWrite,
 			TxManager:       opts.TxManager,
 			OutboxWriter:    opts.OutboxWriter,
 			AccessChecker:   opts.AccessChecker,

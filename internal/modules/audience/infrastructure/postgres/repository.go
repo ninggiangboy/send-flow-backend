@@ -281,6 +281,128 @@ func (w *ContactWriteRepository) ArchiveContact(ctx context.Context, workspaceID
 	return nil
 }
 
+func (w *ContactWriteRepository) FindContactByID(ctx context.Context, workspaceID, contactID string) (*domain.Contact, error) {
+	var c domain.Contact
+	var tagsJSON, attrsJSON []byte
+	err := w.db.QueryRow(ctx,
+		`SELECT id, workspace_id, email, email_normalized, COALESCE(first_name, ''), COALESCE(last_name, ''), status, tags, attributes, created_at, updated_at, archived_at FROM contacts WHERE id = $1 AND workspace_id = $2`,
+		contactID, workspaceID,
+	).Scan(&c.ID, &c.WorkspaceID, &c.Email, &c.EmailNormalized, &c.FirstName, &c.LastName, &c.Status, &tagsJSON, &attrsJSON, &c.CreatedAt, &c.UpdatedAt, &c.ArchivedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrContactNotFound
+		}
+		return nil, err
+	}
+	if err := json.Unmarshal(tagsJSON, &c.Tags); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(attrsJSON, &c.Attributes); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (w *ContactWriteRepository) ListContacts(ctx context.Context, query ports.ContactListQuery) ([]domain.Contact, string, error) {
+	args := []any{query.WorkspaceID}
+	where := "WHERE workspace_id = $1"
+	argIdx := 2
+
+	if query.Status != "" {
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Status)
+		argIdx++
+	}
+
+	if query.Q != "" {
+		pattern := strings.ReplaceAll(query.Q, "%", "\\%")
+		pattern = strings.ReplaceAll(pattern, "_", "\\_")
+		likePattern := "%" + strings.ToLower(pattern) + "%"
+		where += " AND (email_normalized LIKE $" + platformpostgres.Itoa(argIdx) + " ESCAPE '\\' OR COALESCE(first_name, '') LIKE $" + platformpostgres.Itoa(argIdx) + " ESCAPE '\\' OR COALESCE(last_name, '') LIKE $" + platformpostgres.Itoa(argIdx) + " ESCAPE '\\')"
+		args = append(args, likePattern)
+		argIdx++
+	}
+
+	if query.ListID != "" {
+		where += " AND id IN (SELECT contact_id FROM audience_list_memberships WHERE workspace_id = $1 AND list_id = $" + platformpostgres.Itoa(argIdx) + ")"
+		args = append(args, query.ListID)
+		argIdx++
+	}
+
+	if query.Cursor != "" {
+		where += " AND (created_at, id) < (SELECT created_at, id FROM contacts WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
+		args = append(args, query.Cursor)
+		argIdx++
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = constants.DefaultPageSize
+	}
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
+	args = append(args, limit+1)
+
+	sql := "SELECT id, workspace_id, email, email_normalized, COALESCE(first_name, ''), COALESCE(last_name, ''), status, tags, attributes, created_at, updated_at, archived_at FROM contacts " + where
+
+	rows, err := w.db.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []domain.Contact
+	for rows.Next() {
+		var c domain.Contact
+		var tagsJSON, attrsJSON []byte
+		if err := rows.Scan(&c.ID, &c.WorkspaceID, &c.Email, &c.EmailNormalized, &c.FirstName, &c.LastName, &c.Status, &tagsJSON, &attrsJSON, &c.CreatedAt, &c.UpdatedAt, &c.ArchivedAt); err != nil {
+			return nil, "", err
+		}
+		if err := json.Unmarshal(tagsJSON, &c.Tags); err != nil {
+			return nil, "", err
+		}
+		if err := json.Unmarshal(attrsJSON, &c.Attributes); err != nil {
+			return nil, "", err
+		}
+		results = append(results, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID
+		results = results[:limit]
+	}
+	if results == nil {
+		results = []domain.Contact{}
+	}
+
+	return results, nextCursor, nil
+}
+
+func (w *ContactWriteRepository) FindContactByEmail(ctx context.Context, workspaceID, emailNormalized string) (*domain.Contact, error) {
+	var c domain.Contact
+	var tagsJSON, attrsJSON []byte
+	err := w.db.QueryRow(ctx,
+		`SELECT id, workspace_id, email, email_normalized, COALESCE(first_name, ''), COALESCE(last_name, ''), status, tags, attributes, created_at, updated_at, archived_at FROM contacts WHERE workspace_id = $1 AND email_normalized = $2`,
+		workspaceID, emailNormalized,
+	).Scan(&c.ID, &c.WorkspaceID, &c.Email, &c.EmailNormalized, &c.FirstName, &c.LastName, &c.Status, &tagsJSON, &attrsJSON, &c.CreatedAt, &c.UpdatedAt, &c.ArchivedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrContactNotFound
+		}
+		return nil, err
+	}
+	if err := json.Unmarshal(tagsJSON, &c.Tags); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(attrsJSON, &c.Attributes); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 // --- List Read ---
 
 func (r *ListReadRepository) FindListByID(ctx context.Context, workspaceID, listID string) (*domain.AudienceList, error) {
@@ -508,6 +630,117 @@ func (w *ListWriteRepository) MergeListMemberships(ctx context.Context, workspac
 	return domain.MembershipUpdateResult{AddedCount: addedCount, SkippedCount: skippedCount}, nil
 }
 
+func (w *ListWriteRepository) FindListByID(ctx context.Context, workspaceID, listID string) (*domain.AudienceList, error) {
+	var l domain.AudienceList
+	var metadataJSON []byte
+	var desc *string
+	err := w.db.QueryRow(ctx,
+		`SELECT id, workspace_id, name, description, metadata, created_at, updated_at, archived_at FROM audience_lists WHERE id = $1 AND workspace_id = $2`,
+		listID, workspaceID,
+	).Scan(&l.ID, &l.WorkspaceID, &l.Name, &desc, &metadataJSON, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrListNotFound
+		}
+		return nil, err
+	}
+	if desc != nil {
+		l.Description = *desc
+	}
+	if err := json.Unmarshal(metadataJSON, &l.Metadata); err != nil {
+		return nil, err
+	}
+	return &l, nil
+}
+
+func (w *ListWriteRepository) ListLists(ctx context.Context, query ports.ListListQuery) ([]domain.AudienceList, string, error) {
+	args := []any{query.WorkspaceID}
+	where := "WHERE workspace_id = $1 AND archived_at IS NULL"
+	argIdx := 2
+
+	if query.Cursor != "" {
+		where += " AND (created_at, id) < (SELECT created_at, id FROM audience_lists WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
+		args = append(args, query.Cursor)
+		argIdx++
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = constants.DefaultPageSize
+	}
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
+	args = append(args, limit+1)
+
+	rows, err := w.db.Query(ctx,
+		`SELECT id, workspace_id, name, COALESCE(description, ''), metadata, created_at, updated_at, archived_at FROM audience_lists `+where, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []domain.AudienceList
+	for rows.Next() {
+		var l domain.AudienceList
+		var metadataJSON []byte
+		if err := rows.Scan(&l.ID, &l.WorkspaceID, &l.Name, &l.Description, &metadataJSON, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt); err != nil {
+			return nil, "", err
+		}
+		if err := json.Unmarshal(metadataJSON, &l.Metadata); err != nil {
+			return nil, "", err
+		}
+		results = append(results, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID
+		results = results[:limit]
+	}
+	if results == nil {
+		results = []domain.AudienceList{}
+	}
+	return results, nextCursor, nil
+}
+
+func (w *ListWriteRepository) CountContactsByList(ctx context.Context, workspaceID string, listIDs []string) (map[string]int64, error) {
+	if len(listIDs) == 0 {
+		return map[string]int64{}, nil
+	}
+
+	args := []any{workspaceID}
+	placeholders := make([]string, len(listIDs))
+	for i, id := range listIDs {
+		placeholders[i] = "$" + platformpostgres.Itoa(i+2)
+		args = append(args, id)
+	}
+
+	rows, err := w.db.Query(ctx,
+		`SELECT list_id, COUNT(*) FROM audience_list_memberships WHERE workspace_id = $1 AND list_id IN (`+strings.Join(placeholders, ",")+`) GROUP BY list_id`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int64, len(listIDs))
+	for _, id := range listIDs {
+		counts[id] = 0
+	}
+	for rows.Next() {
+		var listID string
+		var count int64
+		if err := rows.Scan(&listID, &count); err != nil {
+			return nil, err
+		}
+		counts[listID] = count
+	}
+	return counts, rows.Err()
+}
+
 // --- Segment Read ---
 
 func (r *SegmentReadRepository) FindSegmentByID(ctx context.Context, workspaceID, segmentID string) (*domain.Segment, error) {
@@ -626,6 +859,83 @@ func (w *SegmentWriteRepository) UpdateSegment(ctx context.Context, s domain.Seg
 		return domain.ErrSegmentNotFound
 	}
 	return nil
+}
+
+func (w *SegmentWriteRepository) FindSegmentByID(ctx context.Context, workspaceID, segmentID string) (*domain.Segment, error) {
+	var s domain.Segment
+	var defJSON []byte
+	err := w.db.QueryRow(ctx,
+		`SELECT id, workspace_id, name, definition_json, status, created_at, updated_at FROM segments WHERE id = $1 AND workspace_id = $2`,
+		segmentID, workspaceID,
+	).Scan(&s.ID, &s.WorkspaceID, &s.Name, &defJSON, &s.Status, &s.CreatedAt, &s.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrSegmentNotFound
+		}
+		return nil, err
+	}
+	if err := json.Unmarshal(defJSON, &s.DefinitionJSON); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (w *SegmentWriteRepository) ListSegments(ctx context.Context, query ports.SegmentListQuery) ([]domain.Segment, string, error) {
+	args := []any{query.WorkspaceID}
+	where := "WHERE workspace_id = $1"
+	argIdx := 2
+
+	if query.Status != "" {
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Status)
+		argIdx++
+	}
+
+	if query.Cursor != "" {
+		where += " AND (created_at, id) < (SELECT created_at, id FROM segments WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
+		args = append(args, query.Cursor)
+		argIdx++
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = constants.DefaultPageSize
+	}
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
+	args = append(args, limit+1)
+
+	rows, err := w.db.Query(ctx,
+		`SELECT id, workspace_id, name, definition_json, status, created_at, updated_at FROM segments `+where, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []domain.Segment
+	for rows.Next() {
+		var s domain.Segment
+		var defJSON []byte
+		if err := rows.Scan(&s.ID, &s.WorkspaceID, &s.Name, &defJSON, &s.Status, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, "", err
+		}
+		if err := json.Unmarshal(defJSON, &s.DefinitionJSON); err != nil {
+			return nil, "", err
+		}
+		results = append(results, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID
+		results = results[:limit]
+	}
+	if results == nil {
+		results = []domain.Segment{}
+	}
+	return results, nextCursor, nil
 }
 
 // --- Import Job Read ---
@@ -812,6 +1122,83 @@ func (w *ImportJobWriteRepository) MarkImportJobFailed(ctx context.Context, work
 		return domain.ErrImportJobNotFound
 	}
 	return nil
+}
+
+func (w *ImportJobWriteRepository) ListImportJobs(ctx context.Context, query ports.ImportJobListQuery) ([]domain.AudienceImportJob, string, error) {
+	args := []any{query.WorkspaceID}
+	where := "WHERE workspace_id = $1"
+	argIdx := 2
+
+	if query.Status != "" {
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Status)
+		argIdx++
+	}
+
+	if query.Cursor != "" {
+		where += " AND (created_at, id) < (SELECT created_at, id FROM audience_import_jobs WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
+		args = append(args, query.Cursor)
+		argIdx++
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = constants.DefaultPageSize
+	}
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
+	args = append(args, limit+1)
+
+	rows, err := w.db.Query(ctx,
+		`SELECT id, workspace_id, source_uri, dedupe_mode, status, processed_count, created_count, updated_count, failed_count, COALESCE(error_summary, ''), metadata, created_at, updated_at, completed_at FROM audience_import_jobs `+where, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []domain.AudienceImportJob
+	for rows.Next() {
+		var j domain.AudienceImportJob
+		var metadataJSON []byte
+		if err := rows.Scan(&j.ID, &j.WorkspaceID, &j.SourceURI, &j.DedupeMode, &j.Status, &j.ProcessedCount, &j.CreatedCount, &j.UpdatedCount, &j.FailedCount, &j.ErrorSummary, &metadataJSON, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt); err != nil {
+			return nil, "", err
+		}
+		if err := json.Unmarshal(metadataJSON, &j.Metadata); err != nil {
+			return nil, "", err
+		}
+		results = append(results, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID
+		results = results[:limit]
+	}
+	if results == nil {
+		results = []domain.AudienceImportJob{}
+	}
+	return results, nextCursor, nil
+}
+
+func (w *ImportJobWriteRepository) FindImportJobByID(ctx context.Context, workspaceID, jobID string) (*domain.AudienceImportJob, error) {
+	var j domain.AudienceImportJob
+	var metadataJSON []byte
+	err := w.db.QueryRow(ctx,
+		`SELECT id, workspace_id, source_uri, dedupe_mode, status, processed_count, created_count, updated_count, failed_count, COALESCE(error_summary, ''), metadata, created_at, updated_at, completed_at FROM audience_import_jobs WHERE id = $1 AND workspace_id = $2`,
+		jobID, workspaceID,
+	).Scan(&j.ID, &j.WorkspaceID, &j.SourceURI, &j.DedupeMode, &j.Status, &j.ProcessedCount, &j.CreatedCount, &j.UpdatedCount, &j.FailedCount, &j.ErrorSummary, &metadataJSON, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrImportJobNotFound
+		}
+		return nil, err
+	}
+	if err := json.Unmarshal(metadataJSON, &j.Metadata); err != nil {
+		return nil, err
+	}
+	return &j, nil
 }
 
 // --- Export Job Read ---
@@ -1031,6 +1418,89 @@ func (w *ExportJobWriteRepository) MarkExportJobFailed(ctx context.Context, work
 	return nil
 }
 
+func (w *ExportJobWriteRepository) ListExportJobs(ctx context.Context, query ports.ExportJobListQuery) ([]domain.AudienceExportJob, string, error) {
+	args := []any{query.WorkspaceID}
+	where := "WHERE workspace_id = $1"
+	argIdx := 2
+
+	if query.Status != "" {
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Status)
+		argIdx++
+	}
+
+	if query.Cursor != "" {
+		where += " AND (created_at, id) < (SELECT created_at, id FROM audience_export_jobs WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
+		args = append(args, query.Cursor)
+		argIdx++
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = constants.DefaultPageSize
+	}
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
+	args = append(args, limit+1)
+
+	rows, err := w.db.Query(ctx,
+		`SELECT id, workspace_id, filters_json, selected_fields, format, zip_output, status, processed_count, estimated_total_count, COALESCE(artifact_uri, ''), COALESCE(error_summary, ''), created_at, updated_at, completed_at FROM audience_export_jobs `+where, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []domain.AudienceExportJob
+	for rows.Next() {
+		var j domain.AudienceExportJob
+		var filtersJSON, fieldsJSON []byte
+		if err := rows.Scan(&j.ID, &j.WorkspaceID, &filtersJSON, &fieldsJSON, &j.Format, &j.ZipOutput, &j.Status, &j.ProcessedCount, &j.EstimatedTotalCount, &j.ArtifactURI, &j.ErrorSummary, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt); err != nil {
+			return nil, "", err
+		}
+		if err := json.Unmarshal(filtersJSON, &j.FiltersJSON); err != nil {
+			return nil, "", err
+		}
+		if err := json.Unmarshal(fieldsJSON, &j.SelectedFields); err != nil {
+			return nil, "", err
+		}
+		results = append(results, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID
+		results = results[:limit]
+	}
+	if results == nil {
+		results = []domain.AudienceExportJob{}
+	}
+	return results, nextCursor, nil
+}
+
+func (w *ExportJobWriteRepository) FindExportJobByID(ctx context.Context, workspaceID, jobID string) (*domain.AudienceExportJob, error) {
+	var j domain.AudienceExportJob
+	var filtersJSON, fieldsJSON []byte
+	err := w.db.QueryRow(ctx,
+		`SELECT id, workspace_id, filters_json, selected_fields, format, zip_output, status, processed_count, estimated_total_count, COALESCE(artifact_uri, ''), COALESCE(error_summary, ''), created_at, updated_at, completed_at FROM audience_export_jobs WHERE id = $1 AND workspace_id = $2`,
+		jobID, workspaceID,
+	).Scan(&j.ID, &j.WorkspaceID, &filtersJSON, &fieldsJSON, &j.Format, &j.ZipOutput, &j.Status, &j.ProcessedCount, &j.EstimatedTotalCount, &j.ArtifactURI, &j.ErrorSummary, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrExportJobNotFound
+		}
+		return nil, err
+	}
+	if err := json.Unmarshal(filtersJSON, &j.FiltersJSON); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(fieldsJSON, &j.SelectedFields); err != nil {
+		return nil, err
+	}
+	return &j, nil
+}
+
 // --- Helpers ---
 
 func (w *ListWriteRepository) beginTx(ctx context.Context) (pgx.Tx, error) {
@@ -1040,4 +1510,51 @@ func (w *ListWriteRepository) beginTx(ctx context.Context) (pgx.Tx, error) {
 		return conn.Begin(ctx)
 	}
 	return nil, errors.New("write repository requires a pool or conn that supports Begin")
+}
+
+// Combined repositories — satisfy the merged WriteRepository interfaces (which now embed ReadRepository).
+
+type ContactRepository struct {
+	*ContactReadRepository
+	*ContactWriteRepository
+}
+
+func NewContactRepository(read *ContactReadRepository, write *ContactWriteRepository) *ContactRepository {
+	return &ContactRepository{read, write}
+}
+
+type ListRepository struct {
+	*ListReadRepository
+	*ListWriteRepository
+}
+
+func NewListRepository(read *ListReadRepository, write *ListWriteRepository) *ListRepository {
+	return &ListRepository{read, write}
+}
+
+type SegmentRepository struct {
+	*SegmentReadRepository
+	*SegmentWriteRepository
+}
+
+func NewSegmentRepository(read *SegmentReadRepository, write *SegmentWriteRepository) *SegmentRepository {
+	return &SegmentRepository{read, write}
+}
+
+type ImportJobRepository struct {
+	*ImportJobReadRepository
+	*ImportJobWriteRepository
+}
+
+func NewImportJobRepository(read *ImportJobReadRepository, write *ImportJobWriteRepository) *ImportJobRepository {
+	return &ImportJobRepository{read, write}
+}
+
+type ExportJobRepository struct {
+	*ExportJobReadRepository
+	*ExportJobWriteRepository
+}
+
+func NewExportJobRepository(read *ExportJobReadRepository, write *ExportJobWriteRepository) *ExportJobRepository {
+	return &ExportJobRepository{read, write}
 }

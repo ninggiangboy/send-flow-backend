@@ -32,6 +32,7 @@ type SuppressionReadRepository interface {
 }
 
 type SuppressionWriteRepository interface {
+	SuppressionReadRepository
 	Create(ctx context.Context, entry domain.SuppressionEntry) error
 	Remove(ctx context.Context, workspaceID, entryID string, removedAt time.Time) error
 }

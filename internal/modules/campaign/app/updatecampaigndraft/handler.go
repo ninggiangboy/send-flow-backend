@@ -11,7 +11,6 @@ import (
 )
 
 type Options struct {
-	CampaignsRead  ports.CampaignReadRepository
 	CampaignsWrite ports.CampaignWriteRepository
 	AccessChecker  ports.WorkspaceAccessChecker
 	Logger         *slog.Logger
@@ -30,7 +29,6 @@ type Command struct {
 }
 
 type Handler struct {
-	campaignsRead  ports.CampaignReadRepository
 	campaignsWrite ports.CampaignWriteRepository
 	accessChecker  ports.WorkspaceAccessChecker
 	log            *slog.Logger
@@ -38,7 +36,6 @@ type Handler struct {
 
 func New(opts Options) *Handler {
 	return &Handler{
-		campaignsRead:  opts.CampaignsRead,
 		campaignsWrite: opts.CampaignsWrite,
 		accessChecker:  opts.AccessChecker,
 		log:            opts.Logger.With("usecase", "update_campaign_draft"),
@@ -58,7 +55,7 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) (*domain.Campaign, e
 		return nil, err
 	}
 
-	campaign, err := h.campaignsRead.FindByID(ctx, cmd.WorkspaceID, cmd.CampaignID)
+	campaign, err := h.campaignsWrite.FindByID(ctx, cmd.WorkspaceID, cmd.CampaignID)
 	if err != nil {
 		if errors.Is(err, domain.ErrCampaignNotFound) {
 			return nil, err

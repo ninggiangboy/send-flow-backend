@@ -53,9 +53,10 @@ func NewContentRepos(pgReadPool, pgWritePool *pgxpool.Pool) (*contentpostgres.Te
 }
 
 func NewContentService(readRepo *contentpostgres.TemplateReadRepository, writeRepo *contentpostgres.TemplateWriteRepository, accessChecker auth.WorkspaceAccessChecker, logger *slog.Logger, cache *contentredis.Cache) *contentapp.Service {
+	combined := contentpostgres.NewTemplateRepository(readRepo, writeRepo)
 	return contentapp.NewService(contentapp.Options{
 		TemplatesRead:  readRepo,
-		TemplatesWrite: writeRepo,
+		TemplatesWrite: combined,
 		AccessChecker:  accessChecker,
 		IDGen:          id.NewUUIDGenerator().New,
 		Logger:         logger,
@@ -98,11 +99,16 @@ func NewAnalyticsRepos(chClient *platformclickhouse.Client) analyticsapp.Options
 }
 
 func NewNotificationRepos(pgReadPool, pgWritePool *pgxpool.Pool, emailSender email.Sender) notificationapp.Options {
+	msgWrite := notificationpostgres.NewMessageWriteRepository(pgWritePool)
+	msgRead := notificationpostgres.NewMessageReadRepository(pgReadPool)
+	attWrite := notificationpostgres.NewAttemptWriteRepository(pgWritePool)
+	attRead := notificationpostgres.NewAttemptReadRepository(pgReadPool)
+
 	return notificationapp.Options{
-		MessagesRead:  notificationpostgres.NewMessageReadRepository(pgReadPool),
-		MessagesWrite: notificationpostgres.NewMessageWriteRepository(pgWritePool),
-		AttemptsRead:  notificationpostgres.NewAttemptReadRepository(pgReadPool),
-		AttemptsWrite: notificationpostgres.NewAttemptWriteRepository(pgWritePool),
+		MessagesRead:  msgRead,
+		MessagesWrite: notificationpostgres.NewMessageRepository(msgRead, msgWrite),
+		AttemptsRead:  attRead,
+		AttemptsWrite: notificationpostgres.NewAttemptRepository(attRead, attWrite),
 		OutboxWriter:  notificationpostgres.NewOutboxRepository(pgWritePool),
 		TxManager:     transaction.NewManager(pgWritePool),
 		EmailSender:   notificationemail.NewEmailAdapter(emailSender),
@@ -111,13 +117,20 @@ func NewNotificationRepos(pgReadPool, pgWritePool *pgxpool.Pool, emailSender ema
 }
 
 func NewWebhooksService(pgReadPool, pgWritePool *pgxpool.Pool, accessChecker auth.WorkspaceAccessChecker, logger *slog.Logger) *webhooksapp.Service {
+	configRead := webhookspostgres.NewConfigReadRepository(pgReadPool)
+	configWrite := webhookspostgres.NewConfigWriteRepository(pgWritePool)
+	deliveryRead := webhookspostgres.NewDeliveryReadRepository(pgReadPool)
+	deliveryWrite := webhookspostgres.NewDeliveryWriteRepository(pgWritePool)
+	attemptRead := webhookspostgres.NewAttemptReadRepository(pgReadPool)
+	attemptWrite := webhookspostgres.NewAttemptWriteRepository(pgWritePool)
+
 	return webhooksapp.NewService(webhooksapp.Options{
-		ConfigRead:    webhookspostgres.NewConfigReadRepository(pgReadPool),
-		ConfigWrite:   webhookspostgres.NewConfigWriteRepository(pgWritePool),
-		DeliveryRead:  webhookspostgres.NewDeliveryReadRepository(pgReadPool),
-		DeliveryWrite: webhookspostgres.NewDeliveryWriteRepository(pgWritePool),
-		AttemptRead:   webhookspostgres.NewAttemptReadRepository(pgReadPool),
-		AttemptWrite:  webhookspostgres.NewAttemptWriteRepository(pgWritePool),
+		ConfigRead:    configRead,
+		ConfigWrite:   webhookspostgres.NewConfigRepository(configRead, configWrite),
+		DeliveryRead:  deliveryRead,
+		DeliveryWrite: webhookspostgres.NewDeliveryRepository(deliveryRead, deliveryWrite),
+		AttemptRead:   attemptRead,
+		AttemptWrite:  webhookspostgres.NewAttemptRepository(attemptRead, attemptWrite),
 		TxManager:     transaction.NewManager(pgWritePool),
 		OutboxWriter:  webhookspostgres.NewOutboxRepository(pgWritePool),
 		Deliverer:     webhookshttp.NewDeliverer(),

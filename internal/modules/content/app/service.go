@@ -85,13 +85,11 @@ func NewService(opts Options) *Service {
 			Logger:        opts.Logger,
 		}),
 		updateTemplateH: updatetemplate.New(updatetemplate.Options{
-			TemplatesRead:  opts.TemplatesRead,
 			TemplatesWrite: opts.TemplatesWrite,
 			AccessChecker:  opts.AccessChecker,
 			Logger:         opts.Logger,
 		}),
 		publishTemplateH: publishtemplate.New(publishtemplate.Options{
-			TemplatesRead:  opts.TemplatesRead,
 			TemplatesWrite: opts.TemplatesWrite,
 			AccessChecker:  opts.AccessChecker,
 			IDGen:          opts.IDGen,
@@ -109,7 +107,6 @@ func NewService(opts Options) *Service {
 			Cache:         opts.RedisCache,
 		}),
 		renderH: render.New(render.Options{
-			TemplatesRead:  opts.TemplatesRead,
 			TemplatesWrite: opts.TemplatesWrite,
 			AccessChecker:  opts.AccessChecker,
 			IDGen:          opts.IDGen,

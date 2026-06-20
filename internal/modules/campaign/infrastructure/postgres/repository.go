@@ -330,6 +330,231 @@ func (w *CampaignWriteRepository) Update(ctx context.Context, c domain.Campaign)
 	return nil
 }
 
+func (w *CampaignWriteRepository) FindByID(ctx context.Context, workspaceID, campaignID string) (*domain.Campaign, error) {
+	db := w.getDB(ctx)
+	var c domain.Campaign
+	var audienceType, audienceID string
+	var audienceContactIDsJSON []byte
+	var templateID, templateVersionID *string
+	var scheduledAt *time.Time
+	var cancelledAt, pausedAt, completedAt *time.Time
+
+	err := db.QueryRow(ctx,
+		`SELECT id, workspace_id, name, status, audience_type, COALESCE(audience_id, ''), audience_contact_ids,
+		        template_id, template_version_id, sender_domain_id, message_type,
+		        scheduled_at, planned_recipients, created_at, updated_at,
+		        cancelled_at, paused_at, completed_at
+		 FROM campaigns WHERE id = $1 AND workspace_id = $2`,
+		campaignID, workspaceID,
+	).Scan(&c.ID, &c.WorkspaceID, &c.Name, &c.Status, &audienceType, &audienceID,
+		&audienceContactIDsJSON, &templateID, &templateVersionID,
+		&c.SenderDomainID, &c.MessageType, &scheduledAt, &c.PlannedRecipients,
+		&c.CreatedAt, &c.UpdatedAt, &cancelledAt, &pausedAt, &completedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrCampaignNotFound
+		}
+		return nil, err
+	}
+
+	c.AudienceRef = domain.AudienceRef{
+		Type: domain.AudienceType(audienceType),
+		ID:   stringOrZero(audienceID),
+	}
+	if audienceContactIDsJSON != nil {
+		if err := json.Unmarshal(audienceContactIDsJSON, &c.AudienceRef.ContactIDs); err != nil {
+			return nil, err
+		}
+	}
+	if templateID != nil {
+		c.TemplateRef.TemplateID = *templateID
+	}
+	if templateVersionID != nil {
+		c.TemplateRef.TemplateVersionID = *templateVersionID
+	}
+	c.ScheduledAt = scheduledAt
+	c.CancelledAt = cancelledAt
+	c.PausedAt = pausedAt
+	c.CompletedAt = completedAt
+
+	return &c, nil
+}
+
+func (w *CampaignWriteRepository) List(ctx context.Context, query ports.CampaignListQuery) ([]domain.Campaign, string, error) {
+	db := w.getDB(ctx)
+	args := []any{query.WorkspaceID}
+	where := "WHERE workspace_id = $1"
+	argIdx := 2
+
+	if query.Status != "" {
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Status)
+		argIdx++
+	}
+	if query.SenderDomainID != "" {
+		where += " AND sender_domain_id = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.SenderDomainID)
+		argIdx++
+	}
+	if query.TemplateID != "" {
+		where += " AND template_id = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.TemplateID)
+		argIdx++
+	}
+	if query.Cursor != "" {
+		where += " AND (created_at, id) < (SELECT created_at, id FROM campaigns WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
+		args = append(args, query.Cursor)
+		argIdx++
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = constants.DefaultPageSize
+	}
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
+	args = append(args, limit+1)
+
+	rows, err := db.Query(ctx,
+		`SELECT id, workspace_id, name, status, audience_type, COALESCE(audience_id, ''), audience_contact_ids,
+		        COALESCE(template_id, ''), template_version_id, sender_domain_id, message_type,
+		        scheduled_at, planned_recipients, created_at, updated_at,
+		        cancelled_at, paused_at, completed_at
+		 FROM campaigns `+where, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []domain.Campaign
+	for rows.Next() {
+		var c domain.Campaign
+		var audienceType, audienceID, templateID string
+		var audienceContactIDsJSON []byte
+		var templateVersionID *string
+		var scheduledAt *time.Time
+		var cancelledAt, pausedAt, completedAt *time.Time
+
+		if err := rows.Scan(&c.ID, &c.WorkspaceID, &c.Name, &c.Status, &audienceType, &audienceID,
+			&audienceContactIDsJSON, &templateID, &templateVersionID,
+			&c.SenderDomainID, &c.MessageType, &scheduledAt, &c.PlannedRecipients,
+			&c.CreatedAt, &c.UpdatedAt, &cancelledAt, &pausedAt, &completedAt); err != nil {
+			return nil, "", err
+		}
+
+		c.AudienceRef = domain.AudienceRef{
+			Type: domain.AudienceType(audienceType),
+			ID:   audienceID,
+		}
+		if audienceContactIDsJSON != nil {
+			if err := json.Unmarshal(audienceContactIDsJSON, &c.AudienceRef.ContactIDs); err != nil {
+				return nil, "", err
+			}
+		}
+		c.TemplateRef = domain.TemplateRef{TemplateID: templateID}
+		if templateVersionID != nil {
+			c.TemplateRef.TemplateVersionID = *templateVersionID
+		}
+		c.ScheduledAt = scheduledAt
+		c.CancelledAt = cancelledAt
+		c.PausedAt = pausedAt
+		c.CompletedAt = completedAt
+
+		results = append(results, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID
+		results = results[:limit]
+	}
+	if results == nil {
+		results = []domain.Campaign{}
+	}
+
+	return results, nextCursor, nil
+}
+
+func (w *CampaignWriteRepository) ListCandidates(ctx context.Context, query ports.CandidateListQuery) ([]domain.CampaignMessageCandidate, string, error) {
+	db := w.getDB(ctx)
+	args := []any{query.WorkspaceID, query.CampaignID}
+	where := "WHERE workspace_id = $1 AND campaign_id = $2"
+	argIdx := 3
+
+	if query.Status != "" {
+		where += " AND status = $" + platformpostgres.Itoa(argIdx)
+		args = append(args, query.Status)
+		argIdx++
+	}
+	if query.Cursor != "" {
+		where += " AND (created_at, id) < (SELECT created_at, id FROM campaign_message_candidates WHERE id = $" + platformpostgres.Itoa(argIdx) + ")"
+		args = append(args, query.Cursor)
+		argIdx++
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = constants.DefaultPageSize
+	}
+	where += " ORDER BY created_at DESC, id DESC LIMIT $" + platformpostgres.Itoa(argIdx)
+	args = append(args, limit+1)
+
+	rows, err := db.Query(ctx,
+		`SELECT id, workspace_id, campaign_id, contact_id, email_normalized, recipient_snapshot, status, created_at, updated_at
+		 FROM campaign_message_candidates `+where, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []domain.CampaignMessageCandidate
+	for rows.Next() {
+		var cand domain.CampaignMessageCandidate
+		var snapshotJSON []byte
+
+		if err := rows.Scan(&cand.ID, &cand.WorkspaceID, &cand.CampaignID, &cand.ContactID,
+			&cand.EmailNormalized, &snapshotJSON, &cand.Status,
+			&cand.CreatedAt, &cand.UpdatedAt); err != nil {
+			return nil, "", err
+		}
+		if snapshotJSON != nil {
+			if err := json.Unmarshal(snapshotJSON, &cand.RecipientSnapshot); err != nil {
+				return nil, "", err
+			}
+		}
+		results = append(results, cand)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID
+		results = results[:limit]
+	}
+	if results == nil {
+		results = []domain.CampaignMessageCandidate{}
+	}
+
+	return results, nextCursor, nil
+}
+
+func (w *CampaignWriteRepository) CountCandidates(ctx context.Context, workspaceID, campaignID string) (int64, error) {
+	db := w.getDB(ctx)
+	var count int64
+	err := db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM campaign_message_candidates WHERE workspace_id = $1 AND campaign_id = $2`,
+		workspaceID, campaignID,
+	).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (w *CampaignWriteRepository) ReplaceCandidates(ctx context.Context, workspaceID, campaignID string, candidates []domain.CampaignMessageCandidate) error {
 	db := w.getDB(ctx)
 	if _, err := db.Exec(ctx,
@@ -396,4 +621,15 @@ func (r *OutboxRepository) Save(ctx context.Context, event ports.OutboxEvent) er
 
 func stringOrZero(s string) string {
 	return s
+}
+
+// Combined repository — satisfies the merged CampaignWriteRepository interface.
+
+type CampaignRepository struct {
+	*CampaignReadRepository
+	*CampaignWriteRepository
+}
+
+func NewCampaignRepository(read *CampaignReadRepository, write *CampaignWriteRepository) *CampaignRepository {
+	return &CampaignRepository{read, write}
 }

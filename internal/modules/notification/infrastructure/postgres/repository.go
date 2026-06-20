@@ -379,3 +379,23 @@ func (r *OutboxRepository) Save(ctx context.Context, event ports.OutboxEvent) er
 	)
 	return err
 }
+
+// Combined repositories — satisfy the merged WriteRepository interfaces.
+
+type MessageRepository struct {
+	*MessageReadRepository
+	*MessageWriteRepository
+}
+
+func NewMessageRepository(read *MessageReadRepository, write *MessageWriteRepository) *MessageRepository {
+	return &MessageRepository{read, write}
+}
+
+type AttemptRepository struct {
+	*AttemptReadRepository
+	*AttemptWriteRepository
+}
+
+func NewAttemptRepository(read *AttemptReadRepository, write *AttemptWriteRepository) *AttemptRepository {
+	return &AttemptRepository{read, write}
+}

@@ -44,11 +44,27 @@ func (s *stubProviderNormalizer) Normalize(ctx context.Context, input ports.Norm
 }
 
 type stubRawEventWriteRepo struct {
-	createFn func(ctx context.Context, event domain.ProviderWebhookEvent) error
+	createFn                func(ctx context.Context, event domain.ProviderWebhookEvent) error
+	findByIDFn              func(ctx context.Context, id string) (*domain.ProviderWebhookEvent, error)
+	findByProviderEventIDFn func(ctx context.Context, provider, providerEventID string) (*domain.ProviderWebhookEvent, error)
 }
 
 func (s *stubRawEventWriteRepo) Create(ctx context.Context, event domain.ProviderWebhookEvent) error {
 	return s.createFn(ctx, event)
+}
+
+func (s *stubRawEventWriteRepo) FindByID(ctx context.Context, id string) (*domain.ProviderWebhookEvent, error) {
+	if s.findByIDFn != nil {
+		return s.findByIDFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (s *stubRawEventWriteRepo) FindByProviderEventID(ctx context.Context, provider, providerEventID string) (*domain.ProviderWebhookEvent, error) {
+	if s.findByProviderEventIDFn != nil {
+		return s.findByProviderEventIDFn(ctx, provider, providerEventID)
+	}
+	return nil, nil
 }
 
 type stubRawEventReadRepo struct {
@@ -68,11 +84,27 @@ func (s *stubRawEventReadRepo) FindByProviderEventID(ctx context.Context, provid
 }
 
 type stubNormalizedEventWriteRepo struct {
-	createFn func(ctx context.Context, event domain.NormalizedProviderEvent) error
+	createFn                func(ctx context.Context, event domain.NormalizedProviderEvent) error
+	findByIDFn              func(ctx context.Context, id string) (*domain.NormalizedProviderEvent, error)
+	findByProviderEventIDFn func(ctx context.Context, provider, providerEventID, eventType string) (*domain.NormalizedProviderEvent, error)
 }
 
 func (s *stubNormalizedEventWriteRepo) Create(ctx context.Context, event domain.NormalizedProviderEvent) error {
 	return s.createFn(ctx, event)
+}
+
+func (s *stubNormalizedEventWriteRepo) FindByID(ctx context.Context, id string) (*domain.NormalizedProviderEvent, error) {
+	if s.findByIDFn != nil {
+		return s.findByIDFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (s *stubNormalizedEventWriteRepo) FindByProviderEventID(ctx context.Context, provider, providerEventID, eventType string) (*domain.NormalizedProviderEvent, error) {
+	if s.findByProviderEventIDFn != nil {
+		return s.findByProviderEventIDFn(ctx, provider, providerEventID, eventType)
+	}
+	return nil, nil
 }
 
 type stubNormalizedEventReadRepo struct {

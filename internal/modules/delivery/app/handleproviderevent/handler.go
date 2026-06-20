@@ -62,7 +62,6 @@ type Result struct {
 }
 
 type Handler struct {
-	messagesRead        ports.MessageReadRepository
 	messagesWrite       ports.MessageWriteRepository
 	txRequestsWrite     ports.TransactionalRequestWriteRepository
 	recipientSuppressor RecipientSuppressor
@@ -74,7 +73,6 @@ type Handler struct {
 }
 
 func New(
-	messagesRead ports.MessageReadRepository,
 	messagesWrite ports.MessageWriteRepository,
 	txRequestsWrite ports.TransactionalRequestWriteRepository,
 	recipientSuppressor RecipientSuppressor,
@@ -85,7 +83,6 @@ func New(
 	eventRepo ports.MessageEventRepository,
 ) *Handler {
 	return &Handler{
-		messagesRead:        messagesRead,
 		messagesWrite:       messagesWrite,
 		txRequestsWrite:     txRequestsWrite,
 		recipientSuppressor: recipientSuppressor,
@@ -176,9 +173,9 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 	var resolveErr error
 
 	if input.WorkspaceID != "" && input.MessageID != "" {
-		message, resolveErr = h.messagesRead.FindByID(ctx, input.WorkspaceID, input.MessageID)
+		message, resolveErr = h.messagesWrite.FindByID(ctx, input.WorkspaceID, input.MessageID)
 	} else if input.Provider != "" && input.ProviderMessageID != "" {
-		message, resolveErr = h.messagesRead.FindByProviderMessageID(ctx, input.Provider, input.ProviderMessageID)
+		message, resolveErr = h.messagesWrite.FindByProviderMessageID(ctx, input.Provider, input.ProviderMessageID)
 		if message != nil && input.WorkspaceID != "" && message.WorkspaceID != input.WorkspaceID {
 			log.Warn("message found by provider_message_id belongs to different workspace, skipping",
 				"found_workspace_id", message.WorkspaceID,
@@ -232,10 +229,19 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 	if err := h.txManager.WithinTx(ctx, func(txCtx context.Context) error {
 		now := time.Now().UTC()
 
-		currentMessage, err := h.messagesRead.FindByIDForUpdate(txCtx, message.WorkspaceID, message.ID)
+		currentMessage, err := h.messagesWrite.FindByIDForUpdate(txCtx, message.WorkspaceID, message.ID)
 		if err != nil {
+			if errors.Is(err, domain.ErrMessageNotFound) {
+				log.Warn("message not found during transactional re-read, using resolved snapshot")
+				currentMessage = message
+			} else {
+				log.Error("failed to re-read message inside transaction", "error", err)
+				return err
+			}
+		}
+		if currentMessage == nil {
 			log.Error("failed to re-read message inside transaction", "error", err)
-			return err
+			return domain.ErrMessageNotFound
 		}
 		if !domain.CanTransitionToStatus(currentMessage.Status, targetStatus) {
 			log.Warn("concurrent status change prevents transition, skipping",

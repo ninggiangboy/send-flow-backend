@@ -14,8 +14,8 @@ import (
 
 type Options struct {
 	ExportJobsWrite ports.ExportJobWriteRepository
-	ContactsRead    ports.ContactReadRepository
-	SegmentsRead    ports.SegmentReadRepository
+	ContactsWrite   ports.ContactWriteRepository
+	SegmentsWrite   ports.SegmentWriteRepository
 	AccessChecker   ports.WorkspaceAccessChecker
 	ExportEnabled   bool
 	IDGen           func() (string, error)
@@ -34,8 +34,8 @@ type Command struct {
 
 type Handler struct {
 	exportJobsWrite ports.ExportJobWriteRepository
-	contactsRead    ports.ContactReadRepository
-	segmentsRead    ports.SegmentReadRepository
+	contactsWrite   ports.ContactWriteRepository
+	segmentsWrite   ports.SegmentWriteRepository
 	accessChecker   ports.WorkspaceAccessChecker
 	exportEnabled   bool
 	idGen           func() (string, error)
@@ -45,8 +45,8 @@ type Handler struct {
 func New(opts Options) *Handler {
 	return &Handler{
 		exportJobsWrite: opts.ExportJobsWrite,
-		contactsRead:    opts.ContactsRead,
-		segmentsRead:    opts.SegmentsRead,
+		contactsWrite:   opts.ContactsWrite,
+		segmentsWrite:   opts.SegmentsWrite,
 		accessChecker:   opts.AccessChecker,
 		exportEnabled:   opts.ExportEnabled,
 		idGen:           opts.IDGen,
@@ -129,7 +129,7 @@ func (h *Handler) estimateTotalCount(ctx context.Context, cmd Command) (int64, e
 			query.ListID = listID
 		}
 		if segmentID, ok := cmd.Filters["segment_id"].(string); ok && segmentID != "" {
-			segment, err := h.segmentsRead.FindSegmentByID(ctx, cmd.WorkspaceID, segmentID)
+			segment, err := h.segmentsWrite.FindSegmentByID(ctx, cmd.WorkspaceID, segmentID)
 			if err != nil {
 				return 0, err
 			}
@@ -151,7 +151,7 @@ func (h *Handler) estimateTotalCount(ctx context.Context, cmd Command) (int64, e
 
 	var total int64
 	for {
-		contacts, cursor, err := h.contactsRead.ListContacts(ctx, query)
+		contacts, cursor, err := h.contactsWrite.ListContacts(ctx, query)
 		if err != nil {
 			return 0, err
 		}

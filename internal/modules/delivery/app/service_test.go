@@ -64,16 +64,24 @@ func (m *mockMessageReadRepo) CountByCampaign(ctx context.Context, workspaceID, 
 
 type mockMessageWriteRepo struct {
 	ports.MessageWriteRepository
-	createMany       func(ctx context.Context, messages []domain.Message) ([]string, error)
-	update           func(ctx context.Context, message domain.Message) error
-	claimDueMessages func(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error)
-	markProcessing   func(ctx context.Context, workspaceID, messageID string, now time.Time) error
-	markAccepted     func(ctx context.Context, message domain.Message) error
-	markDelivered    func(ctx context.Context, message domain.Message) error
-	markBounced      func(ctx context.Context, message domain.Message) error
-	markComplained   func(ctx context.Context, message domain.Message) error
-	markDelayed      func(ctx context.Context, message domain.Message) error
-	markFailed       func(ctx context.Context, message domain.Message) error
+	createMany                    func(ctx context.Context, messages []domain.Message) ([]string, error)
+	update                        func(ctx context.Context, message domain.Message) error
+	claimDueMessages              func(ctx context.Context, query ports.DueMessageQuery, now time.Time) ([]domain.Message, error)
+	markProcessing                func(ctx context.Context, workspaceID, messageID string, now time.Time) error
+	markAccepted                  func(ctx context.Context, message domain.Message) error
+	markDelivered                 func(ctx context.Context, message domain.Message) error
+	markBounced                   func(ctx context.Context, message domain.Message) error
+	markComplained                func(ctx context.Context, message domain.Message) error
+	markDelayed                   func(ctx context.Context, message domain.Message) error
+	markFailed                    func(ctx context.Context, message domain.Message) error
+	findByID                      func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
+	findByIDForUpdate             func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error)
+	findByTransactionalRequestID  func(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error)
+	findByProviderMessageID       func(ctx context.Context, provider, providerMessageID string) (*domain.Message, error)
+	list                          func(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error)
+	listDueQueued                 func(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error)
+	listDistinctWorkspacesWithDue func(ctx context.Context, messageType string, now time.Time) ([]string, error)
+	countByCampaign               func(ctx context.Context, workspaceID, campaignID string) (int64, error)
 }
 
 func (m *mockMessageWriteRepo) CreateMany(ctx context.Context, messages []domain.Message) ([]string, error) {
@@ -122,6 +130,62 @@ func (m *mockMessageWriteRepo) MarkFailed(ctx context.Context, message domain.Me
 	return m.markFailed(ctx, message)
 }
 
+func (m *mockMessageWriteRepo) FindByID(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+	if m.findByID == nil {
+		return nil, domain.ErrMessageNotFound
+	}
+	return m.findByID(ctx, workspaceID, messageID)
+}
+
+func (m *mockMessageWriteRepo) FindByIDForUpdate(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
+	if m.findByIDForUpdate != nil {
+		return m.findByIDForUpdate(ctx, workspaceID, messageID)
+	}
+	return m.FindByID(ctx, workspaceID, messageID)
+}
+
+func (m *mockMessageWriteRepo) FindByTransactionalRequestID(ctx context.Context, workspaceID, transactionalRequestID string) (*domain.Message, error) {
+	if m.findByTransactionalRequestID == nil {
+		return nil, domain.ErrMessageNotFound
+	}
+	return m.findByTransactionalRequestID(ctx, workspaceID, transactionalRequestID)
+}
+
+func (m *mockMessageWriteRepo) FindByProviderMessageID(ctx context.Context, provider, providerMessageID string) (*domain.Message, error) {
+	if m.findByProviderMessageID == nil {
+		return nil, domain.ErrMessageNotFound
+	}
+	return m.findByProviderMessageID(ctx, provider, providerMessageID)
+}
+
+func (m *mockMessageWriteRepo) List(ctx context.Context, query ports.MessageListQuery) ([]domain.Message, string, error) {
+	if m.list == nil {
+		return nil, "", nil
+	}
+	return m.list(ctx, query)
+}
+
+func (m *mockMessageWriteRepo) ListDueQueued(ctx context.Context, query ports.DueMessageQuery) ([]domain.Message, error) {
+	if m.listDueQueued == nil {
+		return nil, nil
+	}
+	return m.listDueQueued(ctx, query)
+}
+
+func (m *mockMessageWriteRepo) ListDistinctWorkspacesWithDue(ctx context.Context, messageType string, now time.Time) ([]string, error) {
+	if m.listDistinctWorkspacesWithDue == nil {
+		return nil, nil
+	}
+	return m.listDistinctWorkspacesWithDue(ctx, messageType, now)
+}
+
+func (m *mockMessageWriteRepo) CountByCampaign(ctx context.Context, workspaceID, campaignID string) (int64, error) {
+	if m.countByCampaign == nil {
+		return 0, nil
+	}
+	return m.countByCampaign(ctx, workspaceID, campaignID)
+}
+
 type mockAttemptReadRepo struct {
 	ports.AttemptReadRepository
 	listByMessage     func(ctx context.Context, workspaceID, messageID string) ([]domain.DeliveryAttempt, error)
@@ -138,8 +202,24 @@ func (m *mockAttemptReadRepo) NextAttemptNumber(ctx context.Context, workspaceID
 
 type mockAttemptWriteRepo struct {
 	ports.AttemptWriteRepository
-	create func(ctx context.Context, attempt domain.DeliveryAttempt) error
-	update func(ctx context.Context, attempt domain.DeliveryAttempt) error
+	listByMessage     func(ctx context.Context, workspaceID, messageID string) ([]domain.DeliveryAttempt, error)
+	nextAttemptNumber func(ctx context.Context, workspaceID, messageID string) (int, error)
+	create            func(ctx context.Context, attempt domain.DeliveryAttempt) error
+	update            func(ctx context.Context, attempt domain.DeliveryAttempt) error
+}
+
+func (m *mockAttemptWriteRepo) ListByMessage(ctx context.Context, workspaceID, messageID string) ([]domain.DeliveryAttempt, error) {
+	if m.listByMessage == nil {
+		return nil, nil
+	}
+	return m.listByMessage(ctx, workspaceID, messageID)
+}
+
+func (m *mockAttemptWriteRepo) NextAttemptNumber(ctx context.Context, workspaceID, messageID string) (int, error) {
+	if m.nextAttemptNumber == nil {
+		return 0, nil
+	}
+	return m.nextAttemptNumber(ctx, workspaceID, messageID)
 }
 
 func (m *mockAttemptWriteRepo) Create(ctx context.Context, attempt domain.DeliveryAttempt) error {
@@ -161,8 +241,16 @@ func (m *mockRetryStateReadRepo) FindByMessage(ctx context.Context, workspaceID,
 
 type mockRetryStateWriteRepo struct {
 	ports.RetryStateWriteRepository
-	create func(ctx context.Context, state domain.RetryState) error
-	update func(ctx context.Context, state domain.RetryState) error
+	findByMessage func(ctx context.Context, workspaceID, messageID string) (*domain.RetryState, error)
+	create        func(ctx context.Context, state domain.RetryState) error
+	update        func(ctx context.Context, state domain.RetryState) error
+}
+
+func (m *mockRetryStateWriteRepo) FindByMessage(ctx context.Context, workspaceID, messageID string) (*domain.RetryState, error) {
+	if m.findByMessage == nil {
+		return nil, nil
+	}
+	return m.findByMessage(ctx, workspaceID, messageID)
 }
 
 func (m *mockRetryStateWriteRepo) Create(ctx context.Context, state domain.RetryState) error {

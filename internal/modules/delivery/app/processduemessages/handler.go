@@ -55,11 +55,8 @@ type ProcessDueMessagesResult struct {
 }
 
 type Handler struct {
-	messagesRead       ports.MessageReadRepository
 	messagesWrite      ports.MessageWriteRepository
-	attemptsRead       ports.AttemptReadRepository
 	attemptsWrite      ports.AttemptWriteRepository
-	retryStatesRead    ports.RetryStateReadRepository
 	retryStatesWrite   ports.RetryStateWriteRepository
 	senderChecker      ports.SenderReadinessChecker
 	suppressionChecker ports.SuppressionChecker
@@ -77,11 +74,8 @@ type Handler struct {
 }
 
 func New(
-	messagesRead ports.MessageReadRepository,
 	messagesWrite ports.MessageWriteRepository,
-	attemptsRead ports.AttemptReadRepository,
 	attemptsWrite ports.AttemptWriteRepository,
-	retryStatesRead ports.RetryStateReadRepository,
 	retryStatesWrite ports.RetryStateWriteRepository,
 	senderChecker ports.SenderReadinessChecker,
 	suppressionChecker ports.SuppressionChecker,
@@ -98,11 +92,8 @@ func New(
 	objectStorage ports.ObjectStorage,
 ) *Handler {
 	return &Handler{
-		messagesRead:       messagesRead,
 		messagesWrite:      messagesWrite,
-		attemptsRead:       attemptsRead,
 		attemptsWrite:      attemptsWrite,
-		retryStatesRead:    retryStatesRead,
 		retryStatesWrite:   retryStatesWrite,
 		senderChecker:      senderChecker,
 		suppressionChecker: suppressionChecker,
@@ -137,7 +128,7 @@ func (h *Handler) ProcessDueMessagesAllWorkspaces(ctx context.Context, input Pro
 		limit = 100
 	}
 
-	workspaces, err := h.messagesRead.ListDistinctWorkspacesWithDue(ctx, input.MessageType, input.Now)
+	workspaces, err := h.messagesWrite.ListDistinctWorkspacesWithDue(ctx, input.MessageType, input.Now)
 	if err != nil {
 		log.Error("failed to list distinct workspaces with due messages", "error", err)
 		return 0, err
@@ -323,7 +314,7 @@ func (h *Handler) processMessage(ctx context.Context, msg domain.Message, now ti
 		textBody = msg.TextBody
 	}
 
-	attemptNo, err := h.attemptsRead.NextAttemptNumber(ctx, msg.WorkspaceID, msg.ID)
+	attemptNo, err := h.attemptsWrite.NextAttemptNumber(ctx, msg.WorkspaceID, msg.ID)
 	if err != nil {
 		log.Error("failed to get next attempt number", "error", err)
 		h.failMessage(ctx, msg, now, "infrastructure_error", "failed to get attempt number")
@@ -415,7 +406,7 @@ func (h *Handler) processMessage(ctx context.Context, msg domain.Message, now ti
 	if err := h.persistAcceptedState(ctx, msg, attempt, providerResult, now); err != nil {
 		log.Error("failed to persist accepted state after retries, moving to dlq", "error", err)
 
-		current, readErr := h.messagesRead.FindByID(context.Background(), msg.WorkspaceID, msg.ID)
+		current, readErr := h.messagesWrite.FindByID(context.Background(), msg.WorkspaceID, msg.ID)
 		if readErr == nil && current.Status == domain.MessageStatusAccepted {
 			log.Warn("message was already committed as accepted on a prior attempt")
 			return messageStatusAccepted, nil
@@ -569,7 +560,7 @@ func (h *Handler) handleTemporaryFailure(ctx context.Context, msg domain.Message
 	attempt.ErrorMessage = providerErr.Error()
 	attempt.FinishedAt = &now
 
-	retryState, err := h.retryStatesRead.FindByMessage(ctx, msg.WorkspaceID, msg.ID)
+	retryState, err := h.retryStatesWrite.FindByMessage(ctx, msg.WorkspaceID, msg.ID)
 	if err != nil {
 		log.Error("failed to find retry state", "error", err)
 		h.failMessageWithAttempt(ctx, msg, attempt, now, "retry_state_error", "failed to find retry state")

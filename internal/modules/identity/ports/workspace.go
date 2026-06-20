@@ -13,6 +13,7 @@ type WorkspaceReadRepository interface {
 }
 
 type WorkspaceWriteRepository interface {
+	WorkspaceReadRepository
 	Create(ctx context.Context, workspace domain.Workspace) error
 }
 
@@ -27,6 +28,7 @@ type RoleReadRepository interface {
 }
 
 type RoleWriteRepository interface {
+	RoleReadRepository
 	Create(ctx context.Context, role domain.Role) error
 	Update(ctx context.Context, role domain.Role) error
 	ReplaceMembershipRoles(ctx context.Context, membershipID string, roleIDs []string, updatedAt time.Time) error
@@ -41,6 +43,7 @@ type MembershipReadRepository interface {
 }
 
 type MembershipWriteRepository interface {
+	MembershipReadRepository
 	Create(ctx context.Context, membership domain.Membership) error
 	DeleteByID(ctx context.Context, membershipID string) error
 	UpdateRole(ctx context.Context, membershipID string, role domain.MembershipRole, updatedAt time.Time) error
@@ -53,6 +56,7 @@ type InvitationReadRepository interface {
 }
 
 type InvitationWriteRepository interface {
+	InvitationReadRepository
 	Create(ctx context.Context, invitation domain.Invitation) error
 	UpdateStatus(ctx context.Context, invitationID string, status domain.InvitationStatus, updatedAt time.Time) error
 }

@@ -12,7 +12,6 @@ import (
 )
 
 type Options struct {
-	TemplatesRead  ports.TemplateReadRepository
 	TemplatesWrite ports.TemplateWriteRepository
 	AccessChecker  ports.WorkspaceAccessChecker
 	IDGen          func() (string, error)
@@ -20,7 +19,6 @@ type Options struct {
 }
 
 type Handler struct {
-	templatesRead  ports.TemplateReadRepository
 	templatesWrite ports.TemplateWriteRepository
 	accessChecker  ports.WorkspaceAccessChecker
 	idGen          func() (string, error)
@@ -32,7 +30,6 @@ func New(opts Options) *Handler {
 		opts.Logger = slog.Default()
 	}
 	return &Handler{
-		templatesRead:  opts.TemplatesRead,
 		templatesWrite: opts.TemplatesWrite,
 		accessChecker:  opts.AccessChecker,
 		idGen:          opts.IDGen,
@@ -55,7 +52,7 @@ func (h *Handler) Execute(ctx context.Context, workspaceID, templateID, userID s
 		return nil, err
 	}
 
-	tmpl, err := h.templatesRead.FindTemplateByID(ctx, workspaceID, templateID)
+	tmpl, err := h.templatesWrite.FindTemplateByID(ctx, workspaceID, templateID)
 	if err != nil {
 		if errors.Is(err, domain.ErrTemplateNotFound) {
 			return nil, err
@@ -72,7 +69,7 @@ func (h *Handler) Execute(ctx context.Context, workspaceID, templateID, userID s
 		return nil, err
 	}
 
-	versions, _, err := h.templatesRead.ListTemplateVersions(ctx, workspaceID, templateID, "", 1)
+	versions, _, err := h.templatesWrite.ListTemplateVersions(ctx, workspaceID, templateID, "", 1)
 	if err != nil {
 		h.log.Error("failed to list versions for version number", "error", err)
 		return nil, err

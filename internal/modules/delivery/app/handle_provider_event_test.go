@@ -109,12 +109,10 @@ func TestHandleProviderEvent_Delivered(t *testing.T) {
 	outboxEvents := 0
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return msg, nil
 			},
-		},
-		MessagesWrite: &mockMessageWriteRepo{
 			update: func(ctx context.Context, m domain.Message) error {
 				capturedUpdate = &m
 				return nil
@@ -186,12 +184,10 @@ func TestHandleProviderEvent_Bounced(t *testing.T) {
 	outboxEvents := 0
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return msg, nil
 			},
-		},
-		MessagesWrite: &mockMessageWriteRepo{
 			update: func(ctx context.Context, m domain.Message) error {
 				capturedUpdate = &m
 				return nil
@@ -274,12 +270,10 @@ func TestHandleProviderEvent_Complained(t *testing.T) {
 	outboxEvents := 0
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return msg, nil
 			},
-		},
-		MessagesWrite: &mockMessageWriteRepo{
 			update: func(ctx context.Context, m domain.Message) error {
 				return nil
 			},
@@ -347,12 +341,10 @@ func TestHandleProviderEvent_ComplaintOnAccepted(t *testing.T) {
 	}
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return msg, nil
 			},
-		},
-		MessagesWrite: &mockMessageWriteRepo{
 			update: func(ctx context.Context, m domain.Message) error {
 				return nil
 			},
@@ -415,12 +407,10 @@ func TestHandleProviderEvent_BounceOnQueuedIsNoop(t *testing.T) {
 	updateCalled := false
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return msg, nil
 			},
-		},
-		MessagesWrite: &mockMessageWriteRepo{
 			update: func(ctx context.Context, m domain.Message) error {
 				updateCalled = true
 				return nil
@@ -503,7 +493,7 @@ func TestHandleProviderEvent_MissingMessageIsIgnored(t *testing.T) {
 	occurredAt := now.Add(-time.Minute)
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return nil, domain.ErrMessageNotFound
 			},
@@ -545,12 +535,10 @@ func TestHandleProviderEvent_DuplicateTerminalIsNoop(t *testing.T) {
 	updateCalled := false
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return msg, nil
 			},
-		},
-		MessagesWrite: &mockMessageWriteRepo{
 			update: func(ctx context.Context, m domain.Message) error {
 				updateCalled = true
 				return nil
@@ -597,12 +585,10 @@ func TestHandleProviderEvent_DeliveredDoesNotOverrideComplained(t *testing.T) {
 	updateCalled := false
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return msg, nil
 			},
-		},
-		MessagesWrite: &mockMessageWriteRepo{
 			update: func(ctx context.Context, m domain.Message) error {
 				updateCalled = true
 				return nil
@@ -648,12 +634,10 @@ func TestHandleProviderEvent_BouncedDoesNotOverrideComplained(t *testing.T) {
 	updateCalled := false
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return msg, nil
 			},
-		},
-		MessagesWrite: &mockMessageWriteRepo{
 			update: func(ctx context.Context, m domain.Message) error {
 				updateCalled = true
 				return nil
@@ -700,12 +684,10 @@ func TestHandleProviderEvent_AcceptedCanTransitionToBounced(t *testing.T) {
 	}
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return msg, nil
 			},
-		},
-		MessagesWrite: &mockMessageWriteRepo{
 			update: func(ctx context.Context, m domain.Message) error {
 				return nil
 			},
@@ -786,15 +768,13 @@ func TestHandleProviderEvent_ProviderMessageIDLookup(t *testing.T) {
 	}
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return msg, nil
 			},
 			findByProviderMessageID: func(ctx context.Context, provider, providerMessageID string) (*domain.Message, error) {
 				return msg, nil
 			},
-		},
-		MessagesWrite: &mockMessageWriteRepo{
 			update: func(ctx context.Context, m domain.Message) error {
 				return nil
 			},
@@ -848,12 +828,10 @@ func TestHandleProviderEvent_OutboxFailureRollsBack(t *testing.T) {
 	updateCalled := false
 
 	svc := NewService(Options{
-		MessagesRead: &mockMessageReadRepo{
+		MessagesWrite: &mockMessageWriteRepo{
 			findByID: func(ctx context.Context, workspaceID, messageID string) (*domain.Message, error) {
 				return msg, nil
 			},
-		},
-		MessagesWrite: &mockMessageWriteRepo{
 			update: func(ctx context.Context, m domain.Message) error {
 				updateCalled = true
 				return nil

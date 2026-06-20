@@ -44,6 +44,14 @@ func (m *mockTrackingEventWrite) Create(ctx context.Context, event trackingdomai
 	return nil
 }
 
+func (m *mockTrackingEventWrite) FindBySourceEvent(ctx context.Context, source, sourceEventID, eventType string) (*trackingdomain.TrackingEvent, error) {
+	return nil, nil
+}
+
+func (m *mockTrackingEventWrite) ListByMessage(ctx context.Context, workspaceID, messageID string, limit int, cursor string) ([]trackingdomain.TrackingEvent, string, error) {
+	return nil, "", nil
+}
+
 type mockTrackingEventRead struct {
 	findBySourceEvent func(ctx context.Context, source, sourceEventID, eventType string) (*trackingdomain.TrackingEvent, error)
 	listByMessage     func(ctx context.Context, workspaceID, messageID string, limit int, cursor string) ([]trackingdomain.TrackingEvent, string, error)
