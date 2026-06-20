@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
+	analyticscontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
@@ -127,8 +128,8 @@ func (c *AnalyticsEventConsumer) Run(ctx context.Context) error {
 					if opErr := c.svc.IngestOperationsEvent(ctx, analyticsapp.IngestOperationsEventInput{
 						Source:          c.name,
 						SourceEventType: evType,
-						OperationType:   "consumer_failure",
-						Status:          "failed",
+						OperationType:   analyticscontracts.OperationTypeConsumerFailure,
+						Status:          analyticscontracts.OperationStatusFailure,
 						WorkspaceID:     wsID,
 						ErrorType:       "non_retryable",
 						Consumer:        c.name,

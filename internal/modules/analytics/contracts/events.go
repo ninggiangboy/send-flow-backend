@@ -5,6 +5,25 @@ const (
 	EventEventFactRecordedV1 = "analytics.event_fact.recorded.v1"
 )
 
+// Operation type constants used in analytics operations_events recording.
+const (
+	OperationTypeOutboxLag             = "outbox_lag"
+	OperationTypeConsumerFailure       = "consumer_failure"
+	OperationTypeDlqCreated            = "dlq_created"
+	OperationTypeWebhookSucceeded      = "webhook_succeeded"
+	OperationTypeWebhookFailed         = "webhook_failed"
+	OperationTypeWebhookRetryScheduled = "webhook_retry_scheduled"
+)
+
+// Operation status constants used in analytics operations_events recording.
+const (
+	OperationStatusSuccess = "success"
+	OperationStatusFailure = "failure"
+	OperationStatusRetry   = "retry"
+	OperationStatusPending = "pending"
+	OperationStatusReady   = "ready"
+)
+
 type ProjectionUpdatedPayload struct {
 	WorkspaceID    string `json:"workspace_id"`
 	ProjectionType string `json:"projection_type"`

@@ -6,6 +6,8 @@ const (
 	EventReplayJobFailedV1    = "operations.replay_job.failed.v1"
 )
 
+const AggregateReplay = "replay"
+
 type ReplayJobCreatedPayload struct {
 	JobID       string `json:"job_id"`
 	WorkspaceID string `json:"workspace_id"`

@@ -406,7 +406,7 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 				EventID:       queuedEventID,
 				EventType:     contracts.EventDeliveryMessageQueuedV1,
 				EventVersion:  1,
-				AggregateType: "message",
+				AggregateType: contracts.AggregateMessage,
 				AggregateID:   messageID,
 				WorkspaceID:   input.WorkspaceID,
 				OccurredAt:    now,
@@ -420,7 +420,7 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 			}
 			if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            envelope.EventID,
-				AggregateType: "message",
+				AggregateType: contracts.AggregateMessage,
 				AggregateID:   messageID,
 				EventType:     contracts.EventDeliveryMessageQueuedV1,
 				Payload:       payloadBytes,
@@ -452,7 +452,7 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 			EventID:       acceptedEventID,
 			EventType:     contracts.EventDeliveryTransactionalSendAcceptedV1,
 			EventVersion:  1,
-			AggregateType: "transactional_send_request",
+			AggregateType: contracts.AggregateTransactionalRequest,
 			AggregateID:   requestID,
 			WorkspaceID:   input.WorkspaceID,
 			OccurredAt:    now,
@@ -466,7 +466,7 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 		}
 		if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 			ID:            acceptedEnvelope.EventID,
-			AggregateType: "transactional_send_request",
+			AggregateType: contracts.AggregateTransactionalRequest,
 			AggregateID:   requestID,
 			EventType:     contracts.EventDeliveryTransactionalSendAcceptedV1,
 			Payload:       acceptedPayloadBytes,

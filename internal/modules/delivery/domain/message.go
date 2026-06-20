@@ -84,11 +84,11 @@ const (
 
 func ClassifyProviderEvent(providerEventType string) (string, bool) {
 	switch providerEventType {
-	case "delivered":
+	case MessageEventDelivered:
 		return MessageStatusDelivered, true
-	case "bounced":
+	case MessageEventBounced:
 		return MessageStatusBounced, true
-	case "complained":
+	case MessageEventComplained:
 		return MessageStatusComplained, true
 	case "delayed":
 		return MessageStatusDelayed, true

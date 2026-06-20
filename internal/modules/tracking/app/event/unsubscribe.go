@@ -257,7 +257,7 @@ func (h *UnsubscribeHandler) Execute(ctx context.Context, input UnsubscribeInput
 				EventID:       outboxEventID,
 				EventType:     contracts.EventRecipientUnsubscribedV1,
 				EventVersion:  1,
-				AggregateType: "tracking_event",
+				AggregateType: contracts.AggregateTrackingEvent,
 				AggregateID:   trackingEventID,
 				WorkspaceID:   resolvedWorkspaceID,
 				OccurredAt:    now,
@@ -275,7 +275,7 @@ func (h *UnsubscribeHandler) Execute(ctx context.Context, input UnsubscribeInput
 
 			if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            outboxEventID,
-				AggregateType: "tracking_event",
+				AggregateType: contracts.AggregateTrackingEvent,
 				AggregateID:   trackingEventID,
 				EventType:     contracts.EventRecipientUnsubscribedV1,
 				Payload:       payloadBytes,

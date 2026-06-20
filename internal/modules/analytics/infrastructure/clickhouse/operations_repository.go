@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 )
 
@@ -19,7 +20,7 @@ func NewOperationsRepository(conn driver.Conn) *OperationsRepository {
 }
 
 func (r *OperationsRepository) GetOutboxLag(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.OutboxLagResult, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
 			toStartOfHour(occurred_at) AS bucket_start,
 			source,
@@ -28,8 +29,8 @@ func (r *OperationsRepository) GetOutboxLag(ctx context.Context, workspaceID str
 			avg(dateDiff('second', occurred_at, created_at)) AS avg_lag
 		FROM operations_events FINAL
 		WHERE workspace_id = ?
-			AND operation_type = 'outbox_lag'
-	`
+			AND operation_type = '%s'
+	`, contracts.OperationTypeOutboxLag)
 	args := []any{workspaceID}
 
 	if !from.IsZero() {
@@ -72,7 +73,7 @@ func (r *OperationsRepository) GetOutboxLag(ctx context.Context, workspaceID str
 }
 
 func (r *OperationsRepository) GetConsumerFailures(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.ConsumerFailureResult, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
 			toStartOfHour(occurred_at) AS bucket_start,
 			source,
@@ -81,8 +82,8 @@ func (r *OperationsRepository) GetConsumerFailures(ctx context.Context, workspac
 			toInt64(count()) AS cnt
 		FROM operations_events FINAL
 		WHERE workspace_id = ?
-			AND operation_type = 'consumer_failure'
-	`
+			AND operation_type = '%s'
+	`, contracts.OperationTypeConsumerFailure)
 	args := []any{workspaceID}
 
 	if !from.IsZero() {
@@ -125,7 +126,7 @@ func (r *OperationsRepository) GetConsumerFailures(ctx context.Context, workspac
 }
 
 func (r *OperationsRepository) GetDLQVolume(ctx context.Context, workspaceID string, from, to time.Time, source string) (*domain.DLQResult, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
 			toStartOfDay(occurred_at) AS bucket_start,
 			source,
@@ -133,8 +134,8 @@ func (r *OperationsRepository) GetDLQVolume(ctx context.Context, workspaceID str
 			toInt64(count()) AS cnt
 		FROM operations_events FINAL
 		WHERE workspace_id = ?
-			AND operation_type = 'dlq_created'
-	`
+			AND operation_type = '%s'
+	`, contracts.OperationTypeDlqCreated)
 	args := []any{workspaceID}
 
 	if !from.IsZero() {
@@ -241,7 +242,7 @@ func (r *OperationsRepository) GetWebhookDeliveryTimeSeries(ctx context.Context,
 }
 
 func (r *OperationsRepository) GetWebhookReliability(ctx context.Context, workspaceID string, from, to time.Time, target string) (*domain.WebhookReliabilityResult, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
 			source,
 			target,
@@ -252,8 +253,8 @@ func (r *OperationsRepository) GetWebhookReliability(ctx context.Context, worksp
 		FROM operations_events FINAL
 		WHERE workspace_id = ?
 			AND source = 'webhooks'
-			AND operation_type IN ('webhook_succeeded', 'webhook_failed', 'webhook_retry_scheduled')
-	`
+			AND operation_type IN ('%s', '%s', '%s')
+	`, contracts.OperationTypeWebhookSucceeded, contracts.OperationTypeWebhookFailed, contracts.OperationTypeWebhookRetryScheduled)
 	args := []any{workspaceID}
 
 	if !from.IsZero() {

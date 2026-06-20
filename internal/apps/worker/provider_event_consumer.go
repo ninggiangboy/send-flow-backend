@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	analyticscontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/contracts"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	ingestioncontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
@@ -123,8 +124,8 @@ func (c *ProviderEventConsumer) Run(ctx context.Context) error {
 				}
 				if c.recordOp != nil && wsID != "" {
 					now := time.Now()
-					c.recordOp(ctx, c.name, evType, "consumer_failure", "failed", wsID, "non_retryable", c.name, "", now)
-					c.recordOp(ctx, c.name, evType, "dlq_created", "failed", wsID, "non_retryable", c.name, "", now)
+					c.recordOp(ctx, c.name, evType, analyticscontracts.OperationTypeConsumerFailure, "failed", wsID, "non_retryable", c.name, "", now)
+					c.recordOp(ctx, c.name, evType, analyticscontracts.OperationTypeDlqCreated, "failed", wsID, "non_retryable", c.name, "", now)
 				}
 				if c.markers != nil {
 					if _, mErr := c.markers.MarkProcessed(ctx, c.name, eventID); mErr != nil {

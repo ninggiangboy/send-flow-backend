@@ -213,7 +213,7 @@ func (h *OpenHandler) Execute(ctx context.Context, input OpenInput) (*OpenResult
 			EventID:       outboxEventID,
 			EventType:     contracts.EventEmailOpenedV1,
 			EventVersion:  1,
-			AggregateType: "tracking_event",
+			AggregateType: contracts.AggregateTrackingEvent,
 			AggregateID:   eventID,
 			WorkspaceID:   resolvedWorkspaceID,
 			OccurredAt:    now,
@@ -231,7 +231,7 @@ func (h *OpenHandler) Execute(ctx context.Context, input OpenInput) (*OpenResult
 
 		if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 			ID:            outboxEventID,
-			AggregateType: "tracking_event",
+			AggregateType: contracts.AggregateTrackingEvent,
 			AggregateID:   eventID,
 			EventType:     contracts.EventEmailOpenedV1,
 			Payload:       payloadBytes,

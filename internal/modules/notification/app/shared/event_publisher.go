@@ -49,7 +49,7 @@ func (p *EventPublisher) PublishQueued(ctx context.Context, msg domain.Notificat
 		EventID:       eventID,
 		EventType:     contracts.EventMessageQueuedV1,
 		EventVersion:  1,
-		AggregateType: "notification_message",
+		AggregateType: contracts.AggregateNotificationMessage,
 		AggregateID:   msg.ID,
 		WorkspaceID:   ws,
 		OccurredAt:    msg.CreatedAt,
@@ -63,7 +63,7 @@ func (p *EventPublisher) PublishQueued(ctx context.Context, msg domain.Notificat
 	}
 	return p.outboxWriter.Save(ctx, ports.OutboxEvent{
 		ID:            eventID,
-		AggregateType: "notification_message",
+		AggregateType: contracts.AggregateNotificationMessage,
 		AggregateID:   msg.ID,
 		EventType:     contracts.EventMessageQueuedV1,
 		Payload:       payloadBytes,
@@ -93,7 +93,7 @@ func (p *EventPublisher) PublishSent(ctx context.Context, msg domain.Notificatio
 		EventID:       eventID,
 		EventType:     contracts.EventMessageSentV1,
 		EventVersion:  1,
-		AggregateType: "notification_message",
+		AggregateType: contracts.AggregateNotificationMessage,
 		AggregateID:   msg.ID,
 		WorkspaceID:   ws,
 		OccurredAt:    now,
@@ -107,7 +107,7 @@ func (p *EventPublisher) PublishSent(ctx context.Context, msg domain.Notificatio
 	}
 	return p.outboxWriter.Save(ctx, ports.OutboxEvent{
 		ID:            eventID,
-		AggregateType: "notification_message",
+		AggregateType: contracts.AggregateNotificationMessage,
 		AggregateID:   msg.ID,
 		EventType:     contracts.EventMessageSentV1,
 		Payload:       payloadBytes,
@@ -137,7 +137,7 @@ func (p *EventPublisher) PublishFailed(ctx context.Context, msg domain.Notificat
 		EventID:       eventID,
 		EventType:     contracts.EventMessageFailedV1,
 		EventVersion:  1,
-		AggregateType: "notification_message",
+		AggregateType: contracts.AggregateNotificationMessage,
 		AggregateID:   msg.ID,
 		WorkspaceID:   ws,
 		OccurredAt:    now,
@@ -152,7 +152,7 @@ func (p *EventPublisher) PublishFailed(ctx context.Context, msg domain.Notificat
 	return p.outboxWriter.Save(ctx, ports.OutboxEvent{
 		ID:            eventID,
 		EventType:     contracts.EventMessageFailedV1,
-		AggregateType: "notification_message",
+		AggregateType: contracts.AggregateNotificationMessage,
 		AggregateID:   msg.ID,
 		Payload:       payloadBytes,
 		WorkspaceID:   ws,

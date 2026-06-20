@@ -112,7 +112,7 @@ func (h *UpdateHandler) Execute(ctx context.Context, cmd UpdateCommand) (*domain
 			}
 			if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            eventID,
-				AggregateType: "webhook_config",
+				AggregateType: webhookscontracts.AggregateWebhookConfig,
 				AggregateID:   cfg.ID,
 				EventType:     webhookscontracts.EventConfigUpdatedV1,
 				Payload:       payload,

@@ -121,7 +121,7 @@ func (h *CreateHandler) Execute(ctx context.Context, cmd CreateCommand) (*Create
 			}
 			if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            eventID,
-				AggregateType: "webhook_config",
+				AggregateType: webhookscontracts.AggregateWebhookConfig,
 				AggregateID:   id,
 				EventType:     webhookscontracts.EventConfigCreatedV1,
 				Payload:       payload,

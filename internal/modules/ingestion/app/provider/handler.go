@@ -212,7 +212,7 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 			EventID:       envelopeEventID,
 			EventType:     contracts.EventProviderWebhookReceivedV1,
 			EventVersion:  1,
-			AggregateType: "provider_webhook_event",
+			AggregateType: contracts.AggregateProviderWebhookEvent,
 			AggregateID:   rawEventID,
 			WorkspaceID:   workspaceID,
 			OccurredAt:    now,
@@ -228,7 +228,7 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 		}
 		if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 			ID:            envelope.EventID,
-			AggregateType: "provider_webhook_event",
+			AggregateType: contracts.AggregateProviderWebhookEvent,
 			AggregateID:   rawEventID,
 			EventType:     contracts.EventProviderWebhookReceivedV1,
 			Payload:       payloadBytes,
@@ -293,7 +293,7 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 				EventID:       normEnvelopeEventID,
 				EventType:     contracts.EventProviderEventNormalizedV1,
 				EventVersion:  1,
-				AggregateType: "normalized_provider_event",
+				AggregateType: contracts.AggregateNormalizedEvent,
 				AggregateID:   normalizedEventID,
 				WorkspaceID:   workspaceID,
 				OccurredAt:    now,
@@ -309,7 +309,7 @@ func (h *Handler) Execute(ctx context.Context, input Input) (*Result, error) {
 			}
 			if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            normEnvelope.EventID,
-				AggregateType: "normalized_provider_event",
+				AggregateType: contracts.AggregateNormalizedEvent,
 				AggregateID:   normalizedEventID,
 				EventType:     contracts.EventProviderEventNormalizedV1,
 				Payload:       normPayloadBytes,

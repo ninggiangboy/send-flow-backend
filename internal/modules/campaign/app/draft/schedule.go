@@ -197,7 +197,7 @@ func (h *ScheduleHandler) Execute(ctx context.Context, cmd ScheduleInput) (*Sche
 		EventID:       eventID,
 		EventType:     contracts.EventCampaignScheduledV1,
 		EventVersion:  1,
-		AggregateType: "campaign",
+		AggregateType: contracts.AggregateCampaign,
 		AggregateID:   campaign.ID,
 		WorkspaceID:   cmd.WorkspaceID,
 		OccurredAt:    cmd.Now,
@@ -221,7 +221,7 @@ func (h *ScheduleHandler) Execute(ctx context.Context, cmd ScheduleInput) (*Sche
 		}
 		if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 			ID:            eventID,
-			AggregateType: "campaign",
+			AggregateType: contracts.AggregateCampaign,
 			AggregateID:   campaign.ID,
 			EventType:     contracts.EventCampaignScheduledV1,
 			Payload:       payloadBytes,

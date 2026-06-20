@@ -9,6 +9,8 @@ const (
 	EventCampaignResumedV1   = "campaign.resumed.v1"
 )
 
+const AggregateCampaign = "campaign"
+
 type CampaignScheduledPayload struct {
 	CampaignID        string          `json:"campaign_id"`
 	WorkspaceID       string          `json:"workspace_id"`

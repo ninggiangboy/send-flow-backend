@@ -7,6 +7,11 @@ const (
 	EventDueNotificationsProcessV1 = "notification.due_notifications.process.v1"
 )
 
+const (
+	AggregateNotificationMessage = "notification_message"
+	AggregateNotification        = "notification"
+)
+
 type DueNotificationsProcessPayload struct {
 	BatchSize int    `json:"batch_size"`
 	Now       string `json:"now"`

@@ -157,7 +157,7 @@ func (h *RunHandler) executeDeadLetterReplay(ctx context.Context, job *domain.Re
 	replayEvent := domain.OutboxRecord{
 		ID:            eventID,
 		WorkspaceID:   job.WorkspaceID,
-		AggregateType: "replay",
+		AggregateType: contracts.AggregateReplay,
 		AggregateID:   job.TargetID,
 		EventType:     replayEventType,
 		Payload:       dlq.Payload,

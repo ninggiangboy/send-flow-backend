@@ -1,7 +1,12 @@
 package contracts
 
+import (
+	campaigncontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/contracts"
+	suppressioncontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/contracts"
+)
+
 const (
-	EventCampaignScheduledV1                 = "campaign.scheduled.v1"
+	EventCampaignScheduledV1                 = campaigncontracts.EventCampaignScheduledV1
 	EventDeliveryMessageQueuedV1             = "delivery.message.queued.v1"
 	EventDeliveryMessageAcceptedV1           = "delivery.message.accepted.v1"
 	EventDeliveryMessageDeliveredV1          = "delivery.message.delivered.v1"
@@ -9,8 +14,15 @@ const (
 	EventDeliveryMessageComplainedV1         = "delivery.message.complained.v1"
 	EventDeliveryMessageRetryScheduledV1     = "delivery.message.retry_scheduled.v1"
 	EventDeliveryTransactionalSendAcceptedV1 = "delivery.transactional_send.accepted.v1"
-	EventSuppressionRecipientSuppressedV1    = "suppression.recipient_suppressed.v1"
+	EventSuppressionRecipientSuppressedV1    = suppressioncontracts.EventRecipientSuppressedV1
 	EventDueMessagesProcessV1                = "delivery.due_messages.process.v1"
+)
+
+const (
+	AggregateMessage              = "message"
+	AggregateSuppressionEntry     = "suppression_entry"
+	AggregateTransactionalRequest = "transactional_send_request"
+	AggregateWorkspace            = "workspace"
 )
 
 type DueMessagesProcessPayload struct {

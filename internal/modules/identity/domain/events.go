@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/contracts"
+)
 
 type Event interface {
 	EventName() string
@@ -14,7 +18,7 @@ type UserRegistered struct {
 	At         time.Time
 }
 
-func (e UserRegistered) EventName() string     { return "identity.user.registered.v1" }
+func (e UserRegistered) EventName() string     { return contracts.EventUserRegisteredV1 }
 func (e UserRegistered) OccurredAt() time.Time { return e.At }
 
 type ExternalAccountLinked struct {
@@ -25,7 +29,7 @@ type ExternalAccountLinked struct {
 	At             time.Time
 }
 
-func (e ExternalAccountLinked) EventName() string     { return "identity.user.external_account_linked.v1" }
+func (e ExternalAccountLinked) EventName() string     { return contracts.EventExternalAccountLinkedV1 }
 func (e ExternalAccountLinked) OccurredAt() time.Time { return e.At }
 
 type WorkspaceCreated struct {
@@ -35,7 +39,7 @@ type WorkspaceCreated struct {
 	At          time.Time
 }
 
-func (e WorkspaceCreated) EventName() string     { return "identity.workspace.created.v1" }
+func (e WorkspaceCreated) EventName() string     { return contracts.EventWorkspaceCreatedV1 }
 func (e WorkspaceCreated) OccurredAt() time.Time { return e.At }
 
 type WorkspaceMemberInvited struct {
@@ -46,7 +50,7 @@ type WorkspaceMemberInvited struct {
 	At          time.Time
 }
 
-func (e WorkspaceMemberInvited) EventName() string     { return "identity.workspace.member_invited.v1" }
+func (e WorkspaceMemberInvited) EventName() string     { return contracts.EventWorkspaceMemberInvitedV1 }
 func (e WorkspaceMemberInvited) OccurredAt() time.Time { return e.At }
 
 type WorkspaceMemberJoined struct {
@@ -56,5 +60,5 @@ type WorkspaceMemberJoined struct {
 	At           time.Time
 }
 
-func (e WorkspaceMemberJoined) EventName() string     { return "identity.workspace.member_joined.v1" }
+func (e WorkspaceMemberJoined) EventName() string     { return contracts.EventWorkspaceMemberJoinedV1 }
 func (e WorkspaceMemberJoined) OccurredAt() time.Time { return e.At }

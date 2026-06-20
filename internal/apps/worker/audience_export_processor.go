@@ -213,7 +213,7 @@ func (p *AudienceExportProcessor) processJob(ctx context.Context, job domain.Aud
 				EventID:       eventID,
 				EventType:     audiencecontracts.EventExportCompletedV1,
 				EventVersion:  1,
-				AggregateType: "audience_export_job",
+				AggregateType: audiencecontracts.AggregateExportJob,
 				AggregateID:   job.ID,
 				WorkspaceID:   job.WorkspaceID,
 				OccurredAt:    now,
@@ -229,7 +229,7 @@ func (p *AudienceExportProcessor) processJob(ctx context.Context, job domain.Aud
 
 			if err := p.outboxWriter.Save(txCtx, audienceports.OutboxEvent{
 				ID:            eventID,
-				AggregateType: "audience_export_job",
+				AggregateType: audiencecontracts.AggregateExportJob,
 				AggregateID:   job.ID,
 				EventType:     audiencecontracts.EventExportCompletedV1,
 				Payload:       payloadBytes,
@@ -490,7 +490,7 @@ func (p *AudienceExportProcessor) failJob(ctx context.Context, job domain.Audien
 			EventID:       eventID,
 			EventType:     audiencecontracts.EventExportFailedV1,
 			EventVersion:  1,
-			AggregateType: "audience_export_job",
+			AggregateType: audiencecontracts.AggregateExportJob,
 			AggregateID:   job.ID,
 			WorkspaceID:   job.WorkspaceID,
 			OccurredAt:    now,
@@ -506,7 +506,7 @@ func (p *AudienceExportProcessor) failJob(ctx context.Context, job domain.Audien
 
 		return p.outboxWriter.Save(txCtx, audienceports.OutboxEvent{
 			ID:            eventID,
-			AggregateType: "audience_export_job",
+			AggregateType: audiencecontracts.AggregateExportJob,
 			AggregateID:   job.ID,
 			EventType:     audiencecontracts.EventExportFailedV1,
 			Payload:       payloadBytes,

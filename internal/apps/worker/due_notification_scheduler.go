@@ -62,7 +62,7 @@ func (s *DueNotificationScheduler) Poll(ctx context.Context) (bool, error) {
 		EventID:       eventID,
 		EventType:     contracts.EventDueNotificationsProcessV1,
 		EventVersion:  1,
-		AggregateType: "notification",
+		AggregateType: contracts.AggregateNotification,
 		AggregateID:   "due_retries",
 		OccurredAt:    now,
 	}, contracts.DueNotificationsProcessPayload{

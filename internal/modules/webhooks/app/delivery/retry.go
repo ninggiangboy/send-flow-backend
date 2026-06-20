@@ -144,7 +144,7 @@ func (h *RetryHandler) Execute(ctx context.Context, cmd RetryCommand) error {
 				})
 				return h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 					ID:            eventID,
-					AggregateType: "webhook_delivery",
+					AggregateType: webhookscontracts.AggregateWebhookDelivery,
 					AggregateID:   cmd.DeliveryID,
 					EventType:     webhookscontracts.EventDeliverySucceededV1,
 					Payload:       payload,
@@ -181,7 +181,7 @@ func (h *RetryHandler) Execute(ctx context.Context, cmd RetryCommand) error {
 			payload, _ := json.Marshal(failedPayload)
 			return h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            eventID,
-				AggregateType: "webhook_delivery",
+				AggregateType: webhookscontracts.AggregateWebhookDelivery,
 				AggregateID:   cmd.DeliveryID,
 				EventType:     webhookscontracts.EventDeliveryFailedV1,
 				Payload:       payload,

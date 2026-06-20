@@ -168,7 +168,7 @@ func (h *ProcessHandler) emitDeliveryOutcome(ctx context.Context, delivery *doma
 			})
 			return h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            eventID,
-				AggregateType: "webhook_delivery",
+				AggregateType: webhookscontracts.AggregateWebhookDelivery,
 				AggregateID:   delivery.ID,
 				EventType:     webhookscontracts.EventDeliverySucceededV1,
 				Payload:       payload,
@@ -193,7 +193,7 @@ func (h *ProcessHandler) emitDeliveryOutcome(ctx context.Context, delivery *doma
 			})
 			return h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            eventID,
-				AggregateType: "webhook_delivery",
+				AggregateType: webhookscontracts.AggregateWebhookDelivery,
 				AggregateID:   delivery.ID,
 				EventType:     webhookscontracts.EventDeliveryRetryScheduledV1,
 				Payload:       payload,
@@ -216,7 +216,7 @@ func (h *ProcessHandler) emitDeliveryOutcome(ctx context.Context, delivery *doma
 			payload, _ := json.Marshal(failedPayload)
 			return h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            eventID,
-				AggregateType: "webhook_delivery",
+				AggregateType: webhookscontracts.AggregateWebhookDelivery,
 				AggregateID:   delivery.ID,
 				EventType:     webhookscontracts.EventDeliveryFailedV1,
 				Payload:       payload,

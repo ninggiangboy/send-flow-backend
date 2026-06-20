@@ -106,7 +106,7 @@ func (h *RotateHandler) Execute(ctx context.Context, cmd RotateCommand) (*Rotate
 			}
 			if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            eventID,
-				AggregateType: "webhook_config",
+				AggregateType: webhookscontracts.AggregateWebhookConfig,
 				AggregateID:   cfg.ID,
 				EventType:     webhookscontracts.EventSecretRotatedV1,
 				Payload:       payload,

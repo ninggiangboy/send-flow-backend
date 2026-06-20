@@ -80,7 +80,7 @@ func (s *DueMessageScheduler) Poll(ctx context.Context) (bool, error) {
 			EventID:       eventID,
 			EventType:     contracts.EventDueMessagesProcessV1,
 			EventVersion:  1,
-			AggregateType: "workspace",
+			AggregateType: contracts.AggregateWorkspace,
 			AggregateID:   wsID,
 			WorkspaceID:   wsID,
 			OccurredAt:    now,

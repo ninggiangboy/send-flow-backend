@@ -11,6 +11,11 @@ const (
 	EventDueDeliveriesProcessV1   = "webhooks.due_deliveries.process.v1"
 )
 
+const (
+	AggregateWebhookConfig   = "webhook_config"
+	AggregateWebhookDelivery = "webhook_delivery"
+)
+
 type DueDeliveriesProcessPayload struct {
 	Limit int    `json:"limit"`
 	Now   string `json:"now"`

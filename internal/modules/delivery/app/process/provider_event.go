@@ -134,7 +134,7 @@ func (h *ProviderEventHandler) writeMessageEvent(ctx context.Context, msg domain
 		eventType = domain.MessageEventComplained
 		reasonCode = "provider_complaint"
 	case domain.MessageStatusDelayed:
-		eventType = "delayed"
+		eventType = domain.MessageStatusDelayed
 		reasonCode = "provider_delayed"
 	case domain.MessageStatusFailed:
 		eventType = domain.MessageEventFailed
@@ -395,7 +395,7 @@ func (h *ProviderEventHandler) Execute(ctx context.Context, input ProviderEventI
 				EventID:       eventID,
 				EventType:     outboxEventType,
 				EventVersion:  1,
-				AggregateType: "message",
+				AggregateType: contracts.AggregateMessage,
 				AggregateID:   updated.ID,
 				WorkspaceID:   updated.WorkspaceID,
 				OccurredAt:    now,
@@ -413,7 +413,7 @@ func (h *ProviderEventHandler) Execute(ctx context.Context, input ProviderEventI
 
 			if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            eventID,
-				AggregateType: "message",
+				AggregateType: contracts.AggregateMessage,
 				AggregateID:   updated.ID,
 				EventType:     outboxEventType,
 				Payload:       payloadBytes,
@@ -445,7 +445,7 @@ func (h *ProviderEventHandler) Execute(ctx context.Context, input ProviderEventI
 					EventID:       supEventID,
 					EventType:     contracts.EventSuppressionRecipientSuppressedV1,
 					EventVersion:  1,
-					AggregateType: "suppression_entry",
+					AggregateType: contracts.AggregateSuppressionEntry,
 					AggregateID:   result.SuppressionEntryID,
 					WorkspaceID:   updated.WorkspaceID,
 					OccurredAt:    now,
@@ -463,7 +463,7 @@ func (h *ProviderEventHandler) Execute(ctx context.Context, input ProviderEventI
 
 				if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 					ID:            supEventID,
-					AggregateType: "suppression_entry",
+					AggregateType: contracts.AggregateSuppressionEntry,
 					AggregateID:   result.SuppressionEntryID,
 					EventType:     contracts.EventSuppressionRecipientSuppressedV1,
 					Payload:       supPayloadBytes,

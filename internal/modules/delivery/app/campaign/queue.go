@@ -191,7 +191,7 @@ func (h *QueueCampaignMessagesHandler) Execute(ctx context.Context, input QueueC
 						EventID:       eventID,
 						EventType:     contracts.EventDeliveryMessageQueuedV1,
 						EventVersion:  1,
-						AggregateType: "message",
+						AggregateType: contracts.AggregateMessage,
 						AggregateID:   msg.ID,
 						WorkspaceID:   msg.WorkspaceID,
 						OccurredAt:    input.Now,
@@ -205,7 +205,7 @@ func (h *QueueCampaignMessagesHandler) Execute(ctx context.Context, input QueueC
 					}
 					if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 						ID:            envelope.EventID,
-						AggregateType: "message",
+						AggregateType: contracts.AggregateMessage,
 						AggregateID:   msg.ID,
 						EventType:     contracts.EventDeliveryMessageQueuedV1,
 						Payload:       payloadBytes,

@@ -5,6 +5,11 @@ const (
 	EventProviderEventNormalizedV1 = "ingestion.provider_event.normalized.v1"
 )
 
+const (
+	AggregateProviderWebhookEvent = "provider_webhook_event"
+	AggregateNormalizedEvent      = "normalized_provider_event"
+)
+
 type ProviderWebhookReceivedPayload struct {
 	RawEventID        string `json:"raw_event_id"`
 	Provider          string `json:"provider"`

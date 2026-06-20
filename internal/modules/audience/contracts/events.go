@@ -7,6 +7,11 @@ const (
 	EventExportFailedV1    = "audience.export.failed.v1"
 )
 
+const (
+	AggregateImportJob = "audience_import_job"
+	AggregateExportJob = "audience_export_job"
+)
+
 type ImportCompletedPayload struct {
 	JobID        string `json:"job_id"`
 	WorkspaceID  string `json:"workspace_id"`

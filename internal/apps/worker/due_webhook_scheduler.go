@@ -62,7 +62,7 @@ func (s *DueWebhookScheduler) Poll(ctx context.Context) (bool, error) {
 		EventID:       eventID,
 		EventType:     contracts.EventDueDeliveriesProcessV1,
 		EventVersion:  1,
-		AggregateType: "webhook_delivery",
+		AggregateType: contracts.AggregateWebhookDelivery,
 		AggregateID:   "due_deliveries",
 		OccurredAt:    now,
 	}, contracts.DueDeliveriesProcessPayload{

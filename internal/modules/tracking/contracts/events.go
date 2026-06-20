@@ -6,6 +6,8 @@ const (
 	EventRecipientUnsubscribedV1 = "tracking.recipient_unsubscribed.v1"
 )
 
+const AggregateTrackingEvent = "tracking_event"
+
 type EmailOpenedPayload struct {
 	TrackingEventID   string `json:"tracking_event_id"`
 	WorkspaceID       string `json:"workspace_id"`

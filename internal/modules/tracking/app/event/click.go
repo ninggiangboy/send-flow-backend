@@ -217,7 +217,7 @@ func (h *ClickHandler) Execute(ctx context.Context, input ClickInput) (*ClickRes
 			EventID:       outboxEventID,
 			EventType:     contracts.EventLinkClickedV1,
 			EventVersion:  1,
-			AggregateType: "tracking_event",
+			AggregateType: contracts.AggregateTrackingEvent,
 			AggregateID:   eventID,
 			WorkspaceID:   resolvedWorkspaceID,
 			OccurredAt:    now,
@@ -235,7 +235,7 @@ func (h *ClickHandler) Execute(ctx context.Context, input ClickInput) (*ClickRes
 
 		if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 			ID:            outboxEventID,
-			AggregateType: "tracking_event",
+			AggregateType: contracts.AggregateTrackingEvent,
 			AggregateID:   eventID,
 			EventType:     contracts.EventLinkClickedV1,
 			Payload:       payloadBytes,

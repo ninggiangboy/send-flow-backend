@@ -157,7 +157,7 @@ func (p *AudienceImportProcessor) processJob(ctx context.Context, job domain.Aud
 				EventID:       eventID,
 				EventType:     audiencecontracts.EventImportCompletedV1,
 				EventVersion:  1,
-				AggregateType: "audience_import_job",
+				AggregateType: audiencecontracts.AggregateImportJob,
 				AggregateID:   job.ID,
 				WorkspaceID:   job.WorkspaceID,
 				OccurredAt:    now,
@@ -173,7 +173,7 @@ func (p *AudienceImportProcessor) processJob(ctx context.Context, job domain.Aud
 
 			if err := p.outboxWriter.Save(txCtx, audienceports.OutboxEvent{
 				ID:            eventID,
-				AggregateType: "audience_import_job",
+				AggregateType: audiencecontracts.AggregateImportJob,
 				AggregateID:   job.ID,
 				EventType:     audiencecontracts.EventImportCompletedV1,
 				Payload:       payloadBytes,

@@ -77,7 +77,7 @@ func (h *DisableHandler) Execute(ctx context.Context, cmd DisableCommand) error 
 			}
 			if err := h.outboxWriter.Save(txCtx, ports.OutboxEvent{
 				ID:            eventID,
-				AggregateType: "webhook_config",
+				AggregateType: webhookscontracts.AggregateWebhookConfig,
 				AggregateID:   cmd.WebhookID,
 				EventType:     webhookscontracts.EventConfigDisabledV1,
 				Payload:       payload,

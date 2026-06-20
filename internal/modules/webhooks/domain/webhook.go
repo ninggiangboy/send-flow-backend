@@ -8,6 +8,10 @@ import (
 	"strings"
 	"time"
 
+	deliverycontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/contracts"
+	suppressioncontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/contracts"
+	trackingcontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/contracts"
+
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/httpheaders"
 )
 
@@ -29,16 +33,16 @@ const (
 )
 
 var AllowedSubscriptionEvents = map[string]bool{
-	"delivery.message.queued.v1":          true,
-	"delivery.message.accepted.v1":        true,
-	"delivery.message.delivered.v1":       true,
-	"delivery.message.bounced.v1":         true,
-	"delivery.message.complained.v1":      true,
-	"delivery.message.retry_scheduled.v1": true,
-	"tracking.email_opened.v1":            true,
-	"tracking.link_clicked.v1":            true,
-	"tracking.recipient_unsubscribed.v1":  true,
-	"suppression.recipient_suppressed.v1": true,
+	deliverycontracts.EventDeliveryMessageQueuedV1:         true,
+	deliverycontracts.EventDeliveryMessageAcceptedV1:       true,
+	deliverycontracts.EventDeliveryMessageDeliveredV1:      true,
+	deliverycontracts.EventDeliveryMessageBouncedV1:        true,
+	deliverycontracts.EventDeliveryMessageComplainedV1:     true,
+	deliverycontracts.EventDeliveryMessageRetryScheduledV1: true,
+	trackingcontracts.EventEmailOpenedV1:                   true,
+	trackingcontracts.EventLinkClickedV1:                   true,
+	trackingcontracts.EventRecipientUnsubscribedV1:         true,
+	suppressioncontracts.EventRecipientSuppressedV1:        true,
 }
 
 type WebhookConfig struct {

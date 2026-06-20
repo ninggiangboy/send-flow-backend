@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
+	analyticscontracts "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/contracts"
 )
 
 type OutboxLagSampler struct {
@@ -67,7 +68,7 @@ func (s *OutboxLagSampler) Poll(ctx context.Context) (bool, error) {
 			SourceEventID:   eventID,
 			Source:          aggType,
 			SourceEventType: evType,
-			OperationType:   "outbox_lag",
+			OperationType:   analyticscontracts.OperationTypeOutboxLag,
 			Status:          "pending",
 			WorkspaceID:     wsID,
 			OccurredAt:      occurredAt,
