@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/domain"
 	notificationrealtime "github.com/ninggiangboy/send-flow/backend/internal/modules/notification/infrastructure/realtime"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/sse"
 )
 
@@ -111,11 +111,11 @@ func attemptToListItem(a domain.NotificationAttempt) attemptListItem {
 }
 
 func (h *notificationHTTP) listNotifications(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	if workspaceID == "" {
-		writeError(w, r, http.StatusBadRequest, "notification.filter_invalid", "workspace_id is required", nil)
+		writeError(w, r, http.StatusBadRequest, errCodeNotificationFilterInvalid, "workspace_id is required", nil)
 		return
 	}
 
@@ -130,7 +130,7 @@ func (h *notificationHTTP) listNotifications(w http.ResponseWriter, r *http.Requ
 	if fromStr := r.URL.Query().Get("from"); fromStr != "" {
 		from, err := time.Parse(time.RFC3339, fromStr)
 		if err != nil {
-			writeError(w, r, http.StatusBadRequest, "notification.filter_invalid", "invalid from timestamp", nil)
+			writeError(w, r, http.StatusBadRequest, errCodeNotificationFilterInvalid, "invalid from timestamp", nil)
 			return
 		}
 		filter.From = &from
@@ -138,13 +138,13 @@ func (h *notificationHTTP) listNotifications(w http.ResponseWriter, r *http.Requ
 	if toStr := r.URL.Query().Get("to"); toStr != "" {
 		to, err := time.Parse(time.RFC3339, toStr)
 		if err != nil {
-			writeError(w, r, http.StatusBadRequest, "notification.filter_invalid", "invalid to timestamp", nil)
+			writeError(w, r, http.StatusBadRequest, errCodeNotificationFilterInvalid, "invalid to timestamp", nil)
 			return
 		}
 		filter.To = &to
 	}
 	if filter.From != nil && filter.To != nil && filter.From.After(*filter.To) {
-		writeError(w, r, http.StatusBadRequest, "notification.filter_invalid", "from must be before to", nil)
+		writeError(w, r, http.StatusBadRequest, errCodeNotificationFilterInvalid, "from must be before to", nil)
 		return
 	}
 
@@ -166,12 +166,12 @@ func (h *notificationHTTP) listNotifications(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *notificationHTTP) getNotificationStatus(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	notificationID := chi.URLParam(r, "notification_id")
+	workspaceID := workspaceIDParam(r)
+	notificationID := pathParam(r, "notification_id")
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	if workspaceID == "" || notificationID == "" {
-		writeError(w, r, http.StatusBadRequest, "notification.filter_invalid", "workspace_id and notification_id are required", nil)
+		writeError(w, r, http.StatusBadRequest, errCodeNotificationFilterInvalid, "workspace_id and notification_id are required", nil)
 		return
 	}
 
@@ -196,7 +196,7 @@ func (h *notificationHTTP) getNotificationStatus(w http.ResponseWriter, r *http.
 }
 
 func (h *notificationHTTP) sendSystemAlert(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 
 	var input systemAlertInput
 	if !decodeJSON(w, r, &input) {
@@ -226,36 +226,36 @@ func (h *notificationHTTP) sendSystemAlert(w http.ResponseWriter, r *http.Reques
 
 func (h *notificationHTTP) streamWorkspaceNotifications(w http.ResponseWriter, r *http.Request) {
 	if h.realtime == nil || !h.realtime.Healthy() {
-		writeError(w, r, http.StatusServiceUnavailable, "notification.realtime_unavailable", "notification realtime is unavailable", nil)
+		writeError(w, r, http.StatusServiceUnavailable, errCodeNotificationRealtimeUnavailable, "notification realtime is unavailable", nil)
 		return
 	}
 
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	if workspaceID == "" {
-		writeError(w, r, http.StatusBadRequest, "notification.filter_invalid", "workspace_id is required", nil)
+		writeError(w, r, http.StatusBadRequest, errCodeNotificationFilterInvalid, "workspace_id is required", nil)
 		return
 	}
 
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	if userID == "" {
-		writeError(w, r, http.StatusUnauthorized, "auth.invalid_token", "authentication required", nil)
+		writeError(w, r, http.StatusUnauthorized, errCodeAuthInvalidToken, "authentication required", nil)
 		return
 	}
 
 	// Require notification.read permission for workspace stream.
-	if err := h.permChecker(r.Context(), workspaceID, userID, "notification.read"); err != nil {
+	if err := h.permChecker(r.Context(), workspaceID, userID, platformconstants.PermissionNotificationRead); err != nil {
 		var denied *auth.PermissionDeniedError
 		if errors.As(err, &denied) {
-			writeError(w, r, http.StatusForbidden, "notification.read_denied", err.Error(), nil)
+			writeError(w, r, http.StatusForbidden, errCodeNotificationReadDenied, err.Error(), nil)
 			return
 		}
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 		return
 	}
 
 	stream, err := sse.New(w, r, sse.Options{HeartbeatInterval: sse.DefaultHeartbeatInterval})
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "streaming is not supported", nil)
+		writeError(w, r, http.StatusInternalServerError, errCodeInternal, "streaming is not supported", nil)
 		return
 	}
 	defer stream.Close()
@@ -265,7 +265,7 @@ func (h *notificationHTTP) streamWorkspaceNotifications(w http.ResponseWriter, r
 	ch, unsub, err := h.realtime.SubscribeWorkspace(r.Context(), workspaceID)
 	if err != nil {
 		h.log.Warn("failed to subscribe to workspace notification stream", "workspace_id", workspaceID, "error", err)
-		writeError(w, r, http.StatusServiceUnavailable, "notification.realtime_unavailable", "notification realtime is unavailable", nil)
+		writeError(w, r, http.StatusServiceUnavailable, errCodeNotificationRealtimeUnavailable, "notification realtime is unavailable", nil)
 		return
 	}
 	defer unsub()
@@ -296,19 +296,19 @@ func (h *notificationHTTP) streamWorkspaceNotifications(w http.ResponseWriter, r
 
 func (h *notificationHTTP) streamMyNotifications(w http.ResponseWriter, r *http.Request) {
 	if h.realtime == nil || !h.realtime.Healthy() {
-		writeError(w, r, http.StatusServiceUnavailable, "notification.realtime_unavailable", "notification realtime is unavailable", nil)
+		writeError(w, r, http.StatusServiceUnavailable, errCodeNotificationRealtimeUnavailable, "notification realtime is unavailable", nil)
 		return
 	}
 
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	if userID == "" {
-		writeError(w, r, http.StatusUnauthorized, "auth.invalid_token", "authentication required", nil)
+		writeError(w, r, http.StatusUnauthorized, errCodeAuthInvalidToken, "authentication required", nil)
 		return
 	}
 
 	stream, err := sse.New(w, r, sse.Options{HeartbeatInterval: sse.DefaultHeartbeatInterval})
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "streaming is not supported", nil)
+		writeError(w, r, http.StatusInternalServerError, errCodeInternal, "streaming is not supported", nil)
 		return
 	}
 	defer stream.Close()
@@ -318,7 +318,7 @@ func (h *notificationHTTP) streamMyNotifications(w http.ResponseWriter, r *http.
 	ch, unsub, err := h.realtime.SubscribeUser(r.Context(), userID)
 	if err != nil {
 		h.log.Warn("failed to subscribe to user notification stream", "user_id", userID, "error", err)
-		writeError(w, r, http.StatusServiceUnavailable, "notification.realtime_unavailable", "notification realtime is unavailable", nil)
+		writeError(w, r, http.StatusServiceUnavailable, errCodeNotificationRealtimeUnavailable, "notification realtime is unavailable", nil)
 		return
 	}
 	defer unsub()
@@ -350,15 +350,15 @@ func (h *notificationHTTP) streamMyNotifications(w http.ResponseWriter, r *http.
 func writeNotificationErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotificationReadDenied):
-		writeError(w, r, http.StatusForbidden, "notification.read_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeNotificationReadDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrNotificationNotFound):
-		writeError(w, r, http.StatusNotFound, "notification.not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeNotificationNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrRecipientEmailInvalid),
 		errors.Is(err, domain.ErrSubjectInvalid),
 		errors.Is(err, domain.ErrNotificationTypeInvalid),
 		errors.Is(err, domain.ErrNotificationStatusInvalid):
-		writeError(w, r, http.StatusBadRequest, "notification.filter_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusBadRequest, errCodeNotificationFilterInvalid, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }

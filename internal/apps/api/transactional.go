@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/send"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
@@ -77,12 +76,12 @@ func (h *transactionalHTTP) send(w http.ResponseWriter, r *http.Request) {
 	apiKeyID, _ := r.Context().Value(ctxAPIKeyID).(string)
 
 	if workspaceID == "" {
-		writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "missing workspace context", nil)
+		writeError(w, r, http.StatusUnauthorized, errCodeAPIKeyInvalid, "missing workspace context", nil)
 		return
 	}
 
 	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	contentType := r.Header.Get("Content-Type")
+	contentType := headerContentType(r)
 
 	var input send.Input
 	var err error
@@ -92,7 +91,7 @@ func (h *transactionalHTTP) send(w http.ResponseWriter, r *http.Request) {
 	} else if strings.HasPrefix(contentType, "application/json") {
 		input, err = h.parseJSONSend(r)
 	} else {
-		writeError(w, r, http.StatusUnsupportedMediaType, "delivery.request_body_invalid", "content type must be application/json or multipart/form-data", nil)
+		writeError(w, r, http.StatusUnsupportedMediaType, errCodeDeliveryRequestBodyInvalid, "content type must be application/json or multipart/form-data", nil)
 		return
 	}
 
@@ -115,7 +114,7 @@ func (h *transactionalHTTP) send(w http.ResponseWriter, r *http.Request) {
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID: workspaceID,
 		ActorUserID: apiKeyID,
-		ActionType:  "transactional.send_accepted",
+		ActionType:  auditActionTransactionalSendAccepted,
 		TargetType:  "transactional_send_request",
 		TargetID:    result.RequestID,
 		PayloadSummary: map[string]any{
@@ -303,12 +302,12 @@ func (h *transactionalHTTP) getMessage(w http.ResponseWriter, r *http.Request) {
 	messageID = strings.TrimSuffix(messageID, "/")
 
 	if workspaceID == "" {
-		writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "missing workspace context", nil)
+		writeError(w, r, http.StatusUnauthorized, errCodeAPIKeyInvalid, "missing workspace context", nil)
 		return
 	}
 
 	if messageID == "" {
-		writeError(w, r, http.StatusNotFound, "delivery.message_not_found", "message_id is required", nil)
+		writeError(w, r, http.StatusNotFound, errCodeDeliveryMessageNotFound, "message_id is required", nil)
 		return
 	}
 
@@ -334,14 +333,14 @@ func (h *transactionalHTTP) getMessage(w http.ResponseWriter, r *http.Request) {
 // Requires API key with mail_logs.read scope.
 func (h *transactionalHTTP) listMessageEvents(w http.ResponseWriter, r *http.Request) {
 	workspaceID, _ := r.Context().Value(ctxAPIKeyWorkspaceID).(string)
-	messageID := chi.URLParam(r, "message_id")
+	messageID := messageIDParam(r)
 
 	if workspaceID == "" {
-		writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "missing workspace context", nil)
+		writeError(w, r, http.StatusUnauthorized, errCodeAPIKeyInvalid, "missing workspace context", nil)
 		return
 	}
 	if messageID == "" {
-		writeError(w, r, http.StatusNotFound, "delivery.message_not_found", "message_id is required", nil)
+		writeError(w, r, http.StatusNotFound, errCodeDeliveryMessageNotFound, "message_id is required", nil)
 		return
 	}
 
@@ -363,14 +362,14 @@ func (h *transactionalHTTP) listMessageEvents(w http.ResponseWriter, r *http.Req
 // Requires API key with mail_logs.read scope.
 func (h *transactionalHTTP) listRequestMessages(w http.ResponseWriter, r *http.Request) {
 	workspaceID, _ := r.Context().Value(ctxAPIKeyWorkspaceID).(string)
-	requestID := chi.URLParam(r, "request_id")
+	requestID := requestIDParam(r)
 
 	if workspaceID == "" {
-		writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "missing workspace context", nil)
+		writeError(w, r, http.StatusUnauthorized, errCodeAPIKeyInvalid, "missing workspace context", nil)
 		return
 	}
 	if requestID == "" {
-		writeError(w, r, http.StatusNotFound, "delivery.transactional_request_not_found", "request_id is required", nil)
+		writeError(w, r, http.StatusNotFound, errCodeDeliveryTransactionalRequestNotFound, "request_id is required", nil)
 		return
 	}
 
@@ -391,44 +390,44 @@ func (h *transactionalHTTP) listRequestMessages(w http.ResponseWriter, r *http.R
 func writeTransactionalErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrRequestBodyInvalid):
-		writeError(w, r, http.StatusBadRequest, "delivery.request_body_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusBadRequest, errCodeDeliveryRequestBodyInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrMessageNotFound):
-		writeError(w, r, http.StatusNotFound, "delivery.message_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeDeliveryMessageNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrIdempotencyKeyConflict):
-		writeError(w, r, http.StatusConflict, "delivery.idempotency_key_conflict", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeDeliveryIdempotencyKeyConflict, err.Error(), nil)
 	case errors.Is(err, domain.ErrRecipientInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "delivery.recipient_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeDeliveryRecipientInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrSuppressedRecipient):
-		writeError(w, r, http.StatusUnprocessableEntity, "delivery.recipient_suppressed", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeDeliveryRecipientSuppressed, err.Error(), nil)
 	case errors.Is(err, domain.ErrSenderDomainNotFound):
-		writeError(w, r, http.StatusNotFound, "sender.domain_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeSenderDomainNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrSenderDomainNotVerified):
-		writeError(w, r, http.StatusUnprocessableEntity, "sender.domain_not_verified", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeSenderDomainNotVerified, err.Error(), nil)
 	case errors.Is(err, domain.ErrTemplateNotFound):
-		writeError(w, r, http.StatusNotFound, "template.not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeTemplateNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrTemplateRenderPayloadInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "template.render_payload_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeTemplateRenderPayloadInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrModeInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "delivery.mode_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeDeliveryModeInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrRawBodyRequired):
-		writeError(w, r, http.StatusUnprocessableEntity, "delivery.raw_body_required", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeDeliveryRawBodyRequired, err.Error(), nil)
 	case errors.Is(err, domain.ErrAttachmentTooLarge):
-		writeError(w, r, http.StatusUnprocessableEntity, "delivery.attachment_too_large", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeDeliveryAttachmentTooLarge, err.Error(), nil)
 	case errors.Is(err, domain.ErrDuplicateRecipient):
-		writeError(w, r, http.StatusUnprocessableEntity, "delivery.duplicate_recipient", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeDeliveryDuplicateRecipient, err.Error(), nil)
 	case errors.Is(err, domain.ErrSubjectRequired):
-		writeError(w, r, http.StatusUnprocessableEntity, "delivery.subject_required", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeDeliverySubjectRequired, err.Error(), nil)
 	case errors.Is(err, domain.ErrAttachmentNotSupported):
-		writeError(w, r, http.StatusUnprocessableEntity, "delivery.attachment_not_supported", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeDeliveryAttachmentNotSupported, err.Error(), nil)
 	case errors.Is(err, domain.ErrAttachmentStorageFailed):
-		writeError(w, r, http.StatusInternalServerError, "delivery.attachment_storage_failed", err.Error(), nil)
+		writeError(w, r, http.StatusInternalServerError, errCodeDeliveryAttachmentStorageFailed, err.Error(), nil)
 	case errors.Is(err, domain.ErrObjectStorageDisabled):
-		writeError(w, r, http.StatusUnprocessableEntity, "delivery.object_storage_disabled", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeDeliveryObjectStorageDisabled, err.Error(), nil)
 	case errors.Is(err, domain.ErrAPIKeyQuotaExceeded):
-		writeError(w, r, http.StatusTooManyRequests, "delivery.quota_exceeded", err.Error(), nil)
+		writeError(w, r, http.StatusTooManyRequests, errCodeDeliveryQuotaExceeded, err.Error(), nil)
 	case errors.Is(err, domain.ErrTemporarilyUnavailable):
-		writeError(w, r, http.StatusServiceUnavailable, "delivery.temporarily_unavailable", err.Error(), nil)
+		writeError(w, r, http.StatusServiceUnavailable, errCodeDeliveryTemporarilyUnavailable, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }

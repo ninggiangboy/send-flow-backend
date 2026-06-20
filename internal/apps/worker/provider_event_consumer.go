@@ -35,7 +35,7 @@ func NewProviderEventConsumer(svc *deliveryapp.Service, log *slog.Logger, broker
 	c := &ProviderEventConsumer{
 		name:    "delivery_provider_events",
 		svc:     svc,
-		log:     log.With("consumer", "delivery_provider_events"),
+		log:     log.With(logFieldConsumer, consumerDeliveryProviderEvents),
 		brokers: brokers,
 		groupID: groupID,
 		idGen:   id.NewUUIDGenerator().New,

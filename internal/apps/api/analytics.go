@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	analyticsapp "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
@@ -97,7 +96,7 @@ func timePtrToStringPtr(t *string) *string {
 }
 
 func (h *analyticsHTTP) getDashboardOverview(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	result, err := h.svc.GetDashboardOverview(r.Context(), analyticsapp.GetDashboardOverviewInput{
@@ -133,8 +132,8 @@ func (h *analyticsHTTP) getDashboardOverview(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *analyticsHTTP) getCampaignAnalytics(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	campaignID := chi.URLParam(r, "campaign_id")
+	workspaceID := workspaceIDParam(r)
+	campaignID := campaignIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	result, err := h.svc.GetCampaignAnalytics(r.Context(), analyticsapp.GetCampaignAnalyticsInput{
@@ -178,7 +177,7 @@ func (h *analyticsHTTP) getCampaignAnalytics(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *analyticsHTTP) getDeliverability(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -427,8 +426,8 @@ type campaignIncidentTimelineResponseDoc struct {
 }
 
 func (h *analyticsHTTP) getCampaignFunnel(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	campaignID := chi.URLParam(r, "campaign_id")
+	workspaceID := workspaceIDParam(r)
+	campaignID := campaignIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -478,8 +477,8 @@ func (h *analyticsHTTP) getCampaignFunnel(w http.ResponseWriter, r *http.Request
 }
 
 func (h *analyticsHTTP) getCampaignTimeSeries(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	campaignID := chi.URLParam(r, "campaign_id")
+	workspaceID := workspaceIDParam(r)
+	campaignID := campaignIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -530,8 +529,8 @@ func (h *analyticsHTTP) getCampaignTimeSeries(w http.ResponseWriter, r *http.Req
 }
 
 func (h *analyticsHTTP) getCampaignBreakdown(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	campaignID := chi.URLParam(r, "campaign_id")
+	workspaceID := workspaceIDParam(r)
+	campaignID := campaignIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -596,8 +595,8 @@ func (h *analyticsHTTP) getCampaignBreakdown(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *analyticsHTTP) getCampaignEvents(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	campaignID := chi.URLParam(r, "campaign_id")
+	workspaceID := workspaceIDParam(r)
+	campaignID := campaignIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -664,7 +663,7 @@ func (h *analyticsHTTP) getCampaignEvents(w http.ResponseWriter, r *http.Request
 }
 
 func (h *analyticsHTTP) searchEvents(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -736,8 +735,8 @@ func (h *analyticsHTTP) searchEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *analyticsHTTP) getMessageTimeline(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	messageID := chi.URLParam(r, "message_id")
+	workspaceID := workspaceIDParam(r)
+	messageID := messageIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	result, err := h.svc.GetMessageTimeline(r.Context(), analyticsapp.GetMessageTimelineInput{
@@ -777,8 +776,8 @@ func (h *analyticsHTTP) getMessageTimeline(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *analyticsHTTP) getProviderEventTrace(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	providerEventID := chi.URLParam(r, "provider_event_id")
+	workspaceID := workspaceIDParam(r)
+	providerEventID := providerEventIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	result, err := h.svc.GetProviderEventTrace(r.Context(), analyticsapp.GetProviderEventTraceInput{
@@ -810,8 +809,8 @@ func (h *analyticsHTTP) getProviderEventTrace(w http.ResponseWriter, r *http.Req
 }
 
 func (h *analyticsHTTP) getCampaignIncidentTimeline(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	campaignID := chi.URLParam(r, "campaign_id")
+	workspaceID := workspaceIDParam(r)
+	campaignID := campaignIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -859,7 +858,7 @@ func (h *analyticsHTTP) getCampaignIncidentTimeline(w http.ResponseWriter, r *ht
 }
 
 func (h *analyticsHTTP) getDeliverabilityTimeSeries(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -912,7 +911,7 @@ func (h *analyticsHTTP) getDeliverabilityTimeSeries(w http.ResponseWriter, r *ht
 }
 
 func (h *analyticsHTTP) getDeliverabilityBreakdown(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -967,7 +966,7 @@ func (h *analyticsHTTP) getDeliverabilityBreakdown(w http.ResponseWriter, r *htt
 }
 
 func (h *analyticsHTTP) getDeliverabilityLatency(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1018,7 +1017,7 @@ func (h *analyticsHTTP) getDeliverabilityLatency(w http.ResponseWriter, r *http.
 }
 
 func (h *analyticsHTTP) getDeliverabilityIncidents(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1139,7 +1138,7 @@ type webhookReliabilityResponseDoc struct {
 }
 
 func (h *analyticsHTTP) getOutboxLag(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1183,7 +1182,7 @@ func (h *analyticsHTTP) getOutboxLag(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *analyticsHTTP) getConsumerFailures(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1227,7 +1226,7 @@ func (h *analyticsHTTP) getConsumerFailures(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *analyticsHTTP) getDLQVolume(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1270,7 +1269,7 @@ func (h *analyticsHTTP) getDLQVolume(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *analyticsHTTP) getWebhookDeliveryTimeSeries(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1317,7 +1316,7 @@ func (h *analyticsHTTP) getWebhookDeliveryTimeSeries(w http.ResponseWriter, r *h
 }
 
 func (h *analyticsHTTP) getWebhookReliability(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1439,7 +1438,7 @@ type anomaliesResponseDoc struct {
 }
 
 func (h *analyticsHTTP) getUsageTimeSeries(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1484,7 +1483,7 @@ func (h *analyticsHTTP) getUsageTimeSeries(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *analyticsHTTP) getUsageFeatures(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1525,7 +1524,7 @@ func (h *analyticsHTTP) getUsageFeatures(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *analyticsHTTP) getRiskSignals(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1569,7 +1568,7 @@ func (h *analyticsHTTP) getRiskSignals(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *analyticsHTTP) getSendVolumeForecast(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1611,7 +1610,7 @@ func (h *analyticsHTTP) getSendVolumeForecast(w http.ResponseWriter, r *http.Req
 }
 
 func (h *analyticsHTTP) getAnomalies(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	q := r.URL.Query()
 
@@ -1660,16 +1659,16 @@ func (h *analyticsHTTP) getAnomalies(w http.ResponseWriter, r *http.Request) {
 func writeAnalyticsErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrAnalyticsQueryInvalid):
-		writeError(w, r, http.StatusBadRequest, "analytics.query_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusBadRequest, errCodeAnalyticsQueryInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrAnalyticsStoreUnavailable):
-		writeError(w, r, http.StatusServiceUnavailable, "analytics.store_unavailable", err.Error(), nil)
+		writeError(w, r, http.StatusServiceUnavailable, errCodeAnalyticsStoreUnavailable, err.Error(), nil)
 	case errors.Is(err, domain.ErrAnalyticsProjectionNotFound):
-		writeError(w, r, http.StatusNotFound, "analytics.projection_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeAnalyticsProjectionNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrAnalyticsReadDenied):
-		writeError(w, r, http.StatusForbidden, "analytics.read_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeAnalyticsReadDenied, err.Error(), nil)
 	case errors.Is(err, auth.ErrPermissionDenied):
-		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeAuthPermissionDenied, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }

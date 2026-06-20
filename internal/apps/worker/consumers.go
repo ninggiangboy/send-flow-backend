@@ -29,7 +29,7 @@ func NewCampaignScheduledConsumer(svc *deliveryapp.Service, log *slog.Logger, br
 	c := &CampaignScheduledConsumer{
 		name:    "delivery.queue_campaign_messages",
 		svc:     svc,
-		log:     log.With("consumer", "delivery.queue_campaign_messages"),
+		log:     log.With(logFieldConsumer, consumerDeliveryQueueCampaign),
 		brokers: brokers,
 		groupID: groupID,
 		idGen:   id.NewUUIDGenerator().New,

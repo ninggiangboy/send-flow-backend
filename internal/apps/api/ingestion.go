@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	ingestionapp "github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/domain"
 )
@@ -22,17 +21,17 @@ func newIngestionHTTP(svc *ingestionapp.Service) *ingestionHTTP {
 }
 
 func (h *ingestionHTTP) ingestProviderWebhook(w http.ResponseWriter, r *http.Request) {
-	provider := chi.URLParam(r, "provider")
+	provider := providerParam(r)
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxWebhookBodySize)
 	rawBody, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeError(w, r, http.StatusBadRequest, "webhook.payload_invalid", "request body too large or unreadable", nil)
+		writeError(w, r, http.StatusBadRequest, errCodeWebhookPayloadInvalid, "request body too large or unreadable", nil)
 		return
 	}
 
 	if len(rawBody) == 0 {
-		writeError(w, r, http.StatusBadRequest, "webhook.payload_invalid", "empty request body", nil)
+		writeError(w, r, http.StatusBadRequest, errCodeWebhookPayloadInvalid, "empty request body", nil)
 		return
 	}
 
@@ -60,16 +59,16 @@ func (h *ingestionHTTP) ingestProviderWebhook(w http.ResponseWriter, r *http.Req
 func writeIngestionErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrProviderNotSupported):
-		writeError(w, r, http.StatusNotFound, "webhook.provider_not_supported", "provider not supported", nil)
+		writeError(w, r, http.StatusNotFound, errCodeWebhookProviderNotSupported, "provider not supported", nil)
 	case errors.Is(err, domain.ErrInvalidSignature):
-		writeError(w, r, http.StatusUnauthorized, "webhook.invalid_signature", "invalid signature", nil)
+		writeError(w, r, http.StatusUnauthorized, errCodeWebhookInvalidSignature, "invalid signature", nil)
 	case errors.Is(err, domain.ErrPayloadInvalid):
-		writeError(w, r, http.StatusBadRequest, "webhook.payload_invalid", "payload invalid", nil)
+		writeError(w, r, http.StatusBadRequest, errCodeWebhookPayloadInvalid, "payload invalid", nil)
 	case errors.Is(err, domain.ErrDuplicateEventConflict):
-		writeError(w, r, http.StatusConflict, "webhook.duplicate_event_conflict", "duplicate event conflict", nil)
+		writeError(w, r, http.StatusConflict, errCodeWebhookDuplicateEventConflict, "duplicate event conflict", nil)
 	case errors.Is(err, domain.ErrTemporarilyUnavailable):
-		writeError(w, r, http.StatusServiceUnavailable, "webhook.ingest_temporarily_unavailable", "service temporarily unavailable", nil)
+		writeError(w, r, http.StatusServiceUnavailable, errCodeWebhookIngestTemporarilyUnavailable, "service temporarily unavailable", nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }

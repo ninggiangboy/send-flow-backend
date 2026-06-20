@@ -9,7 +9,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
-	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 // --- ListMessages ---
@@ -83,14 +83,14 @@ func (s *QueryService) ListMessages(ctx context.Context, input ListMessagesInput
 		return nil, domain.ErrPayloadInvalid
 	}
 	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "delivery.read"); err != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, platformconstants.PermissionDeliveryRead); err != nil {
 			return nil, err
 		}
 	}
 
 	limit := input.Limit
 	if limit <= 0 || limit > 100 {
-		limit = constants.DefaultPageSize
+		limit = platformconstants.DefaultPageSize
 	}
 
 	emailNormalized := strings.TrimSpace(strings.ToLower(input.RecipientEmailNormalized))
@@ -125,7 +125,7 @@ func (s *QueryService) GetMessage(ctx context.Context, input GetMessageInput) (*
 		return nil, domain.ErrPayloadInvalid
 	}
 	if s.accessChecker != nil {
-		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "delivery.read"); err != nil {
+		if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, platformconstants.PermissionDeliveryRead); err != nil {
 			return nil, err
 		}
 	}

@@ -30,7 +30,7 @@ func NewElectedSchedulerRunner(
 		inner: inner,
 		lock:  lock,
 		guard: NewPollingGuard(name, base, 0, base, log),
-		log:   log.With("elected_scheduler", name),
+		log:   log.With(logFieldElectedScheduler, name),
 	}
 }
 

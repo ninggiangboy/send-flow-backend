@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
 	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/httputil"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/observability"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/ratelimit"
@@ -33,13 +33,13 @@ func newAPIKeyAuthMiddleware(svc *accessapp.Service, metrics *observability.APIK
 
 func (m *apiKeyAuthMiddleware) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+		authHeader := headerAuthorization(r)
 		token, ok := httputil.ExtractBearerToken(authHeader)
 		if !ok {
 			if m.metrics != nil {
-				m.metrics.RecordAuthAttempt("missing_token")
+				m.metrics.RecordAuthAttempt(platformconstants.AuthAttemptMissingToken)
 			}
-			writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "missing or malformed bearer token", nil)
+			writeError(w, r, http.StatusUnauthorized, errCodeAPIKeyInvalid, "missing or malformed bearer token", nil)
 			return
 		}
 
@@ -49,28 +49,28 @@ func (m *apiKeyAuthMiddleware) authenticate(next http.Handler) http.Handler {
 			rateKey := "api_key:auth:ip:" + clientIP(r)
 			allowed, err := m.limiter.Allow(r.Context(), rateKey, 20, time.Minute)
 			if err != nil {
-				writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+				writeInternalError(w, r)
 				return
 			}
 			if !allowed {
 				if m.metrics != nil {
-					m.metrics.RecordAuthAttempt("rate_limited")
+					m.metrics.RecordAuthAttempt(platformconstants.AuthAttemptRateLimited)
 				}
-				writeError(w, r, http.StatusTooManyRequests, "api_key.rate_limited", "too many api key auth attempts", nil)
+				writeError(w, r, http.StatusTooManyRequests, errCodeAPIKeyRateLimited, "too many api key auth attempts", nil)
 				return
 			}
 			// Also rate limit per key prefix to prevent brute force
 			prefixKey := "api_key:auth:prefix:" + prefix
 			allowedPrefix, prefixErr := m.limiter.Allow(r.Context(), prefixKey, 10, time.Minute)
 			if prefixErr != nil {
-				writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+				writeInternalError(w, r)
 				return
 			}
 			if !allowedPrefix {
 				if m.metrics != nil {
 					m.metrics.RecordAuthAttempt("rate_limited_prefix")
 				}
-				writeError(w, r, http.StatusTooManyRequests, "api_key.rate_limited", "too many api key auth attempts for this key", nil)
+				writeError(w, r, http.StatusTooManyRequests, errCodeAPIKeyRateLimited, "too many api key auth attempts for this key", nil)
 				return
 			}
 		}
@@ -80,18 +80,18 @@ func (m *apiKeyAuthMiddleware) authenticate(next http.Handler) http.Handler {
 		})
 		if err != nil {
 			if m.metrics != nil {
-				m.metrics.RecordAuthAttempt("invalid")
+				m.metrics.RecordAuthAttempt(platformconstants.AuthAttemptInvalid)
 			}
 			if errors.Is(err, accessdomain.ErrAPIKeyInvalid) {
-				writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "invalid, revoked, or expired api key", nil)
+				writeError(w, r, http.StatusUnauthorized, errCodeAPIKeyInvalid, "invalid, revoked, or expired api key", nil)
 				return
 			}
-			writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+			writeInternalError(w, r)
 			return
 		}
 
 		if m.metrics != nil {
-			m.metrics.RecordAuthAttempt("success")
+			m.metrics.RecordAuthAttempt(platformconstants.AuthAttemptSuccess)
 		}
 
 		ctx := context.WithValue(r.Context(), ctxAPIKeyWorkspaceID, key.WorkspaceID)
@@ -108,7 +108,7 @@ func requireAPIKeyScope(scope string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			scopes, _ := r.Context().Value(ctxAPIKeyScopes).([]string)
 			if !accessdomain.HasScope(scopes, scope) {
-				writeError(w, r, http.StatusForbidden, "api_key.scope_denied", "api key does not have required scope: "+scope, nil)
+				writeError(w, r, http.StatusForbidden, errCodeAPIKeyScopeDenied, "api key does not have required scope: "+scope, nil)
 				return
 			}
 			next.ServeHTTP(w, r)

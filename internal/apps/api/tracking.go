@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	trackingapp "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app"
 )
 
@@ -24,7 +23,7 @@ func newTrackingHTTP(svc *trackingapp.Service) *trackingHTTP {
 }
 
 func (h *trackingHTTP) serveOpenPixel(w http.ResponseWriter, r *http.Request) {
-	trackingID := chi.URLParam(r, "tracking_id")
+	trackingID := pathParam(r, "tracking_id")
 	if trackingID != "" {
 		h.svc.RecordOpen(r.Context(), trackingapp.RecordOpenInput{
 			TrackingID: trackingID,
@@ -41,9 +40,9 @@ func (h *trackingHTTP) serveOpenPixel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *trackingHTTP) serveClickRedirect(w http.ResponseWriter, r *http.Request) {
-	trackingID := chi.URLParam(r, "tracking_id")
+	trackingID := pathParam(r, "tracking_id")
 	if trackingID == "" {
-		writeError(w, r, http.StatusNotFound, "tracking.invalid_tracking_id", "tracking id not found", nil)
+		writeError(w, r, http.StatusNotFound, errCodeTrackingInvalidTrackingID, "tracking id not found", nil)
 		return
 	}
 
@@ -52,12 +51,12 @@ func (h *trackingHTTP) serveClickRedirect(w http.ResponseWriter, r *http.Request
 		Source:     "http",
 	})
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 		return
 	}
 
 	if result == nil || result.DestinationURL == "" {
-		writeError(w, r, http.StatusNotFound, "tracking.invalid_tracking_id", "tracking id not found", nil)
+		writeError(w, r, http.StatusNotFound, errCodeTrackingInvalidTrackingID, "tracking id not found", nil)
 		return
 	}
 
@@ -66,9 +65,9 @@ func (h *trackingHTTP) serveClickRedirect(w http.ResponseWriter, r *http.Request
 }
 
 func (h *trackingHTTP) serveUnsubscribe(w http.ResponseWriter, r *http.Request) {
-	token := chi.URLParam(r, "token")
+	token := tokenParam(r)
 	if token == "" {
-		writeError(w, r, http.StatusBadRequest, "suppression.unsubscribe_token_invalid", "invalid unsubscribe token", nil)
+		writeError(w, r, http.StatusBadRequest, errCodeSuppressionUnsubscribeTokenInvalid, "invalid unsubscribe token", nil)
 		return
 	}
 
@@ -77,7 +76,7 @@ func (h *trackingHTTP) serveUnsubscribe(w http.ResponseWriter, r *http.Request) 
 		Source: "http",
 	})
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 		return
 	}
 

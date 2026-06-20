@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/auth"
@@ -21,7 +20,7 @@ func newDeliveryHTTP(svc deliveryService) *deliveryHTTP {
 }
 
 func (h *deliveryHTTP) listMessages(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	q := r.URL.Query()
@@ -67,15 +66,12 @@ func (h *deliveryHTTP) listMessages(w http.ResponseWriter, r *http.Request) {
 	for _, msg := range results.Messages {
 		out = append(out, messageSummaryResponse(msg))
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]any{
-		"messages":    out,
-		"next_cursor": results.NextCursor,
-	})
+	writeEnvelope(w, r, http.StatusOK, map[string]any{"messages": out, "next_cursor": results.NextCursor})
 }
 
 func (h *deliveryHTTP) getMessage(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	messageID := chi.URLParam(r, "message_id")
+	workspaceID := workspaceIDParam(r)
+	messageID := messageIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	msg, err := h.svc.GetMessage(r.Context(), deliveryapp.GetMessageInput{
@@ -94,15 +90,15 @@ func (h *deliveryHTTP) getMessage(w http.ResponseWriter, r *http.Request) {
 func writeDeliveryErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrReadDenied):
-		writeError(w, r, http.StatusForbidden, "delivery.read_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeDeliveryReadDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrPayloadInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "delivery.query_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeDeliveryQueryInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrMessageNotFound):
-		writeError(w, r, http.StatusNotFound, "delivery.message_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeDeliveryMessageNotFound, err.Error(), nil)
 	case errors.Is(err, auth.ErrPermissionDenied):
-		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeAuthPermissionDenied, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }
 

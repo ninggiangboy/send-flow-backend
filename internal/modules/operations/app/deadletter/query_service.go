@@ -7,6 +7,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/ports"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type Options struct {
@@ -43,7 +44,7 @@ func NewQueryService(opts Options) *QueryService {
 
 func (s *QueryService) ListRecords(ctx context.Context, input ListInput) ([]domain.DeadLetterRecord, string, error) {
 	log := s.log.With("workspace_id", input.WorkspaceID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.dlq.read"); err != nil {
+	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, platformconstants.PermissionOperationsDLQRead); err != nil {
 		return nil, "", err
 	}
 	if input.WorkspaceID == "" {
@@ -66,7 +67,7 @@ func (s *QueryService) ListRecords(ctx context.Context, input ListInput) ([]doma
 
 func (s *QueryService) GetRecord(ctx context.Context, input GetInput) (*domain.DeadLetterRecord, error) {
 	log := s.log.With("workspace_id", input.WorkspaceID, "dead_letter_id", input.RecordID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.dlq.read"); err != nil {
+	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, platformconstants.PermissionOperationsDLQRead); err != nil {
 		return nil, err
 	}
 	if input.WorkspaceID == "" {

@@ -30,7 +30,7 @@ func NewDueNotificationConsumer(svc *notificationapp.Service, log *slog.Logger, 
 	c := &DueNotificationConsumer{
 		name:    "notification.due_notification_consumer",
 		svc:     svc,
-		log:     log.With("consumer", "notification.due_notification_consumer"),
+		log:     log.With(logFieldConsumer, consumerNotificationDue),
 		brokers: brokers,
 		groupID: groupID,
 		idGen:   id.NewUUIDGenerator().New,

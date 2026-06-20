@@ -7,6 +7,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type Options struct {
@@ -63,7 +64,7 @@ func New(opts Options) *Handler {
 
 func (h *Handler) ExecuteGetUsageTimeSeries(ctx context.Context, q UsageTimeSeriesQuery) (*domain.UsageTimeSeriesResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -95,7 +96,7 @@ func (h *Handler) ExecuteGetUsageTimeSeries(ctx context.Context, q UsageTimeSeri
 
 func (h *Handler) ExecuteGetUsageFeatures(ctx context.Context, q UsageFeaturesQuery) (*domain.UsageFeaturesResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -119,7 +120,7 @@ func (h *Handler) ExecuteGetUsageFeatures(ctx context.Context, q UsageFeaturesQu
 
 func (h *Handler) ExecuteGetRiskSignals(ctx context.Context, q RiskSignalsQuery) (*domain.RiskSignalsResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -143,7 +144,7 @@ func (h *Handler) ExecuteGetRiskSignals(ctx context.Context, q RiskSignalsQuery)
 
 func (h *Handler) ExecuteGetSendVolumeForecast(ctx context.Context, q SendVolumeForecastQuery) (*domain.SendVolumeForecastResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}

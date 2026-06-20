@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
@@ -22,7 +21,7 @@ func newMailLogsHTTP(svc deliveryService) *mailLogsHTTP {
 // resolveWorkspaceID extracts the workspace ID from either the Chi URL param
 // (session-auth flows) or the context value (API-key flows).
 func resolveWorkspaceID(r *http.Request) string {
-	if ws := chi.URLParam(r, "workspace_id"); ws != "" {
+	if ws := workspaceIDParam(r); ws != "" {
 		return ws
 	}
 	if ws, ok := r.Context().Value(ctxAPIKeyWorkspaceID).(string); ok && ws != "" {
@@ -36,7 +35,7 @@ func resolveWorkspaceID(r *http.Request) string {
 func (h *mailLogsHTTP) listMailLogs(w http.ResponseWriter, r *http.Request) {
 	workspaceID := resolveWorkspaceID(r)
 	if workspaceID == "" {
-		writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "missing workspace context", nil)
+		writeError(w, r, http.StatusUnauthorized, errCodeAPIKeyInvalid, "missing workspace context", nil)
 		return
 	}
 
@@ -82,23 +81,20 @@ func (h *mailLogsHTTP) listMailLogs(w http.ResponseWriter, r *http.Request) {
 	for _, msg := range results.Messages {
 		out = append(out, mailLogSummaryResponse(msg))
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]any{
-		"messages":    out,
-		"next_cursor": results.NextCursor,
-	})
+	writeEnvelope(w, r, http.StatusOK, map[string]any{"messages": out, "next_cursor": results.NextCursor})
 }
 
 // getMailLog returns a single message detail with full context.
 func (h *mailLogsHTTP) getMailLog(w http.ResponseWriter, r *http.Request) {
 	workspaceID := resolveWorkspaceID(r)
-	messageID := chi.URLParam(r, "message_id")
+	messageID := messageIDParam(r)
 
 	if workspaceID == "" {
-		writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "missing workspace context", nil)
+		writeError(w, r, http.StatusUnauthorized, errCodeAPIKeyInvalid, "missing workspace context", nil)
 		return
 	}
 	if messageID == "" {
-		writeError(w, r, http.StatusNotFound, "delivery.message_not_found", "message_id is required", nil)
+		writeError(w, r, http.StatusNotFound, errCodeDeliveryMessageNotFound, "message_id is required", nil)
 		return
 	}
 
@@ -117,14 +113,14 @@ func (h *mailLogsHTTP) getMailLog(w http.ResponseWriter, r *http.Request) {
 // listMailLogAttempts returns all delivery attempts for a message.
 func (h *mailLogsHTTP) listMailLogAttempts(w http.ResponseWriter, r *http.Request) {
 	workspaceID := resolveWorkspaceID(r)
-	messageID := chi.URLParam(r, "message_id")
+	messageID := messageIDParam(r)
 
 	if workspaceID == "" {
-		writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "missing workspace context", nil)
+		writeError(w, r, http.StatusUnauthorized, errCodeAPIKeyInvalid, "missing workspace context", nil)
 		return
 	}
 	if messageID == "" {
-		writeError(w, r, http.StatusNotFound, "delivery.message_not_found", "message_id is required", nil)
+		writeError(w, r, http.StatusNotFound, errCodeDeliveryMessageNotFound, "message_id is required", nil)
 		return
 	}
 
@@ -152,22 +148,20 @@ func (h *mailLogsHTTP) listMailLogAttempts(w http.ResponseWriter, r *http.Reques
 			"response_snapshot": a.ResponseSnapshot,
 		})
 	}
-	writeEnvelope(w, r, http.StatusOK, map[string]any{
-		"attempts": out,
-	})
+	writeEnvelope(w, r, http.StatusOK, map[string]any{"attempts": out})
 }
 
 // listMailLogEvents returns the timeline events for a message.
 func (h *mailLogsHTTP) listMailLogEvents(w http.ResponseWriter, r *http.Request) {
 	workspaceID := resolveWorkspaceID(r)
-	messageID := chi.URLParam(r, "message_id")
+	messageID := messageIDParam(r)
 
 	if workspaceID == "" {
-		writeError(w, r, http.StatusUnauthorized, "api_key.invalid", "missing workspace context", nil)
+		writeError(w, r, http.StatusUnauthorized, errCodeAPIKeyInvalid, "missing workspace context", nil)
 		return
 	}
 	if messageID == "" {
-		writeError(w, r, http.StatusNotFound, "delivery.message_not_found", "message_id is required", nil)
+		writeError(w, r, http.StatusNotFound, errCodeDeliveryMessageNotFound, "message_id is required", nil)
 		return
 	}
 
@@ -180,22 +174,19 @@ func (h *mailLogsHTTP) listMailLogEvents(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeEnvelope(w, r, http.StatusOK, map[string]any{
-		"events":      result.Events,
-		"next_cursor": result.NextCursor,
-	})
+	writeEnvelope(w, r, http.StatusOK, map[string]any{"events": result.Events, "next_cursor": result.NextCursor})
 }
 
 func writeMailLogErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrReadDenied):
-		writeError(w, r, http.StatusForbidden, "delivery.read_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeDeliveryReadDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrPayloadInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "delivery.query_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeDeliveryQueryInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrMessageNotFound):
-		writeError(w, r, http.StatusNotFound, "delivery.message_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeDeliveryMessageNotFound, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }
 

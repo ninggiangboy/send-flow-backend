@@ -33,7 +33,7 @@ func NewDueWebhookConsumer(svc *webhooksapp.Service, log *slog.Logger, brokers [
 	c := &DueWebhookConsumer{
 		name:    "webhooks.due_webhook_consumer",
 		svc:     svc,
-		log:     log.With("consumer", "webhooks.due_webhook_consumer"),
+		log:     log.With(logFieldConsumer, consumerWebhooksDue),
 		brokers: brokers,
 		groupID: groupID,
 		idGen:   id.NewUUIDGenerator().New,

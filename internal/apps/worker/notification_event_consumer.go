@@ -31,7 +31,7 @@ func NewNotificationEventConsumer(svc *notificationapp.Service, log *slog.Logger
 	c := &NotificationEventConsumer{
 		name:            "notification.identity_events",
 		svc:             svc,
-		log:             log.With("consumer", "notification.identity_events"),
+		log:             log.With(logFieldConsumer, consumerNotificationIdentity),
 		brokers:         brokers,
 		groupID:         groupID,
 		idGen:           id.NewUUIDGenerator().New,

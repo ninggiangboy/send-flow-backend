@@ -107,6 +107,6 @@ func writeSettingsErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, domain.ErrWorkspaceNotFound):
 		writeError(w, r, http.StatusNotFound, "identity.workspace_not_found", err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }

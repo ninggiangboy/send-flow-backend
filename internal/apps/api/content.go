@@ -250,9 +250,9 @@ func writeContentErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, domain.ErrRenderContextInvalid):
 		writeError(w, r, http.StatusUnprocessableEntity, "template.render_context_invalid", err.Error(), nil)
 	case errors.Is(err, auth.ErrPermissionDenied):
-		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeAuthPermissionDenied, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }
 

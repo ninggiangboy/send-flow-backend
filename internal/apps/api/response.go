@@ -50,3 +50,7 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, code, messag
 		slog.Error("failed to write error response", "error", err)
 	}
 }
+
+func writeInternalError(w http.ResponseWriter, r *http.Request) {
+	writeError(w, r, http.StatusInternalServerError, errCodeInternal, "internal error", nil)
+}

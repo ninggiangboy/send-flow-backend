@@ -8,6 +8,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 	analyticsredis "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type Options struct {
@@ -84,7 +85,7 @@ func New(opts Options) *Handler {
 
 func (h *Handler) ExecuteCampaignAnalytics(ctx context.Context, q CampaignAnalyticsQuery) (*domain.CampaignAnalytics, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -151,7 +152,7 @@ func (h *Handler) loadCampaignAnalytics(ctx context.Context, workspaceID, campai
 
 func (h *Handler) ExecuteCampaignFunnel(ctx context.Context, q CampaignFunnelQuery) (*domain.CampaignFunnel, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -179,7 +180,7 @@ func (h *Handler) ExecuteCampaignFunnel(ctx context.Context, q CampaignFunnelQue
 
 func (h *Handler) ExecuteCampaignTimeSeries(ctx context.Context, q CampaignTimeSeriesQuery) (*domain.CampaignTimeSeriesResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -214,7 +215,7 @@ func (h *Handler) ExecuteCampaignTimeSeries(ctx context.Context, q CampaignTimeS
 
 func (h *Handler) ExecuteCampaignBreakdown(ctx context.Context, q CampaignBreakdownQuery) (*domain.CampaignBreakdownResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -246,7 +247,7 @@ func (h *Handler) ExecuteCampaignBreakdown(ctx context.Context, q CampaignBreakd
 
 func (h *Handler) ExecuteCampaignEvents(ctx context.Context, q CampaignEventsQuery) (*domain.CampaignEventsResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}

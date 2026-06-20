@@ -25,7 +25,7 @@ func newDueNotificationProcessor(name string, svc *notificationapp.Service, log 
 	return &DueNotificationProcessor{
 		name:         name,
 		svc:          svc,
-		log:          log.With("worker", name),
+		log:          log.With(logFieldWorker, name),
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
 		guard:        NewPollingGuard(name, pollInterval, 0, pollInterval, log),

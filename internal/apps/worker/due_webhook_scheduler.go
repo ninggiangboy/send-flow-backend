@@ -37,7 +37,7 @@ func NewDueWebhookScheduler(
 	return &DueWebhookScheduler{
 		name:      name,
 		producer:  producer,
-		log:       log.With("worker", name),
+		log:       log.With(logFieldWorker, name),
 		batchSize: batchSize,
 		idGen:     id.NewUUIDGenerator().New,
 		guard:     NewPollingGuard(name, defaultDueWebhookSchedulerInterval, defaultDueWebhookSchedulerMaxEmpty, defaultDueWebhookSchedulerMaxWait, log),

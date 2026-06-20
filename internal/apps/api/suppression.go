@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/ports"
@@ -22,7 +21,7 @@ func newSuppressionHTTP(svc *app.Service) *suppressionHTTP {
 }
 
 func (h *suppressionHTTP) listSuppressionEntries(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	q := r.URL.Query()
@@ -74,7 +73,7 @@ func (h *suppressionHTTP) listSuppressionEntries(w http.ResponseWriter, r *http.
 }
 
 func (h *suppressionHTTP) createSuppressionEntry(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	var req struct {
@@ -105,8 +104,8 @@ func (h *suppressionHTTP) createSuppressionEntry(w http.ResponseWriter, r *http.
 }
 
 func (h *suppressionHTTP) deleteSuppressionEntry(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	entryID := chi.URLParam(r, "suppression_id")
+	workspaceID := workspaceIDParam(r)
+	entryID := pathParam(r, "suppression_id")
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	if err := h.svc.RemoveEntry(r.Context(), workspaceID, entryID, userID, time.Now().UTC()); err != nil {
@@ -122,21 +121,21 @@ func (h *suppressionHTTP) deleteSuppressionEntry(w http.ResponseWriter, r *http.
 func writeSuppressionErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrReadDenied):
-		writeError(w, r, http.StatusForbidden, "suppression.read_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeSuppressionReadDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrManageDenied):
-		writeError(w, r, http.StatusForbidden, "suppression.manage_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeSuppressionManageDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrEntryNotFound):
-		writeError(w, r, http.StatusNotFound, "suppression.entry_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeSuppressionEntryNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrUnsuppressConflict):
-		writeError(w, r, http.StatusConflict, "suppression.unsuppress_conflict", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeSuppressionUnsuppressConflict, err.Error(), nil)
 	case errors.Is(err, domain.ErrScopeInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "suppression.scope_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeSuppressionScopeInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrReasonInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "suppression.reason_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeSuppressionReasonInvalid, err.Error(), nil)
 	case errors.Is(err, auth.ErrPermissionDenied):
-		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeAuthPermissionDenied, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }
 

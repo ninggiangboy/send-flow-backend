@@ -7,6 +7,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type Options struct {
@@ -50,7 +51,7 @@ func New(opts Options) *Handler {
 
 func (h *Handler) ExecuteGetAnomalies(ctx context.Context, q AnomaliesQuery) (*domain.AnomaliesResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}

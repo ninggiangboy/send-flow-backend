@@ -344,8 +344,8 @@ func writeCampaignErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, domain.ErrInvalidStateTransition):
 		writeError(w, r, http.StatusConflict, "campaign.invalid_state_transition", err.Error(), nil)
 	case errors.Is(err, auth.ErrPermissionDenied):
-		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeAuthPermissionDenied, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }

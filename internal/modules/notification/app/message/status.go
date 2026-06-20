@@ -7,6 +7,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/ports"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type StatusOptions struct {
@@ -45,7 +46,7 @@ func NewStatus(opts StatusOptions) *StatusHandler {
 
 func (h *StatusHandler) Execute(ctx context.Context, q StatusQuery) (*StatusResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "notification.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionNotificationRead); err != nil {
 			if errors.Is(err, domain.ErrNotificationReadDenied) {
 				return nil, domain.ErrNotificationReadDenied
 			}

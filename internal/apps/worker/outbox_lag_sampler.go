@@ -24,7 +24,7 @@ func NewOutboxLagSampler(svc *analyticsapp.Service, pgPool *pgxpool.Pool, log *s
 		name:   name,
 		svc:    svc,
 		pgPool: pgPool,
-		log:    log.With("worker", name),
+		log:    log.With(logFieldWorker, name),
 		guard:  NewPollingGuard(name, pollInterval, 3, 0, log),
 	}
 }

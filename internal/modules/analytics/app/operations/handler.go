@@ -7,6 +7,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type Options struct {
@@ -72,7 +73,7 @@ func New(opts Options) *Handler {
 
 func (h *Handler) ExecuteGetOutboxLag(ctx context.Context, q OutboxLagQuery) (*domain.OutboxLagResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -97,7 +98,7 @@ func (h *Handler) ExecuteGetOutboxLag(ctx context.Context, q OutboxLagQuery) (*d
 
 func (h *Handler) ExecuteGetConsumerFailures(ctx context.Context, q ConsumerFailuresQuery) (*domain.ConsumerFailureResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -122,7 +123,7 @@ func (h *Handler) ExecuteGetConsumerFailures(ctx context.Context, q ConsumerFail
 
 func (h *Handler) ExecuteGetDLQVolume(ctx context.Context, q DLQVolumeQuery) (*domain.DLQResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -147,7 +148,7 @@ func (h *Handler) ExecuteGetDLQVolume(ctx context.Context, q DLQVolumeQuery) (*d
 
 func (h *Handler) ExecuteGetWebhookDeliveryTimeSeries(ctx context.Context, q WebhookDeliveryTimeSeriesQuery) (*domain.WebhookDeliveryTimeSeriesResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -180,7 +181,7 @@ func (h *Handler) ExecuteGetWebhookDeliveryTimeSeries(ctx context.Context, q Web
 
 func (h *Handler) ExecuteGetWebhookReliability(ctx context.Context, q WebhookReliabilityQuery) (*domain.WebhookReliabilityResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}

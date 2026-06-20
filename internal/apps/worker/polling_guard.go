@@ -49,7 +49,7 @@ func NewPollingGuard(name string, base time.Duration, maxEmpty int, maxInterval 
 		base:        base,
 		maxInterval: maxInterval,
 		maxEmpty:    maxEmpty,
-		log:         log.With("polling_guard", name),
+		log:         log.With(logFieldPollingGuard, name),
 	}
 }
 

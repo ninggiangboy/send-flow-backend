@@ -38,7 +38,7 @@ func NewWebhookEventConsumer(svc *webhooksapp.Service, log *slog.Logger, brokers
 	c := &WebhookEventConsumer{
 		name:    "webhooks.deliver_events",
 		svc:     svc,
-		log:     log.With("consumer", "webhooks.deliver_events"),
+		log:     log.With(logFieldConsumer, consumerWebhooksDeliver),
 		brokers: brokers,
 		groupID: groupID,
 		idGen:   id.NewUUIDGenerator().New,

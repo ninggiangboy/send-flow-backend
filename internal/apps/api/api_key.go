@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	accessapp "github.com/ninggiangboy/send-flow/backend/internal/modules/access/app"
 	accessdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
@@ -30,7 +29,7 @@ func newAPIKeyHTTP(svc *accessapp.Service, auditRecorder identityapp.AuditRecord
 }
 
 func (h *apiKeyHTTP) listAPIKeys(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	limit := 50
@@ -57,7 +56,7 @@ func (h *apiKeyHTTP) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *apiKeyHTTP) createAPIKey(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	var req struct {
@@ -86,7 +85,7 @@ func (h *apiKeyHTTP) createAPIKey(w http.ResponseWriter, r *http.Request) {
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID: workspaceID,
 		ActorUserID: userID,
-		ActionType:  "api_key.created",
+		ActionType:  auditActionAPIKeyCreated,
 		TargetType:  "api_key",
 		TargetID:    result.ID,
 		PayloadSummary: map[string]any{
@@ -111,8 +110,8 @@ func (h *apiKeyHTTP) createAPIKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *apiKeyHTTP) updateAPIKey(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	apiKeyID := chi.URLParam(r, "api_key_id")
+	workspaceID := workspaceIDParam(r)
+	apiKeyID := pathParam(r, "api_key_id")
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	var req struct {
@@ -165,9 +164,9 @@ func (h *apiKeyHTTP) updateAPIKey(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	actionType := "api_key.updated"
+	actionType := auditActionAPIKeyUpdated
 	if req.Rotate {
-		actionType = "api_key.rotated"
+		actionType = auditActionAPIKeyRotated
 	}
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID: workspaceID,
@@ -198,8 +197,8 @@ func (h *apiKeyHTTP) updateAPIKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *apiKeyHTTP) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	apiKeyID := chi.URLParam(r, "api_key_id")
+	workspaceID := workspaceIDParam(r)
+	apiKeyID := pathParam(r, "api_key_id")
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	_, err := h.svc.RevokeAPIKey(r.Context(), accessapp.RevokeAPIKeyInput{
@@ -215,7 +214,7 @@ func (h *apiKeyHTTP) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID:    workspaceID,
 		ActorUserID:    userID,
-		ActionType:     "api_key.revoked",
+		ActionType:     auditActionAPIKeyRevoked,
 		TargetType:     "api_key",
 		TargetID:       apiKeyID,
 		PayloadSummary: map[string]any{},
@@ -239,22 +238,22 @@ func (h *apiKeyHTTP) recordAudit(r *http.Request, input identityapp.RecordAuditI
 func writeAPIKeyErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, accessdomain.ErrAPIKeyManageDenied):
-		writeError(w, r, http.StatusForbidden, "api_key.manage_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeAPIKeyManageDenied, err.Error(), nil)
 	case errors.Is(err, accessdomain.ErrAPIKeyNotFound):
-		writeError(w, r, http.StatusNotFound, "api_key.not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeAPIKeyNotFound, err.Error(), nil)
 	case errors.Is(err, accessdomain.ErrAPIKeyRotateConflict):
-		writeError(w, r, http.StatusConflict, "api_key.rotate_conflict", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeAPIKeyRotateConflict, err.Error(), nil)
 	case errors.Is(err, accessdomain.ErrAPIKeyScopeInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "api_key.scope_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeAPIKeyScopeInvalid, err.Error(), nil)
 	case errors.Is(err, accessdomain.ErrAPIKeyConfigInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "api_key.config_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeAPIKeyConfigInvalid, err.Error(), nil)
 	case errors.Is(err, accessdomain.ErrEmailQuotaInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "api_key.config_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeAPIKeyConfigInvalid, err.Error(), nil)
 	case errors.Is(err, accessdomain.ErrPayloadInvalid):
-		writeError(w, r, http.StatusBadRequest, "auth.invalid_request_body", err.Error(), nil)
+		writeError(w, r, http.StatusBadRequest, errCodeAuthInvalidRequestBody, err.Error(), nil)
 	case errors.Is(err, auth.ErrPermissionDenied):
-		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeAuthPermissionDenied, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }

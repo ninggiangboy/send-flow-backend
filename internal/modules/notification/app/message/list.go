@@ -6,6 +6,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/ports"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type ListOptions struct {
@@ -41,7 +42,7 @@ func NewList(opts ListOptions) *ListHandler {
 func (h *ListHandler) Execute(ctx context.Context, q ListQuery) (*ListResult, error) {
 	if q.Filter.WorkspaceID != nil {
 		if h.accessChecker != nil {
-			if err := h.accessChecker.RequirePermission(ctx, *q.Filter.WorkspaceID, q.UserID, "notification.read"); err != nil {
+			if err := h.accessChecker.RequirePermission(ctx, *q.Filter.WorkspaceID, q.UserID, platformconstants.PermissionNotificationRead); err != nil {
 				return nil, err
 			}
 		}

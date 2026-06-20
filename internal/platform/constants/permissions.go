@@ -1,0 +1,27 @@
+package constants
+
+const (
+	PermissionAPIKeyManage           = "api_key.manage"
+	PermissionAnalyticsRead          = "analytics.read"
+	PermissionAudienceRead           = "audience.read"
+	PermissionAudienceWrite          = "audience.write"
+	PermissionAudienceImport         = "audience.import"
+	PermissionAudienceExport         = "audience.export"
+	PermissionCampaignRead           = "campaign.read"
+	PermissionCampaignWrite          = "campaign.write"
+	PermissionCampaignSend           = "campaign.send"
+	PermissionDeliveryRead           = "delivery.read"
+	PermissionNotificationRead       = "notification.read"
+	PermissionOperationsDLQRead      = "operations.dlq.read"
+	PermissionOperationsQueueRead    = "operations.queue.read"
+	PermissionOperationsReplayManage = "operations.replay.manage"
+	PermissionSenderManage           = "sender.manage"
+	PermissionSuppressionManage      = "suppression.manage"
+	PermissionSuppressionRead        = "suppression.read"
+	PermissionTemplateRead           = "template.read"
+	PermissionTemplateWrite          = "template.write"
+	PermissionTemplateRender         = "template.render"
+	PermissionWebhookManage          = "webhook.manage"
+	PermissionWebhookDeliveryRead    = "webhook.delivery.read"
+	PermissionWebhookDeliveryRetry   = "webhook.delivery.retry"
+)

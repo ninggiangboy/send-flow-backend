@@ -55,7 +55,7 @@ func NewAudienceExportProcessor(
 		txManager:       txManager,
 		objStorage:      objStorage,
 		idGen:           id.NewUUIDGenerator().New,
-		log:             log.With("worker", name),
+		log:             log.With(logFieldWorker, name),
 		batchSize:       batchSize,
 		guard:           NewPollingGuard(name, pollInterval, 3, 0, log),
 	}

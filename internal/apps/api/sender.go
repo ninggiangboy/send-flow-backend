@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	senderapp "github.com/ninggiangboy/send-flow/backend/internal/modules/sender/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/sender/domain"
@@ -23,7 +22,7 @@ func newSenderHTTP(svc *senderapp.Service, auditRecorder identityapp.AuditRecord
 }
 
 func (h *senderHTTP) listSenderDomains(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	results, err := h.svc.ListSenderDomains(r.Context(), workspaceID, userID)
@@ -40,7 +39,7 @@ func (h *senderHTTP) listSenderDomains(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *senderHTTP) createSenderDomain(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	var req struct {
@@ -60,7 +59,7 @@ func (h *senderHTTP) createSenderDomain(w http.ResponseWriter, r *http.Request) 
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID: workspaceID,
 		ActorUserID: userID,
-		ActionType:  "sender_domain.created",
+		ActionType:  auditActionSenderDomainCreated,
 		TargetType:  "sender_domain",
 		TargetID:    result.Domain.ID,
 		PayloadSummary: map[string]any{
@@ -73,8 +72,8 @@ func (h *senderHTTP) createSenderDomain(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *senderHTTP) getSenderDomain(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	domainID := chi.URLParam(r, "domain_id")
+	workspaceID := workspaceIDParam(r)
+	domainID := pathParam(r, "domain_id")
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	result, err := h.svc.GetSenderDomain(r.Context(), workspaceID, domainID, userID)
@@ -86,8 +85,8 @@ func (h *senderHTTP) getSenderDomain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *senderHTTP) verifySenderDomain(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	domainID := chi.URLParam(r, "domain_id")
+	workspaceID := workspaceIDParam(r)
+	domainID := pathParam(r, "domain_id")
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	result, err := h.svc.RefreshSenderDomainDNSStatus(r.Context(), workspaceID, domainID, userID, time.Now().UTC())
@@ -99,7 +98,7 @@ func (h *senderHTTP) verifySenderDomain(w http.ResponseWriter, r *http.Request) 
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID:    workspaceID,
 		ActorUserID:    userID,
-		ActionType:     "sender_domain.verification_refreshed",
+		ActionType:     auditActionSenderDomainVerificationRefreshed,
 		TargetType:     "sender_domain",
 		TargetID:       domainID,
 		PayloadSummary: map[string]any{},
@@ -109,8 +108,8 @@ func (h *senderHTTP) verifySenderDomain(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *senderHTTP) disableSenderDomain(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	domainID := chi.URLParam(r, "domain_id")
+	workspaceID := workspaceIDParam(r)
+	domainID := pathParam(r, "domain_id")
 	userID, _ := r.Context().Value(ctxUserID).(string)
 
 	result, err := h.svc.DisableSenderDomain(r.Context(), workspaceID, domainID, userID, time.Now().UTC())
@@ -122,7 +121,7 @@ func (h *senderHTTP) disableSenderDomain(w http.ResponseWriter, r *http.Request)
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID:    workspaceID,
 		ActorUserID:    userID,
-		ActionType:     "sender_domain.disabled",
+		ActionType:     auditActionSenderDomainDisabled,
 		TargetType:     "sender_domain",
 		TargetID:       domainID,
 		PayloadSummary: map[string]any{},
@@ -146,21 +145,21 @@ func (h *senderHTTP) recordAudit(r *http.Request, input identityapp.RecordAuditI
 func writeSenderErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrManageDenied):
-		writeError(w, r, http.StatusForbidden, "sender.manage_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeSenderManageDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrDomainNotFound):
-		writeError(w, r, http.StatusNotFound, "sender.domain_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeSenderDomainNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrDomainConflict):
-		writeError(w, r, http.StatusConflict, "sender.domain_conflict", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeSenderDomainConflict, err.Error(), nil)
 	case errors.Is(err, domain.ErrInvalidStateTransition):
-		writeError(w, r, http.StatusConflict, "sender.invalid_state_transition", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeSenderInvalidStateTransition, err.Error(), nil)
 	case errors.Is(err, domain.ErrDomainInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "sender.domain_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeSenderDomainInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrProviderConfigInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "sender.provider_config_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeSenderProviderConfigInvalid, err.Error(), nil)
 	case errors.Is(err, auth.ErrPermissionDenied):
-		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeAuthPermissionDenied, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }
 

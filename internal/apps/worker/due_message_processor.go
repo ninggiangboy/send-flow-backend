@@ -27,7 +27,7 @@ func newDueMessageProcessor(name string, svc *deliveryapp.Service, log *slog.Log
 	return &DueMessageProcessor{
 		name:         name,
 		svc:          svc,
-		log:          log.With("worker", name),
+		log:          log.With(logFieldWorker, name),
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
 		messageType:  messageType,

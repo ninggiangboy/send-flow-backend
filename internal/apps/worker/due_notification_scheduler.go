@@ -37,7 +37,7 @@ func NewDueNotificationScheduler(
 	return &DueNotificationScheduler{
 		name:      name,
 		producer:  producer,
-		log:       log.With("worker", name),
+		log:       log.With(logFieldWorker, name),
 		batchSize: batchSize,
 		idGen:     id.NewUUIDGenerator().New,
 		guard:     NewPollingGuard(name, defaultDueNotifSchedulerInterval, defaultDueNotifSchedulerMaxEmpty, defaultDueNotifSchedulerMaxWait, log),

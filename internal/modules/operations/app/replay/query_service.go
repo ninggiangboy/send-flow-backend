@@ -7,6 +7,7 @@ import (
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/ports"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type QueryOptions struct {
@@ -43,7 +44,7 @@ func NewQueryService(opts QueryOptions) *QueryService {
 
 func (s *QueryService) GetJob(ctx context.Context, input GetInput) (*domain.ReplayJob, error) {
 	log := s.log.With("workspace_id", input.WorkspaceID, "replay_job_id", input.JobID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.replay.manage"); err != nil {
+	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, platformconstants.PermissionOperationsReplayManage); err != nil {
 		return nil, err
 	}
 	if input.WorkspaceID == "" {
@@ -63,7 +64,7 @@ func (s *QueryService) GetJob(ctx context.Context, input GetInput) (*domain.Repl
 
 func (s *QueryService) ListJobs(ctx context.Context, input ListInput) ([]domain.ReplayJob, string, error) {
 	log := s.log.With("workspace_id", input.WorkspaceID)
-	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.replay.manage"); err != nil {
+	if err := s.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, platformconstants.PermissionOperationsReplayManage); err != nil {
 		return nil, "", err
 	}
 	if input.WorkspaceID == "" {

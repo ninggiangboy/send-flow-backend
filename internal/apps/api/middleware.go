@@ -7,6 +7,7 @@ import (
 	"time"
 
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 func userIDFromContext(ctx context.Context) (string, bool) {
@@ -17,15 +18,15 @@ func userIDFromContext(ctx context.Context) (string, bool) {
 func authzMiddleware(svc *identityapp.Service) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			h := strings.TrimSpace(r.Header.Get("Authorization"))
-			if !strings.HasPrefix(strings.ToLower(h), "bearer ") {
-				writeError(w, r, http.StatusUnauthorized, "auth.invalid_token", "missing bearer token", nil)
+			h := strings.TrimSpace(headerAuthorization(r))
+			if !strings.HasPrefix(strings.ToLower(h), strings.ToLower(platformconstants.BearerPrefix)) {
+				writeError(w, r, http.StatusUnauthorized, errCodeAuthInvalidToken, "missing bearer token", nil)
 				return
 			}
-			token := strings.TrimSpace(h[len("Bearer "):])
+			token := strings.TrimSpace(h[len(platformconstants.BearerPrefix):])
 			sess, user, err := svc.AuthenticateAccessToken(r.Context(), token, time.Now().UTC())
 			if err != nil {
-				writeError(w, r, http.StatusUnauthorized, "auth.invalid_token", "invalid token", nil)
+				writeError(w, r, http.StatusUnauthorized, errCodeAuthInvalidToken, "invalid token", nil)
 				return
 			}
 			if reqCtx, ok := r.Context().Value(ctxRequestContext).(*requestLogContext); ok {

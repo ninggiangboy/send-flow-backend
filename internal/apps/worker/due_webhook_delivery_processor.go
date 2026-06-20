@@ -33,7 +33,7 @@ func newDueWebhookDeliveryProcessor(name string, svc *webhooksapp.Service, log *
 	return &DueWebhookDeliveryProcessor{
 		name:         name,
 		svc:          svc,
-		log:          log.With("worker", name),
+		log:          log.With(logFieldWorker, name),
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
 		guard:        NewPollingGuard(name, pollInterval, 0, pollInterval, log),

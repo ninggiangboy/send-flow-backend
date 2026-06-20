@@ -10,6 +10,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/contracts"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/ports"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type RunOptions struct {
@@ -55,7 +56,7 @@ func NewRunHandler(opts RunOptions) *RunHandler {
 
 func (h *RunHandler) Execute(ctx context.Context, input RunInput) (*domain.ReplayJob, error) {
 	log := h.log.With("workspace_id", input.WorkspaceID, "replay_job_id", input.JobID)
-	if err := h.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, "operations.replay.manage"); err != nil {
+	if err := h.accessChecker.RequirePermission(ctx, input.WorkspaceID, input.UserID, platformconstants.PermissionOperationsReplayManage); err != nil {
 		return nil, err
 	}
 	if input.WorkspaceID == "" {

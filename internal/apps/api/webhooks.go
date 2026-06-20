@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	webhooksapp "github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
@@ -67,7 +66,7 @@ type updateWebhookConfigRequest struct {
 }
 
 func (h *webhookConfigHTTP) listWebhookConfigs(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := userIDFromContext(r.Context())
 
 	configs, err := h.svc.ListWebhookConfigs(r.Context(), webhooksapp.ListConfigsInput{
@@ -101,12 +100,12 @@ func (h *webhookConfigHTTP) listWebhookConfigs(w http.ResponseWriter, r *http.Re
 }
 
 func (h *webhookConfigHTTP) createWebhookConfig(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := userIDFromContext(r.Context())
 
 	var req createWebhookConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, r, http.StatusBadRequest, "auth.invalid_request_body", "invalid request body", nil)
+		writeError(w, r, http.StatusBadRequest, errCodeAuthInvalidRequestBody, "invalid request body", nil)
 		return
 	}
 
@@ -126,7 +125,7 @@ func (h *webhookConfigHTTP) createWebhookConfig(w http.ResponseWriter, r *http.R
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID: workspaceID,
 		ActorUserID: userID,
-		ActionType:  "webhook.created",
+		ActionType:  auditActionWebhookCreated,
 		TargetType:  "webhook",
 		TargetID:    result.ID,
 		PayloadSummary: map[string]any{
@@ -149,13 +148,13 @@ func (h *webhookConfigHTTP) createWebhookConfig(w http.ResponseWriter, r *http.R
 }
 
 func (h *webhookConfigHTTP) updateWebhookConfig(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	webhookID := chi.URLParam(r, "webhook_id")
+	workspaceID := workspaceIDParam(r)
+	webhookID := pathParam(r, "webhook_id")
 	userID, _ := userIDFromContext(r.Context())
 
 	var req updateWebhookConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, r, http.StatusBadRequest, "auth.invalid_request_body", "invalid request body", nil)
+		writeError(w, r, http.StatusBadRequest, errCodeAuthInvalidRequestBody, "invalid request body", nil)
 		return
 	}
 
@@ -177,7 +176,7 @@ func (h *webhookConfigHTTP) updateWebhookConfig(w http.ResponseWriter, r *http.R
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID:    workspaceID,
 		ActorUserID:    userID,
-		ActionType:     "webhook.updated",
+		ActionType:     auditActionWebhookUpdated,
 		TargetType:     "webhook",
 		TargetID:       webhookID,
 		PayloadSummary: map[string]any{},
@@ -196,8 +195,8 @@ func (h *webhookConfigHTTP) updateWebhookConfig(w http.ResponseWriter, r *http.R
 }
 
 func (h *webhookConfigHTTP) disableWebhookConfig(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	webhookID := chi.URLParam(r, "webhook_id")
+	workspaceID := workspaceIDParam(r)
+	webhookID := pathParam(r, "webhook_id")
 	userID, _ := userIDFromContext(r.Context())
 
 	if err := h.svc.DisableWebhookConfig(r.Context(), webhooksapp.DisableConfigInput{
@@ -212,7 +211,7 @@ func (h *webhookConfigHTTP) disableWebhookConfig(w http.ResponseWriter, r *http.
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID:    workspaceID,
 		ActorUserID:    userID,
-		ActionType:     "webhook.disabled",
+		ActionType:     auditActionWebhookDisabled,
 		TargetType:     "webhook",
 		TargetID:       webhookID,
 		PayloadSummary: map[string]any{},
@@ -222,8 +221,8 @@ func (h *webhookConfigHTTP) disableWebhookConfig(w http.ResponseWriter, r *http.
 }
 
 func (h *webhookConfigHTTP) rotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	webhookID := chi.URLParam(r, "webhook_id")
+	workspaceID := workspaceIDParam(r)
+	webhookID := pathParam(r, "webhook_id")
 	userID, _ := userIDFromContext(r.Context())
 
 	result, err := h.svc.RotateWebhookSecret(r.Context(), webhooksapp.RotateSecretInput{
@@ -239,7 +238,7 @@ func (h *webhookConfigHTTP) rotateWebhookSecret(w http.ResponseWriter, r *http.R
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID:    workspaceID,
 		ActorUserID:    userID,
-		ActionType:     "webhook.secret_rotated",
+		ActionType:     auditActionWebhookSecretRotated,
 		TargetType:     "webhook",
 		TargetID:       webhookID,
 		PayloadSummary: map[string]any{},
@@ -324,7 +323,7 @@ type deliveryAttemptDoc struct {
 }
 
 func (h *webhookDeliveryHTTP) listWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := userIDFromContext(r.Context())
 
 	q := r.URL.Query()
@@ -385,8 +384,8 @@ func (h *webhookDeliveryHTTP) listWebhookDeliveries(w http.ResponseWriter, r *ht
 }
 
 func (h *webhookDeliveryHTTP) getWebhookDelivery(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	deliveryID := chi.URLParam(r, "delivery_id")
+	workspaceID := workspaceIDParam(r)
+	deliveryID := pathParam(r, "delivery_id")
 	userID, _ := userIDFromContext(r.Context())
 
 	delivery, err := h.svc.GetWebhookDelivery(r.Context(), webhooksapp.GetDeliveryInput{
@@ -433,8 +432,8 @@ func (h *webhookDeliveryHTTP) getWebhookDelivery(w http.ResponseWriter, r *http.
 }
 
 func (h *webhookDeliveryHTTP) retryWebhookDelivery(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	deliveryID := chi.URLParam(r, "delivery_id")
+	workspaceID := workspaceIDParam(r)
+	deliveryID := pathParam(r, "delivery_id")
 	userID, _ := userIDFromContext(r.Context())
 
 	if err := h.svc.RetryWebhookDelivery(r.Context(), webhooksapp.RetryDeliveryInput{
@@ -452,43 +451,43 @@ func (h *webhookDeliveryHTTP) retryWebhookDelivery(w http.ResponseWriter, r *htt
 func mapWebhookConfigErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrManageDenied):
-		writeError(w, r, http.StatusForbidden, "webhook.manage_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeWebhookManageDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrConfigNotFound):
-		writeError(w, r, http.StatusNotFound, "webhook.config_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeWebhookConfigNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrTargetURLInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "webhook.target_url_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeWebhookTargetURLInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrSubscriptionInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "webhook.subscription_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeWebhookSubscriptionInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrConfigInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "webhook.config_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeWebhookConfigInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrConfigNameConflict):
-		writeError(w, r, http.StatusConflict, "webhook.config_name_conflict", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeWebhookConfigNameConflict, err.Error(), nil)
 	case errors.Is(err, domain.ErrRotateConflict):
-		writeError(w, r, http.StatusConflict, "webhook.rotate_conflict", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeWebhookRotateConflict, err.Error(), nil)
 	case errors.Is(err, auth.ErrPermissionDenied):
-		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeAuthPermissionDenied, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }
 
 func mapWebhookDeliveryErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrDeliveryReadDenied):
-		writeError(w, r, http.StatusForbidden, "webhook.delivery_read_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeWebhookDeliveryReadDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrDeliveryRetryDenied):
-		writeError(w, r, http.StatusForbidden, "webhook.delivery_retry_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeWebhookDeliveryRetryDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrDeliveryNotFound):
-		writeError(w, r, http.StatusNotFound, "webhook.delivery_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeWebhookDeliveryNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrRetryConflict):
-		writeError(w, r, http.StatusConflict, "webhook.delivery_retry_conflict", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeWebhookDeliveryRetryConflict, err.Error(), nil)
 	case errors.Is(err, domain.ErrConfigNotFound):
-		writeError(w, r, http.StatusNotFound, "webhook.config_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeWebhookConfigNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrConfigDisabled):
-		writeError(w, r, http.StatusConflict, "webhook.config_disabled", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeWebhookConfigDisabled, err.Error(), nil)
 	case errors.Is(err, auth.ErrPermissionDenied):
-		writeError(w, r, http.StatusForbidden, "auth.permission_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeAuthPermissionDenied, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }

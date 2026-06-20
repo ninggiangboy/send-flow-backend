@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
@@ -51,7 +50,7 @@ func (h *workspaceHTTP) listWorkspaces(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *workspaceHTTP) getWorkspace(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	ws, err := h.svc.GetWorkspace(r.Context(), workspaceID, userID)
 	if err != nil {
@@ -62,7 +61,7 @@ func (h *workspaceHTTP) getWorkspace(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *workspaceHTTP) getWorkspaceAccess(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	membership, err := h.svc.GetWorkspaceAccess(r.Context(), workspaceID, userID)
 	if err != nil {
@@ -80,7 +79,7 @@ func (h *workspaceHTTP) getWorkspaceAccess(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *workspaceHTTP) listWorkspaceMembers(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	members, err := h.svc.ListWorkspaceMembers(r.Context(), workspaceID, userID)
 	if err != nil {
@@ -95,7 +94,7 @@ func (h *workspaceHTTP) listWorkspaceMembers(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *workspaceHTTP) listWorkspaceInvitations(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	invitations, err := h.svc.ListWorkspaceInvitations(r.Context(), workspaceID, userID)
 	if err != nil {
@@ -110,7 +109,7 @@ func (h *workspaceHTTP) listWorkspaceInvitations(w http.ResponseWriter, r *http.
 }
 
 func (h *workspaceHTTP) inviteWorkspaceMember(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	var req struct {
 		Email   string   `json:"email"`
 		RoleIDs []string `json:"role_ids"`
@@ -131,7 +130,7 @@ func (h *workspaceHTTP) inviteWorkspaceMember(w http.ResponseWriter, r *http.Req
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID: workspaceID,
 		ActorUserID: userID,
-		ActionType:  "workspace.invitation_created",
+		ActionType:  auditActionWorkspaceInvitationCreated,
 		TargetType:  "invitation",
 		TargetID:    invID,
 		PayloadSummary: map[string]any{
@@ -147,7 +146,7 @@ func (h *workspaceHTTP) inviteWorkspaceMember(w http.ResponseWriter, r *http.Req
 }
 
 func (h *workspaceHTTP) acceptWorkspaceInvitation(w http.ResponseWriter, r *http.Request) {
-	token := chi.URLParam(r, "token")
+	token := tokenParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	membership, err := h.svc.AcceptWorkspaceInvitation(r.Context(), token, userID, time.Now().UTC())
 	if err != nil {
@@ -157,7 +156,7 @@ func (h *workspaceHTTP) acceptWorkspaceInvitation(w http.ResponseWriter, r *http
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID: membership.WorkspaceID,
 		ActorUserID: userID,
-		ActionType:  "workspace.invitation_accepted",
+		ActionType:  auditActionWorkspaceInvitationAccepted,
 		TargetType:  "membership",
 		TargetID:    membership.ID,
 	})
@@ -165,8 +164,8 @@ func (h *workspaceHTTP) acceptWorkspaceInvitation(w http.ResponseWriter, r *http
 }
 
 func (h *workspaceHTTP) removeWorkspaceMember(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	membershipID := chi.URLParam(r, "membership_id")
+	workspaceID := workspaceIDParam(r)
+	membershipID := pathParam(r, "membership_id")
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	if err := h.svc.RemoveWorkspaceMember(r.Context(), workspaceID, membershipID, userID, time.Now().UTC()); err != nil {
 		writeWorkspaceErr(w, r, err)
@@ -175,7 +174,7 @@ func (h *workspaceHTTP) removeWorkspaceMember(w http.ResponseWriter, r *http.Req
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID:    workspaceID,
 		ActorUserID:    userID,
-		ActionType:     "workspace.member_removed",
+		ActionType:     auditActionWorkspaceMemberRemoved,
 		TargetType:     "membership",
 		TargetID:       membershipID,
 		PayloadSummary: map[string]any{},
@@ -184,8 +183,8 @@ func (h *workspaceHTTP) removeWorkspaceMember(w http.ResponseWriter, r *http.Req
 }
 
 func (h *workspaceHTTP) updateWorkspaceMemberRole(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	membershipID := chi.URLParam(r, "membership_id")
+	workspaceID := workspaceIDParam(r)
+	membershipID := pathParam(r, "membership_id")
 	var req struct {
 		RoleIDs []string `json:"role_ids"`
 	}
@@ -200,7 +199,7 @@ func (h *workspaceHTTP) updateWorkspaceMemberRole(w http.ResponseWriter, r *http
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID: workspaceID,
 		ActorUserID: userID,
-		ActionType:  "workspace.member_role_updated",
+		ActionType:  auditActionWorkspaceMemberRoleUpdated,
 		TargetType:  "membership",
 		TargetID:    membershipID,
 		PayloadSummary: map[string]any{
@@ -211,8 +210,8 @@ func (h *workspaceHTTP) updateWorkspaceMemberRole(w http.ResponseWriter, r *http
 }
 
 func (h *workspaceHTTP) assignWorkspaceMemberRoles(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	membershipID := chi.URLParam(r, "membership_id")
+	workspaceID := workspaceIDParam(r)
+	membershipID := pathParam(r, "membership_id")
 	var req struct {
 		RoleIDs []string `json:"role_ids"`
 	}
@@ -228,7 +227,7 @@ func (h *workspaceHTTP) assignWorkspaceMemberRoles(w http.ResponseWriter, r *htt
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID: workspaceID,
 		ActorUserID: userID,
-		ActionType:  "workspace.member_roles_assigned",
+		ActionType:  auditActionWorkspaceMemberRolesAssigned,
 		TargetType:  "membership",
 		TargetID:    membershipID,
 		PayloadSummary: map[string]any{
@@ -239,7 +238,7 @@ func (h *workspaceHTTP) assignWorkspaceMemberRoles(w http.ResponseWriter, r *htt
 }
 
 func (h *workspaceHTTP) listWorkspaceRoles(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	roles, err := h.svc.ListWorkspaceRoles(r.Context(), workspaceID, userID)
 	if err != nil {
@@ -254,7 +253,7 @@ func (h *workspaceHTTP) listWorkspaceRoles(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *workspaceHTTP) createWorkspaceRole(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
+	workspaceID := workspaceIDParam(r)
 	var req struct {
 		Name            string   `json:"name"`
 		PermissionNames []string `json:"permission_names"`
@@ -272,7 +271,7 @@ func (h *workspaceHTTP) createWorkspaceRole(w http.ResponseWriter, r *http.Reque
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID: workspaceID,
 		ActorUserID: userID,
-		ActionType:  "workspace.role_created",
+		ActionType:  auditActionWorkspaceRoleCreated,
 		TargetType:  "role",
 		TargetID:    role.ID,
 		PayloadSummary: map[string]any{
@@ -284,8 +283,8 @@ func (h *workspaceHTTP) createWorkspaceRole(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *workspaceHTTP) updateWorkspaceRole(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspace_id")
-	roleID := chi.URLParam(r, "role_id")
+	workspaceID := workspaceIDParam(r)
+	roleID := pathParam(r, "role_id")
 	var req struct {
 		Name            *string  `json:"name"`
 		PermissionNames []string `json:"permission_names"`
@@ -304,7 +303,7 @@ func (h *workspaceHTTP) updateWorkspaceRole(w http.ResponseWriter, r *http.Reque
 	h.recordAudit(r, identityapp.RecordAuditInput{
 		WorkspaceID: workspaceID,
 		ActorUserID: userID,
-		ActionType:  "workspace.role_updated",
+		ActionType:  auditActionWorkspaceRoleUpdated,
 		TargetType:  "role",
 		TargetID:    roleID,
 		PayloadSummary: map[string]any{
@@ -333,45 +332,45 @@ func (h *workspaceHTTP) listPermissions(w http.ResponseWriter, r *http.Request) 
 func writeWorkspaceErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrWorkspaceNotFound):
-		writeError(w, r, http.StatusNotFound, "identity.workspace_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeIdentityWorkspaceNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrWorkspaceAccessDenied):
-		writeError(w, r, http.StatusForbidden, "identity.workspace_access_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeIdentityWorkspaceAccessDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrMembershipNotFound):
-		writeError(w, r, http.StatusNotFound, "identity.membership_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeIdentityMembershipNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrMembershipManageDenied):
-		writeError(w, r, http.StatusForbidden, "identity.membership_manage_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeIdentityMembershipManageDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrInvitationNotFound):
-		writeError(w, r, http.StatusNotFound, "identity.invitation_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeIdentityInvitationNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrInvitationExpired):
-		writeError(w, r, http.StatusGone, "identity.invitation_token_expired", err.Error(), nil)
+		writeError(w, r, http.StatusGone, errCodeIdentityInvitationTokenExpired, err.Error(), nil)
 	case errors.Is(err, domain.ErrInvitationAccepted):
-		writeError(w, r, http.StatusConflict, "identity.invitation_already_accepted", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeIdentityInvitationAlreadyAccepted, err.Error(), nil)
 	case errors.Is(err, domain.ErrLastOwnerCannotBeRemoved):
-		writeError(w, r, http.StatusConflict, "identity.last_owner_cannot_be_removed", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeIdentityLastOwnerCannotBeRemoved, err.Error(), nil)
 	case errors.Is(err, domain.ErrInvitationPayloadInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "identity.invitation_payload_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeIdentityInvitationPayloadInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrInvalidRole):
-		writeError(w, r, http.StatusUnprocessableEntity, "identity.invitation_payload_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeIdentityInvitationPayloadInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrRoleNotFound):
-		writeError(w, r, http.StatusNotFound, "identity.role_not_found", err.Error(), nil)
+		writeError(w, r, http.StatusNotFound, errCodeIdentityRoleNotFound, err.Error(), nil)
 	case errors.Is(err, domain.ErrRoleManageDenied):
-		writeError(w, r, http.StatusForbidden, "identity.role_manage_denied", err.Error(), nil)
+		writeError(w, r, http.StatusForbidden, errCodeIdentityRoleManageDenied, err.Error(), nil)
 	case errors.Is(err, domain.ErrRoleNameConflict):
-		writeError(w, r, http.StatusConflict, "identity.role_name_conflict", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeIdentityRoleNameConflict, err.Error(), nil)
 	case errors.Is(err, domain.ErrPermissionSetInvalid):
-		writeError(w, r, http.StatusUnprocessableEntity, "identity.permission_set_invalid", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeIdentityPermissionSetInvalid, err.Error(), nil)
 	case errors.Is(err, domain.ErrPermissionRegistryUnknown):
-		writeError(w, r, http.StatusUnprocessableEntity, "identity.permission_registry_unknown", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeIdentityPermissionRegistryUnknown, err.Error(), nil)
 	case errors.Is(err, domain.ErrRoleAssignmentConflict):
-		writeError(w, r, http.StatusConflict, "identity.role_assignment_conflict", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeIdentityRoleAssignmentConflict, err.Error(), nil)
 	case errors.Is(err, domain.ErrInvalidPermissionMask):
-		writeError(w, r, http.StatusUnprocessableEntity, "identity.invalid_permission_mask", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeIdentityInvalidPermissionMask, err.Error(), nil)
 	case errors.Is(err, domain.ErrInvalidWorkspaceName):
-		writeError(w, r, http.StatusUnprocessableEntity, "identity.invalid_workspace_name", err.Error(), nil)
+		writeError(w, r, http.StatusUnprocessableEntity, errCodeIdentityInvalidWorkspaceName, err.Error(), nil)
 	case errors.Is(err, domain.ErrWorkspaceNameConflict):
-		writeError(w, r, http.StatusConflict, "identity.workspace_name_conflict", err.Error(), nil)
+		writeError(w, r, http.StatusConflict, errCodeIdentityWorkspaceNameConflict, err.Error(), nil)
 	default:
-		writeError(w, r, http.StatusInternalServerError, "internal.error", "internal error", nil)
+		writeInternalError(w, r)
 	}
 }
 

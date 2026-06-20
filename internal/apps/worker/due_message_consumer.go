@@ -32,7 +32,7 @@ func NewDueMessageConsumer(svc *deliveryapp.Service, log *slog.Logger, brokers [
 	c := &DueMessageConsumer{
 		name:    "delivery.due_message_consumer",
 		svc:     svc,
-		log:     log.With("consumer", "delivery.due_message_consumer"),
+		log:     log.With(logFieldConsumer, consumerDeliveryDueMessage),
 		brokers: brokers,
 		groupID: groupID,
 		idGen:   id.NewUUIDGenerator().New,

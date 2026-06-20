@@ -2095,7 +2095,7 @@ func humaAPIKeyAuthMiddleware(deps apiKeyAuthDeps) func(huma.Context, func(huma.
 			if deps.metrics != nil {
 				deps.metrics.RecordAuthAttempt("missing_token")
 			}
-			writeError(w, req, http.StatusUnauthorized, "api_key.invalid", "missing or malformed bearer token", nil)
+			writeError(w, req, http.StatusUnauthorized, errCodeAPIKeyInvalid, "missing or malformed bearer token", nil)
 			return
 		}
 
@@ -2103,14 +2103,14 @@ func humaAPIKeyAuthMiddleware(deps apiKeyAuthDeps) func(huma.Context, func(huma.
 			rateKey := "api_key:auth:ip:" + clientIP(req)
 			allowed, err := deps.limiter.Allow(req.Context(), rateKey, 20, time.Minute)
 			if err != nil {
-				writeError(w, req, http.StatusInternalServerError, "internal.error", "internal error", nil)
+				writeInternalError(w, req)
 				return
 			}
 			if !allowed {
 				if deps.metrics != nil {
 					deps.metrics.RecordAuthAttempt("rate_limited")
 				}
-				writeError(w, req, http.StatusTooManyRequests, "api_key.rate_limited", "too many api key auth attempts", nil)
+				writeError(w, req, http.StatusTooManyRequests, errCodeAPIKeyRateLimited, "too many api key auth attempts", nil)
 				return
 			}
 		}
@@ -2123,10 +2123,10 @@ func humaAPIKeyAuthMiddleware(deps apiKeyAuthDeps) func(huma.Context, func(huma.
 				deps.metrics.RecordAuthAttempt("invalid")
 			}
 			if errors.Is(err, accessdomain.ErrAPIKeyInvalid) {
-				writeError(w, req, http.StatusUnauthorized, "api_key.invalid", "invalid, revoked, or expired api key", nil)
+				writeError(w, req, http.StatusUnauthorized, errCodeAPIKeyInvalid, "invalid, revoked, or expired api key", nil)
 				return
 			}
-			writeError(w, req, http.StatusInternalServerError, "internal.error", "internal error", nil)
+			writeInternalError(w, req)
 			return
 		}
 

@@ -43,7 +43,7 @@ func NewDueMessageScheduler(
 		name:           name,
 		listWorkspaces: listWorkspaces,
 		producer:       producer,
-		log:            log.With("worker", name),
+		log:            log.With(logFieldWorker, name),
 		messageType:    messageType,
 		batchSize:      batchSize,
 		idGen:          id.NewUUIDGenerator().New,

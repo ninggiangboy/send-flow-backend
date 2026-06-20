@@ -20,7 +20,7 @@ func NewAnalyticsAnomalyProcessor(svc *analyticsapp.Service, log *slog.Logger, p
 	return &AnalyticsAnomalyProcessor{
 		name:         name,
 		analyticsSvc: svc,
-		log:          log.With("worker", name),
+		log:          log.With(logFieldWorker, name),
 		guard:        NewPollingGuard(name, pollInterval, 3, 0, log),
 	}
 }

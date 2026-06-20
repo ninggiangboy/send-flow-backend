@@ -9,6 +9,7 @@ import (
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/domain"
 	analyticsredis "github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/analytics/ports"
+	platformconstants "github.com/ninggiangboy/send-flow/backend/internal/platform/constants"
 )
 
 type Options struct {
@@ -86,7 +87,7 @@ func New(opts Options) *Handler {
 
 func (h *Handler) ExecuteGetDeliverability(ctx context.Context, q DeliverabilityQuery) (*domain.DeliverabilityResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -159,7 +160,7 @@ func (h *Handler) loadDeliverability(ctx context.Context, workspaceID string, fi
 
 func (h *Handler) ExecuteGetDeliverabilityTimeSeries(ctx context.Context, q TimeSeriesQuery) (*domain.DeliverabilityTimeSeriesResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -195,7 +196,7 @@ func (h *Handler) ExecuteGetDeliverabilityTimeSeries(ctx context.Context, q Time
 
 func (h *Handler) ExecuteGetDeliverabilityBreakdown(ctx context.Context, q BreakdownQuery) (*domain.DeliverabilityBreakdownResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -234,7 +235,7 @@ func (h *Handler) ExecuteGetDeliverabilityBreakdown(ctx context.Context, q Break
 
 func (h *Handler) ExecuteGetDeliverabilityLatency(ctx context.Context, q LatencyQuery) (*domain.DeliverabilityLatencyResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}
@@ -263,7 +264,7 @@ func (h *Handler) ExecuteGetDeliverabilityLatency(ctx context.Context, q Latency
 
 func (h *Handler) ExecuteGetDeliverabilityIncidents(ctx context.Context, q IncidentsQuery) (*domain.DeliverabilityIncidentResult, error) {
 	if h.accessChecker != nil {
-		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, "analytics.read"); err != nil {
+		if err := h.accessChecker.RequirePermission(ctx, q.WorkspaceID, q.UserID, platformconstants.PermissionAnalyticsRead); err != nil {
 			return nil, err
 		}
 	}

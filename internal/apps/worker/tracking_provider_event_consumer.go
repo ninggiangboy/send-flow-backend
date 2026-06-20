@@ -30,7 +30,7 @@ func NewTrackingProviderEventConsumer(svc *trackingapp.Service, log *slog.Logger
 	c := &TrackingProviderEventConsumer{
 		name:    "tracking_provider_events",
 		svc:     svc,
-		log:     log.With("consumer", "tracking_provider_events"),
+		log:     log.With(logFieldConsumer, consumerTrackingProviderEvents),
 		brokers: brokers,
 		groupID: groupID,
 		idGen:   id.NewUUIDGenerator().New,

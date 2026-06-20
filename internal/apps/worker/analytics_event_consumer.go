@@ -33,7 +33,7 @@ func NewAnalyticsEventConsumer(svc *analyticsapp.Service, registry *analyticsapp
 		name:     "analytics_events",
 		svc:      svc,
 		registry: registry,
-		log:      log.With("consumer", "analytics_events"),
+		log:      log.With(logFieldConsumer, consumerAnalyticsEvents),
 		brokers:  brokers,
 		groupID:  groupID,
 		idGen:    id.NewUUIDGenerator().New,
