@@ -2,145 +2,16 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/createreplayjob"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/getdeadletterrecord"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/getoutboxrecord"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/getoutboxsummary"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/getreplayjob"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/listdeadletterrecords"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/listoutboxrecords"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/listreplayjobs"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/runreplayjob"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/deadletter"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/outbox"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/app/replay"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/operations/ports"
 )
 
-// --- Shared Result Types ---
-
-type OutboxEventResult struct {
-	ID            string          `json:"id"`
-	WorkspaceID   string          `json:"workspace_id"`
-	AggregateType string          `json:"aggregate_type"`
-	AggregateID   string          `json:"aggregate_id"`
-	EventType     string          `json:"event_type"`
-	Payload       json.RawMessage `json:"payload"`
-	Headers       json.RawMessage `json:"headers"`
-	OccurredAt    time.Time       `json:"occurred_at"`
-	CreatedAt     time.Time       `json:"created_at"`
-}
-
-type DeadLetterResult struct {
-	ID           string          `json:"id"`
-	WorkspaceID  string          `json:"workspace_id"`
-	Source       string          `json:"source"`
-	EventID      string          `json:"event_id"`
-	Payload      json.RawMessage `json:"payload"`
-	ErrorMessage string          `json:"error_message"`
-	Retryable    bool            `json:"retryable"`
-	FailedAt     time.Time       `json:"failed_at"`
-}
-
-type ReplayJobResult struct {
-	ID                string                  `json:"id"`
-	WorkspaceID       string                  `json:"workspace_id"`
-	TargetType        domain.ReplayTargetType `json:"target_type"`
-	TargetID          string                  `json:"target_id"`
-	Source            string                  `json:"source"`
-	Status            domain.ReplayJobStatus  `json:"status"`
-	RequestedByUserID string                  `json:"requested_by_user_id"`
-	Reason            string                  `json:"reason"`
-	Filter            json.RawMessage         `json:"filter"`
-	Result            json.RawMessage         `json:"result"`
-	ErrorMessage      string                  `json:"error_message"`
-	CreatedAt         time.Time               `json:"created_at"`
-	StartedAt         *time.Time              `json:"started_at"`
-	CompletedAt       *time.Time              `json:"completed_at"`
-	UpdatedAt         time.Time               `json:"updated_at"`
-}
-
-type OutboxSummaryResult struct {
-	TotalCount   int            `json:"total_count"`
-	OldestAgeSec int64          `json:"oldest_age_seconds"`
-	OldestAt     *time.Time     `json:"oldest_at,omitempty"`
-	ByEventType  map[string]int `json:"by_event_type,omitempty"`
-}
-
-// --- Exported Mappers ---
-
-func OutboxRecordToResult(r domain.OutboxRecord) OutboxEventResult {
-	return OutboxEventResult{
-		ID:            r.ID,
-		WorkspaceID:   r.WorkspaceID,
-		AggregateType: r.AggregateType,
-		AggregateID:   r.AggregateID,
-		EventType:     r.EventType,
-		Payload:       r.Payload,
-		Headers:       r.Headers,
-		OccurredAt:    r.OccurredAt,
-		CreatedAt:     r.CreatedAt,
-	}
-}
-
-func DeadLetterToResult(r domain.DeadLetterRecord) DeadLetterResult {
-	return DeadLetterResult{
-		ID:           r.ID,
-		WorkspaceID:  r.WorkspaceID,
-		Source:       r.Source,
-		EventID:      r.EventID,
-		Payload:      r.Payload,
-		ErrorMessage: r.ErrorMessage,
-		Retryable:    r.Retryable,
-		FailedAt:     r.FailedAt,
-	}
-}
-
-func ReplayJobToResult(j domain.ReplayJob) ReplayJobResult {
-	return ReplayJobResult{
-		ID:                j.ID,
-		WorkspaceID:       j.WorkspaceID,
-		TargetType:        j.TargetType,
-		TargetID:          j.TargetID,
-		Source:            j.Source,
-		Status:            j.Status,
-		RequestedByUserID: j.RequestedByUserID,
-		Reason:            j.Reason,
-		Filter:            j.Filter,
-		Result:            j.Result,
-		ErrorMessage:      j.ErrorMessage,
-		CreatedAt:         j.CreatedAt,
-		StartedAt:         j.StartedAt,
-		CompletedAt:       j.CompletedAt,
-		UpdatedAt:         j.UpdatedAt,
-	}
-}
-
-func OutboxSummaryToResult(s domain.OutboxSummary) OutboxSummaryResult {
-	return OutboxSummaryResult{
-		TotalCount:   s.TotalCount,
-		OldestAgeSec: s.OldestAgeSec,
-		OldestAt:     s.OldestAt,
-		ByEventType:  s.ByEventType,
-	}
-}
-
-// --- Input Type Aliases (for API layer backward compat) ---
-
-type GetOutboxSummaryInput = getoutboxsummary.Input
-type ListOutboxRecordsInput = listoutboxrecords.Input
-type GetOutboxRecordInput = getoutboxrecord.Input
-type ListDeadLetterRecordsInput = listdeadletterrecords.Input
-type GetDeadLetterRecordInput = getdeadletterrecord.Input
-type CreateReplayJobInput = createreplayjob.Input
-type RunReplayJobInput = runreplayjob.Input
-type GetReplayJobInput = getreplayjob.Input
-type ListReplayJobsInput = listreplayjobs.Input
-
-// --- Options ---
-
+// Options for the operations service facade.
 type Options struct {
 	OutboxRepo     ports.OutboxRepository
 	DeadLetterRepo ports.DeadLetterRepository
@@ -153,8 +24,7 @@ type Options struct {
 	Logger         *slog.Logger
 }
 
-// --- Service (facade) ---
-
+// Service is the application facade for the operations module.
 type Service struct {
 	commands CommandBus
 	queries  QueryBus
@@ -170,32 +40,17 @@ func NewService(opts Options) *Service {
 
 	logger := opts.Logger.With("module", "operations")
 
-	getOutboxSummaryH := getoutboxsummary.New(getoutboxsummary.Options{
+	outboxQS := outbox.NewQueryService(outbox.Options{
 		OutboxRepo:    opts.OutboxRepo,
 		AccessChecker: opts.AccessChecker,
 		Logger:        logger,
 	})
-	listOutboxRecordsH := listoutboxrecords.New(listoutboxrecords.Options{
-		OutboxRepo:    opts.OutboxRepo,
-		AccessChecker: opts.AccessChecker,
-		Logger:        logger,
-	})
-	getOutboxRecordH := getoutboxrecord.New(getoutboxrecord.Options{
-		OutboxRepo:    opts.OutboxRepo,
-		AccessChecker: opts.AccessChecker,
-		Logger:        logger,
-	})
-	listDeadLetterRecordsH := listdeadletterrecords.New(listdeadletterrecords.Options{
+	deadletterQS := deadletter.NewQueryService(deadletter.Options{
 		DeadLetterRepo: opts.DeadLetterRepo,
 		AccessChecker:  opts.AccessChecker,
 		Logger:         logger,
 	})
-	getDeadLetterRecordH := getdeadletterrecord.New(getdeadletterrecord.Options{
-		DeadLetterRepo: opts.DeadLetterRepo,
-		AccessChecker:  opts.AccessChecker,
-		Logger:         logger,
-	})
-	createReplayJobH := createreplayjob.New(createreplayjob.Options{
+	createReplayJobH := replay.NewCreateHandler(replay.CreateOptions{
 		DeadLetterRepo: opts.DeadLetterRepo,
 		OutboxRepo:     opts.OutboxRepo,
 		ReplayJobRepo:  opts.ReplayJobRepo,
@@ -205,7 +60,7 @@ func NewService(opts Options) *Service {
 		Clock:          opts.Clock,
 		Logger:         logger,
 	})
-	runReplayJobH := runreplayjob.New(runreplayjob.Options{
+	runReplayJobH := replay.NewRunHandler(replay.RunOptions{
 		DeadLetterRepo: opts.DeadLetterRepo,
 		OutboxRepo:     opts.OutboxRepo,
 		ReplayJobRepo:  opts.ReplayJobRepo,
@@ -215,31 +70,15 @@ func NewService(opts Options) *Service {
 		Clock:          opts.Clock,
 		Logger:         logger,
 	})
-	getReplayJobH := getreplayjob.New(getreplayjob.Options{
-		ReplayJobRepo: opts.ReplayJobRepo,
-		AccessChecker: opts.AccessChecker,
-		Logger:        logger,
-	})
-	listReplayJobsH := listreplayjobs.New(listreplayjobs.Options{
+	replayQS := replay.NewQueryService(replay.QueryOptions{
 		ReplayJobRepo: opts.ReplayJobRepo,
 		AccessChecker: opts.AccessChecker,
 		Logger:        logger,
 	})
 
 	return &Service{
-		commands: newCommandBus(
-			createReplayJobH,
-			runReplayJobH,
-		),
-		queries: newQueryBus(
-			getOutboxSummaryH,
-			listOutboxRecordsH,
-			getOutboxRecordH,
-			listDeadLetterRecordsH,
-			getDeadLetterRecordH,
-			getReplayJobH,
-			listReplayJobsH,
-		),
+		commands: newCommandBus(createReplayJobH, runReplayJobH),
+		queries:  newQueryBus(outboxQS, deadletterQS, replayQS),
 	}
 }
 

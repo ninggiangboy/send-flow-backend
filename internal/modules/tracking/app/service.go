@@ -5,11 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/createtrackinglink"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/handleproviderevent"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/recordclick"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/recordopen"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/recordunsubscribe"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/event"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/link"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/app/unsubscribetoken"
 	trackingdomain "github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/tracking/ports"
@@ -17,9 +14,9 @@ import (
 
 // Type aliases re-exported for external callers.
 type (
-	SuppressFromSignalInput  = recordunsubscribe.SuppressFromSignalInput
-	SuppressFromSignalResult = recordunsubscribe.SuppressFromSignalResult
-	RecipientSuppressor      = recordunsubscribe.RecipientSuppressor
+	SuppressFromSignalInput  = event.SuppressFromSignalInput
+	SuppressFromSignalResult = event.SuppressFromSignalResult
+	RecipientSuppressor      = event.RecipientSuppressor
 )
 
 type Options struct {
@@ -37,11 +34,11 @@ type Options struct {
 }
 
 type Service struct {
-	createTrackingLinkH  *createtrackinglink.Handler
-	recordOpenH          *recordopen.Handler
-	recordClickH         *recordclick.Handler
-	recordUnsubscribeH   *recordunsubscribe.Handler
-	handleProviderEventH *handleproviderevent.Handler
+	createTrackingLinkH  *link.CreateHandler
+	recordOpenH          *event.OpenHandler
+	recordClickH         *event.ClickHandler
+	recordUnsubscribeH   *event.UnsubscribeHandler
+	handleProviderEventH *event.ProviderHandler
 }
 
 func NewService(opts Options) *Service {
@@ -52,7 +49,7 @@ func NewService(opts Options) *Service {
 		opts.IDGen = func() (string, error) { return "", nil }
 	}
 
-	recordOpenH := recordopen.New(recordopen.Options{
+	recordOpenH := event.NewOpen(event.OpenOptions{
 		LinkReadRepo:    opts.LinkReadRepo,
 		EventReadRepo:   opts.EventReadRepo,
 		EventWriteRepo:  opts.EventWriteRepo,
@@ -62,7 +59,7 @@ func NewService(opts Options) *Service {
 		IDGen:           opts.IDGen,
 		Logger:          opts.Logger,
 	})
-	recordClickH := recordclick.New(recordclick.Options{
+	recordClickH := event.NewClick(event.ClickOptions{
 		LinkReadRepo:    opts.LinkReadRepo,
 		EventReadRepo:   opts.EventReadRepo,
 		EventWriteRepo:  opts.EventWriteRepo,
@@ -72,7 +69,7 @@ func NewService(opts Options) *Service {
 		IDGen:           opts.IDGen,
 		Logger:          opts.Logger,
 	})
-	recordUnsubscribeH := recordunsubscribe.New(recordunsubscribe.Options{
+	recordUnsubscribeH := event.NewUnsubscribe(event.UnsubscribeOptions{
 		EventReadRepo:       opts.EventReadRepo,
 		EventWriteRepo:      opts.EventWriteRepo,
 		MessageResolver:     opts.MessageResolver,
@@ -85,7 +82,7 @@ func NewService(opts Options) *Service {
 	})
 
 	return &Service{
-		createTrackingLinkH: createtrackinglink.New(createtrackinglink.Options{
+		createTrackingLinkH: link.NewCreate(link.CreateOptions{
 			LinkWriteRepo: opts.LinkWriteRepo,
 			IDGen:         opts.IDGen,
 			Logger:        opts.Logger,
@@ -93,7 +90,7 @@ func NewService(opts Options) *Service {
 		recordOpenH:        recordOpenH,
 		recordClickH:       recordClickH,
 		recordUnsubscribeH: recordUnsubscribeH,
-		handleProviderEventH: handleproviderevent.New(handleproviderevent.Options{
+		handleProviderEventH: event.NewProvider(event.ProviderOptions{
 			RecordOpenH:        recordOpenH,
 			RecordClickH:       recordClickH,
 			RecordUnsubscribeH: recordUnsubscribeH,
@@ -103,7 +100,7 @@ func NewService(opts Options) *Service {
 }
 
 // CreateTrackingLinkInput is the input to CreateTrackingLink.
-// Deprecated: Prefer using createtrackinglink.Input directly.
+// Deprecated: Prefer using link.CreateInput directly.
 type CreateTrackingLinkInput struct {
 	WorkspaceID    string
 	MessageID      string
@@ -115,7 +112,7 @@ type CreateTrackingLinkInput struct {
 }
 
 func (s *Service) CreateTrackingLink(ctx context.Context, input CreateTrackingLinkInput) (*trackingdomain.TrackingLink, error) {
-	return s.createTrackingLinkH.Execute(ctx, createtrackinglink.Input{
+	return s.createTrackingLinkH.Execute(ctx, link.CreateInput{
 		WorkspaceID:    input.WorkspaceID,
 		MessageID:      input.MessageID,
 		DestinationURL: input.DestinationURL,
@@ -127,7 +124,7 @@ func (s *Service) CreateTrackingLink(ctx context.Context, input CreateTrackingLi
 }
 
 // RecordOpenInput is the input to RecordOpen.
-// Deprecated: Prefer using recordopen.Input directly.
+// Deprecated: Prefer using event.OpenInput directly.
 type RecordOpenInput struct {
 	TrackingID        string
 	WorkspaceID       string
@@ -143,11 +140,11 @@ type RecordOpenInput struct {
 }
 
 // RecordOpenResult is the result of RecordOpen.
-// Deprecated: Prefer using recordopen.Result directly.
-type RecordOpenResult = recordopen.Result
+// Deprecated: Prefer using event.OpenResult directly.
+type RecordOpenResult = event.OpenResult
 
 func (s *Service) RecordOpen(ctx context.Context, input RecordOpenInput) (*RecordOpenResult, error) {
-	return s.recordOpenH.Execute(ctx, recordopen.Input{
+	return s.recordOpenH.Execute(ctx, event.OpenInput{
 		TrackingID:        input.TrackingID,
 		WorkspaceID:       input.WorkspaceID,
 		MessageID:         input.MessageID,
@@ -163,7 +160,7 @@ func (s *Service) RecordOpen(ctx context.Context, input RecordOpenInput) (*Recor
 }
 
 // RecordClickInput is the input to RecordClick.
-// Deprecated: Prefer using recordclick.Input directly.
+// Deprecated: Prefer using event.ClickInput directly.
 type RecordClickInput struct {
 	TrackingID        string
 	WorkspaceID       string
@@ -179,11 +176,11 @@ type RecordClickInput struct {
 }
 
 // RecordClickResult is the result of RecordClick.
-// Deprecated: Prefer using recordclick.Result directly.
-type RecordClickResult = recordclick.Result
+// Deprecated: Prefer using event.ClickResult directly.
+type RecordClickResult = event.ClickResult
 
 func (s *Service) RecordClick(ctx context.Context, input RecordClickInput) (*RecordClickResult, error) {
-	return s.recordClickH.Execute(ctx, recordclick.Input{
+	return s.recordClickH.Execute(ctx, event.ClickInput{
 		TrackingID:        input.TrackingID,
 		WorkspaceID:       input.WorkspaceID,
 		MessageID:         input.MessageID,
@@ -199,7 +196,7 @@ func (s *Service) RecordClick(ctx context.Context, input RecordClickInput) (*Rec
 }
 
 // RecordUnsubscribeInput is the input to RecordUnsubscribe.
-// Deprecated: Prefer using recordunsubscribe.Input directly.
+// Deprecated: Prefer using event.UnsubscribeInput directly.
 type RecordUnsubscribeInput struct {
 	Token             string
 	WorkspaceID       string
@@ -215,11 +212,11 @@ type RecordUnsubscribeInput struct {
 }
 
 // RecordUnsubscribeResult is the result of RecordUnsubscribe.
-// Deprecated: Prefer using recordunsubscribe.Result directly.
-type RecordUnsubscribeResult = recordunsubscribe.Result
+// Deprecated: Prefer using event.UnsubscribeResult directly.
+type RecordUnsubscribeResult = event.UnsubscribeResult
 
 func (s *Service) RecordUnsubscribe(ctx context.Context, input RecordUnsubscribeInput) (*RecordUnsubscribeResult, error) {
-	return s.recordUnsubscribeH.Execute(ctx, recordunsubscribe.Input{
+	return s.recordUnsubscribeH.Execute(ctx, event.UnsubscribeInput{
 		Token:             input.Token,
 		WorkspaceID:       input.WorkspaceID,
 		MessageID:         input.MessageID,
@@ -235,7 +232,7 @@ func (s *Service) RecordUnsubscribe(ctx context.Context, input RecordUnsubscribe
 }
 
 // HandleProviderEventInput is the input to HandleProviderEvent.
-// Deprecated: Prefer using handleproviderevent.Input directly.
+// Deprecated: Prefer using event.ProviderInput directly.
 type HandleProviderEventInput struct {
 	EventID           string
 	NormalizedEventID string
@@ -251,11 +248,11 @@ type HandleProviderEventInput struct {
 }
 
 // HandleProviderEventResult is the result of HandleProviderEvent.
-// Deprecated: Prefer using handleproviderevent.Result directly.
-type HandleProviderEventResult = handleproviderevent.Result
+// Deprecated: Prefer using event.ProviderResult directly.
+type HandleProviderEventResult = event.ProviderResult
 
 func (s *Service) HandleProviderEvent(ctx context.Context, input HandleProviderEventInput) (*HandleProviderEventResult, error) {
-	return s.handleProviderEventH.Execute(ctx, handleproviderevent.Input{
+	return s.handleProviderEventH.Execute(ctx, event.ProviderInput{
 		EventID:           input.EventID,
 		NormalizedEventID: input.NormalizedEventID,
 		RawEventID:        input.RawEventID,

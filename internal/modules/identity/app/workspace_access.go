@@ -6,8 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/inviteworkspacemember"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/updateworkspacememberrole"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/membership"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
@@ -90,13 +89,13 @@ func (s *Service) ListWorkspaceInvitations(ctx context.Context, workspaceID, use
 }
 
 // InviteWorkspaceMember delegates to the invite workspace member command handler.
-func (s *Service) InviteWorkspaceMember(ctx context.Context, workspaceID, email string, roleIDs []string, inviterID string, now time.Time) (*inviteworkspacemember.Result, error) {
-	return s.commands.InviteWorkspaceMember(ctx, inviteworkspacemember.Command{WorkspaceID: workspaceID, Email: email, RoleIDs: roleIDs, InviterID: inviterID, Now: now})
+func (s *Service) InviteWorkspaceMember(ctx context.Context, workspaceID, email string, roleIDs []string, inviterID string, now time.Time) (*membership.InviteResult, error) {
+	return s.commands.InviteWorkspaceMember(ctx, membership.InviteCommand{WorkspaceID: workspaceID, Email: email, RoleIDs: roleIDs, InviterID: inviterID, Now: now})
 }
 
 // UpdateWorkspaceMemberRole delegates to the update workspace member role command handler.
 func (s *Service) UpdateWorkspaceMemberRole(ctx context.Context, workspaceID, membershipID string, roleIDs []string, updaterID string, now time.Time) error {
-	err := s.commands.UpdateWorkspaceMemberRole(ctx, updateworkspacememberrole.Command{WorkspaceID: workspaceID, MembershipID: membershipID, RoleIDs: roleIDs, UpdaterID: updaterID, Now: now})
+	err := s.commands.UpdateWorkspaceMemberRole(ctx, membership.UpdateRoleCommand{WorkspaceID: workspaceID, MembershipID: membershipID, RoleIDs: roleIDs, UpdaterID: updaterID, Now: now})
 	if err == nil && s.redisCache != nil {
 		_ = s.redisCache.InvalidateWorkspaceAccessByPrefix(ctx, workspaceID)
 	}

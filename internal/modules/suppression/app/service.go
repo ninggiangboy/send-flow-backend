@@ -5,11 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app/checksuppression"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app/createentry"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app/createsystementry"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app/listentries"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app/removeentry"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/app/entry"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/suppression/ports"
 )
@@ -23,11 +19,11 @@ type Options struct {
 }
 
 type Service struct {
-	listEntriesH       *listentries.Handler
-	createEntryH       *createentry.Handler
-	createSystemEntryH *createsystementry.Handler
-	checkSuppressionH  *checksuppression.Handler
-	removeEntryH       *removeentry.Handler
+	listEntriesH       *entry.ListHandler
+	createEntryH       *entry.CreateHandler
+	createSystemEntryH *entry.CreateSystemHandler
+	checkSuppressionH  *entry.CheckHandler
+	removeEntryH       *entry.RemoveHandler
 }
 
 func NewService(opts Options) *Service {
@@ -38,27 +34,47 @@ func NewService(opts Options) *Service {
 		opts.IDGen = func() (string, error) { return "", nil }
 	}
 	return &Service{
-		listEntriesH: listentries.New(listentries.Options{
+		listEntriesH: entry.NewListHandler(struct {
+			EntriesRead   ports.SuppressionReadRepository
+			AccessChecker ports.WorkspaceAccessChecker
+			Logger        *slog.Logger
+		}{
 			EntriesRead:   opts.EntriesRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		createEntryH: createentry.New(createentry.Options{
+		createEntryH: entry.NewCreateHandler(struct {
+			EntriesWrite  ports.SuppressionWriteRepository
+			AccessChecker ports.WorkspaceAccessChecker
+			IDGen         func() (string, error)
+			Logger        *slog.Logger
+		}{
 			EntriesWrite:  opts.EntriesWrite,
 			AccessChecker: opts.AccessChecker,
 			IDGen:         opts.IDGen,
 			Logger:        opts.Logger,
 		}),
-		createSystemEntryH: createsystementry.New(createsystementry.Options{
+		createSystemEntryH: entry.NewCreateSystemHandler(struct {
+			EntriesWrite ports.SuppressionWriteRepository
+			IDGen        func() (string, error)
+			Logger       *slog.Logger
+		}{
 			EntriesWrite: opts.EntriesWrite,
 			IDGen:        opts.IDGen,
 			Logger:       opts.Logger,
 		}),
-		checkSuppressionH: checksuppression.New(checksuppression.Options{
+		checkSuppressionH: entry.NewCheckHandler(struct {
+			EntriesRead ports.SuppressionReadRepository
+			Logger      *slog.Logger
+		}{
 			EntriesRead: opts.EntriesRead,
 			Logger:      opts.Logger,
 		}),
-		removeEntryH: removeentry.New(removeentry.Options{
+		removeEntryH: entry.NewRemoveHandler(struct {
+			EntriesWrite  ports.SuppressionWriteRepository
+			AccessChecker ports.WorkspaceAccessChecker
+			Logger        *slog.Logger
+		}{
 			EntriesWrite:  opts.EntriesWrite,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
@@ -66,42 +82,8 @@ func NewService(opts Options) *Service {
 	}
 }
 
-type ListEntriesResult struct {
-	Entries    []domain.SuppressionEntry
-	NextCursor string
-}
-
-type CreateEntryInput struct {
-	WorkspaceID string
-	UserID      string
-	Email       string
-	Scope       string
-	Reason      string
-	Note        string
-	Now         time.Time
-}
-
-type CreateSystemEntryInput struct {
-	WorkspaceID     string
-	Email           string
-	EmailNormalized string
-	Scope           string
-	Reason          string
-	Source          string
-	SourceEventID   string
-	Note            string
-	Now             time.Time
-}
-
-type CheckSuppressionResult struct {
-	Suppressed bool
-	Reason     string
-	Scope      string
-	EntryID    string
-}
-
 func (s *Service) ListEntries(ctx context.Context, query ports.SuppressionListQuery, userID string) (*ListEntriesResult, error) {
-	entries, cursor, err := s.listEntriesH.Execute(ctx, listentries.Command{
+	entries, cursor, err := s.listEntriesH.Execute(ctx, entry.ListQuery{
 		WorkspaceID: query.WorkspaceID,
 		UserID:      userID,
 		Query:       query,
@@ -113,50 +95,23 @@ func (s *Service) ListEntries(ctx context.Context, query ports.SuppressionListQu
 }
 
 func (s *Service) CreateEntry(ctx context.Context, input CreateEntryInput) (*domain.SuppressionEntry, error) {
-	return s.createEntryH.Execute(ctx, createentry.Command{
-		WorkspaceID: input.WorkspaceID,
-		UserID:      input.UserID,
-		Email:       input.Email,
-		Scope:       input.Scope,
-		Reason:      input.Reason,
-		Note:        input.Note,
-		Now:         input.Now,
-	})
+	return s.createEntryH.Execute(ctx, input)
 }
 
 func (s *Service) CreateSystemEntry(ctx context.Context, input CreateSystemEntryInput) (*domain.SuppressionEntry, bool, error) {
-	return s.createSystemEntryH.Execute(ctx, createsystementry.Command{
-		WorkspaceID:     input.WorkspaceID,
-		Email:           input.Email,
-		EmailNormalized: input.EmailNormalized,
-		Scope:           input.Scope,
-		Reason:          input.Reason,
-		Source:          input.Source,
-		SourceEventID:   input.SourceEventID,
-		Note:            input.Note,
-		Now:             input.Now,
-	})
+	return s.createSystemEntryH.Execute(ctx, input)
 }
 
 func (s *Service) CheckSuppression(ctx context.Context, workspaceID, emailNormalized, scope string) (*CheckSuppressionResult, error) {
-	result, err := s.checkSuppressionH.Execute(ctx, checksuppression.Command{
+	return s.checkSuppressionH.Execute(ctx, entry.CheckQuery{
 		WorkspaceID:     workspaceID,
 		EmailNormalized: emailNormalized,
 		Scope:           scope,
 	})
-	if err != nil {
-		return nil, err
-	}
-	return &CheckSuppressionResult{
-		Suppressed: result.Suppressed,
-		Reason:     result.Reason,
-		Scope:      result.Scope,
-		EntryID:    result.EntryID,
-	}, nil
 }
 
 func (s *Service) RemoveEntry(ctx context.Context, workspaceID, entryID, userID string, now time.Time) error {
-	return s.removeEntryH.Execute(ctx, removeentry.Command{
+	return s.removeEntryH.Execute(ctx, entry.RemoveInput{
 		WorkspaceID: workspaceID,
 		EntryID:     entryID,
 		UserID:      userID,

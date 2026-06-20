@@ -3,13 +3,8 @@ package app
 import (
 	"context"
 	"log/slog"
-	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/app/authenticateapikey"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/app/createapikey"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/app/listapikeys"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/app/revokeapikey"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/app/updateapikey"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/app/apikey"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/access/ports"
 )
@@ -24,21 +19,32 @@ type Options struct {
 }
 
 type Service struct {
-	listAPIKeysH        *listapikeys.Handler
-	createAPIKeyH       *createapikey.Handler
-	updateAPIKeyH       *updateapikey.Handler
-	revokeAPIKeyH       *revokeapikey.Handler
-	authenticateAPIKeyH *authenticateapikey.Handler
+	listAPIKeysH        *apikey.ListHandler
+	createAPIKeyH       *apikey.CreateHandler
+	updateAPIKeyH       *apikey.UpdateHandler
+	revokeAPIKeyH       *apikey.RevokeHandler
+	authenticateAPIKeyH *apikey.AuthenticateHandler
 }
 
 func NewService(opts Options) *Service {
 	return &Service{
-		listAPIKeysH: listapikeys.New(listapikeys.Options{
+		listAPIKeysH: apikey.NewListHandler(struct {
+			APIKeyRepo    ports.APIKeyRepository
+			AccessChecker ports.WorkspaceAccessChecker
+			Logger        *slog.Logger
+		}{
 			APIKeyRepo:    opts.APIKeyRepo,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		createAPIKeyH: createapikey.New(createapikey.Options{
+		createAPIKeyH: apikey.NewCreateHandler(struct {
+			APIKeyRepo    ports.APIKeyRepository
+			AccessChecker ports.WorkspaceAccessChecker
+			IDGen         ports.IDGenerator
+			SecretGen     ports.SecretGenerator
+			SecretHasher  ports.SecretHasher
+			Logger        *slog.Logger
+		}{
 			APIKeyRepo:    opts.APIKeyRepo,
 			AccessChecker: opts.AccessChecker,
 			IDGen:         opts.IDGen,
@@ -46,19 +52,33 @@ func NewService(opts Options) *Service {
 			SecretHasher:  opts.SecretHasher,
 			Logger:        opts.Logger,
 		}),
-		updateAPIKeyH: updateapikey.New(updateapikey.Options{
+		updateAPIKeyH: apikey.NewUpdateHandler(struct {
+			APIKeyRepo    ports.APIKeyRepository
+			AccessChecker ports.WorkspaceAccessChecker
+			SecretGen     ports.SecretGenerator
+			SecretHasher  ports.SecretHasher
+			Logger        *slog.Logger
+		}{
 			APIKeyRepo:    opts.APIKeyRepo,
 			AccessChecker: opts.AccessChecker,
 			SecretGen:     opts.SecretGen,
 			SecretHasher:  opts.SecretHasher,
 			Logger:        opts.Logger,
 		}),
-		revokeAPIKeyH: revokeapikey.New(revokeapikey.Options{
+		revokeAPIKeyH: apikey.NewRevokeHandler(struct {
+			APIKeyRepo    ports.APIKeyRepository
+			AccessChecker ports.WorkspaceAccessChecker
+			Logger        *slog.Logger
+		}{
 			APIKeyRepo:    opts.APIKeyRepo,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		authenticateAPIKeyH: authenticateapikey.New(authenticateapikey.Options{
+		authenticateAPIKeyH: apikey.NewAuthenticateHandler(struct {
+			APIKeyRepo   ports.APIKeyRepository
+			SecretHasher ports.SecretHasher
+			Logger       *slog.Logger
+		}{
 			APIKeyRepo:   opts.APIKeyRepo,
 			SecretHasher: opts.SecretHasher,
 			Logger:       opts.Logger,
@@ -66,89 +86,8 @@ func NewService(opts Options) *Service {
 	}
 }
 
-type ListAPIKeysInput struct {
-	WorkspaceID string
-	ActorUserID string
-	Status      string
-	Limit       int
-	Cursor      string
-}
-
-type ListAPIKeysResult struct {
-	APIKeys []APIKeyResult
-	Cursor  string
-}
-
-type APIKeyResult struct {
-	ID          string                   `json:"id"`
-	WorkspaceID string                   `json:"workspace_id"`
-	Name        string                   `json:"name"`
-	KeyPrefix   string                   `json:"key_prefix"`
-	Scopes      []string                 `json:"scopes"`
-	Status      string                   `json:"status"`
-	CreatedAt   time.Time                `json:"created_at"`
-	UpdatedAt   time.Time                `json:"updated_at"`
-	LastUsedAt  *time.Time               `json:"last_used_at"`
-	ExpiresAt   *time.Time               `json:"expires_at"`
-	RevokedAt   *time.Time               `json:"revoked_at"`
-	QuotaLimits *domain.EmailQuotaLimits `json:"email_quota_limits,omitempty"`
-}
-
-type CreateAPIKeyInput struct {
-	WorkspaceID string
-	ActorUserID string
-	Name        string
-	Scopes      []string
-	ExpiresAt   *time.Time
-	QuotaLimits *domain.EmailQuotaLimits
-}
-
-type CreateAPIKeyResult struct {
-	APIKeyResult
-	Secret string `json:"secret"`
-}
-
-type UpdateAPIKeyInput struct {
-	WorkspaceID string
-	ActorUserID string
-	APIKeyID    string
-	Name        *string
-	Scopes      []string
-	ExpiresAt   *time.Time
-	Rotate      bool
-	QuotaLimits *domain.EmailQuotaLimits
-}
-
-type UpdateAPIKeyResult struct {
-	APIKeyResult
-	Secret string `json:"secret,omitempty"`
-}
-
-type RevokeAPIKeyInput struct {
-	WorkspaceID string
-	ActorUserID string
-	APIKeyID    string
-}
-
-type AuthenticateAPIKeyInput struct {
-	BearerToken string
-}
-
-type AuthenticatedAPIKey struct {
-	WorkspaceID string
-	APIKeyID    string
-	Scopes      []string
-	KeyPrefix   string
-}
-
 func (s *Service) ListAPIKeys(ctx context.Context, input ListAPIKeysInput) (*ListAPIKeysResult, error) {
-	keys, cursor, err := s.listAPIKeysH.Execute(ctx, listapikeys.Command{
-		WorkspaceID: input.WorkspaceID,
-		ActorUserID: input.ActorUserID,
-		Status:      input.Status,
-		Limit:       input.Limit,
-		Cursor:      input.Cursor,
-	})
+	keys, cursor, err := s.listAPIKeysH.Execute(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -162,14 +101,7 @@ func (s *Service) ListAPIKeys(ctx context.Context, input ListAPIKeysInput) (*Lis
 }
 
 func (s *Service) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) (*CreateAPIKeyResult, error) {
-	result, err := s.createAPIKeyH.Execute(ctx, createapikey.Command{
-		WorkspaceID: input.WorkspaceID,
-		ActorUserID: input.ActorUserID,
-		Name:        input.Name,
-		Scopes:      input.Scopes,
-		ExpiresAt:   input.ExpiresAt,
-		QuotaLimits: input.QuotaLimits,
-	})
+	result, err := s.createAPIKeyH.Execute(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -181,16 +113,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) (*C
 }
 
 func (s *Service) UpdateAPIKey(ctx context.Context, input UpdateAPIKeyInput) (*UpdateAPIKeyResult, error) {
-	result, err := s.updateAPIKeyH.Execute(ctx, updateapikey.Command{
-		WorkspaceID: input.WorkspaceID,
-		ActorUserID: input.ActorUserID,
-		APIKeyID:    input.APIKeyID,
-		Name:        input.Name,
-		Scopes:      input.Scopes,
-		ExpiresAt:   input.ExpiresAt,
-		Rotate:      input.Rotate,
-		QuotaLimits: input.QuotaLimits,
-	})
+	result, err := s.updateAPIKeyH.Execute(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -202,11 +125,7 @@ func (s *Service) UpdateAPIKey(ctx context.Context, input UpdateAPIKeyInput) (*U
 }
 
 func (s *Service) RevokeAPIKey(ctx context.Context, input RevokeAPIKeyInput) (*APIKeyResult, error) {
-	key, err := s.revokeAPIKeyH.Execute(ctx, revokeapikey.Command{
-		WorkspaceID: input.WorkspaceID,
-		ActorUserID: input.ActorUserID,
-		APIKeyID:    input.APIKeyID,
-	})
+	key, err := s.revokeAPIKeyH.Execute(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -216,17 +135,7 @@ func (s *Service) RevokeAPIKey(ctx context.Context, input RevokeAPIKeyInput) (*A
 }
 
 func (s *Service) AuthenticateAPIKey(ctx context.Context, input AuthenticateAPIKeyInput) (*AuthenticatedAPIKey, error) {
-	result, err := s.authenticateAPIKeyH.Execute(ctx, input.BearerToken)
-	if err != nil {
-		return nil, err
-	}
-
-	return &AuthenticatedAPIKey{
-		WorkspaceID: result.WorkspaceID,
-		APIKeyID:    result.APIKeyID,
-		Scopes:      result.Scopes,
-		KeyPrefix:   result.KeyPrefix,
-	}, nil
+	return s.authenticateAPIKeyH.Execute(ctx, apikey.AuthenticateInput(input))
 }
 
 func (s *Service) RequireAPIKeyScope(key *AuthenticatedAPIKey, scope string) error {

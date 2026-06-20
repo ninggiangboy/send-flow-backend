@@ -3,9 +3,8 @@ package app
 import (
 	"context"
 	"log/slog"
-	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/app/ingestproviderwebhook"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/app/provider"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/ingestion/ports"
 )
 
@@ -23,7 +22,7 @@ type Options struct {
 }
 
 type Service struct {
-	ingestProviderWebhookH *ingestproviderwebhook.Handler
+	ingestProviderWebhookH *provider.Handler
 	log                    *slog.Logger
 }
 
@@ -32,7 +31,7 @@ func NewService(opts Options) *Service {
 		opts.Logger = slog.Default()
 	}
 	return &Service{
-		ingestProviderWebhookH: ingestproviderwebhook.New(ingestproviderwebhook.Options{
+		ingestProviderWebhookH: provider.New(provider.Options{
 			RawEventsRead:         opts.RawEventsRead,
 			RawEventsWrite:        opts.RawEventsWrite,
 			NormalizedEventsRead:  opts.NormalizedEventsRead,
@@ -48,32 +47,9 @@ func NewService(opts Options) *Service {
 	}
 }
 
-type IngestProviderWebhookInput struct {
-	Provider   string
-	Headers    map[string][]string
-	RawBody    []byte
-	ReceivedAt time.Time
-}
-
-type IngestProviderWebhookResult struct {
-	Accepted          bool
-	RawEventID        string
-	NormalizedEventID string
-}
+// IngestProviderWebhookInput is defined in types.go via type alias to provider.Input.
+// IngestProviderWebhookResult is defined in types.go via type alias to provider.Result.
 
 func (s *Service) IngestProviderWebhook(ctx context.Context, input IngestProviderWebhookInput) (*IngestProviderWebhookResult, error) {
-	result, err := s.ingestProviderWebhookH.Execute(ctx, ingestproviderwebhook.Input{
-		Provider:   input.Provider,
-		Headers:    input.Headers,
-		RawBody:    input.RawBody,
-		ReceivedAt: input.ReceivedAt,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &IngestProviderWebhookResult{
-		Accepted:          result.Accepted,
-		RawEventID:        result.RawEventID,
-		NormalizedEventID: result.NormalizedEventID,
-	}, nil
+	return s.ingestProviderWebhookH.Execute(ctx, input)
 }

@@ -15,7 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	deliveryapp "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/accepttransactionalsend"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/send"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	identityapp "github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app"
 )
@@ -84,7 +84,7 @@ func (h *transactionalHTTP) send(w http.ResponseWriter, r *http.Request) {
 	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	contentType := r.Header.Get("Content-Type")
 
-	var input accepttransactionalsend.Input
+	var input send.Input
 	var err error
 
 	if strings.HasPrefix(contentType, "multipart/form-data") {
@@ -106,29 +106,7 @@ func (h *transactionalHTTP) send(w http.ResponseWriter, r *http.Request) {
 	input.IdempotencyKey = idempotencyKey
 	input.Now = time.Now().UTC()
 
-	result, err := h.svc.AcceptTransactionalSend(r.Context(), deliveryapp.AcceptTransactionalSendInput{
-		WorkspaceID:       input.WorkspaceID,
-		APIKeyID:          input.APIKeyID,
-		IdempotencyKey:    input.IdempotencyKey,
-		Mode:              input.Mode,
-		SenderDomainID:    input.SenderDomainID,
-		SenderName:        input.SenderName,
-		Subject:           input.Subject,
-		TemplateID:        input.TemplateID,
-		TemplateVersionID: input.TemplateVersionID,
-		TemplateData:      input.TemplateData,
-		TextBody:          input.TextBody,
-		HTMLBody:          input.HTMLBody,
-		ReplyTo:           input.ReplyTo,
-		To:                input.To,
-		CC:                input.CC,
-		BCC:               input.BCC,
-		Metadata:          input.Metadata,
-		Tags:              input.Tags,
-		Headers:           input.Headers,
-		Attachments:       input.Attachments,
-		Now:               input.Now,
-	})
+	result, err := h.svc.AcceptTransactionalSend(r.Context(), input)
 	if err != nil {
 		writeTransactionalErr(w, r, err)
 		return
@@ -160,13 +138,13 @@ func (h *transactionalHTTP) send(w http.ResponseWriter, r *http.Request) {
 	writeEnvelope(w, r, http.StatusAccepted, resp)
 }
 
-func (h *transactionalHTTP) parseJSONSend(r *http.Request) (accepttransactionalsend.Input, error) {
+func (h *transactionalHTTP) parseJSONSend(r *http.Request) (send.Input, error) {
 	var req sendTransactionalInput
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return accepttransactionalsend.Input{}, domain.ErrRequestBodyInvalid
+		return send.Input{}, domain.ErrRequestBodyInvalid
 	}
 
-	input := accepttransactionalsend.Input{
+	input := send.Input{
 		Mode:              req.Mode,
 		SenderDomainID:    req.SenderDomainID,
 		SenderName:        req.SenderName,
@@ -200,12 +178,12 @@ func (h *transactionalHTTP) parseJSONSend(r *http.Request) (accepttransactionals
 	return input, nil
 }
 
-func (h *transactionalHTTP) parseMultipartSend(r *http.Request) (accepttransactionalsend.Input, error) {
+func (h *transactionalHTTP) parseMultipartSend(r *http.Request) (send.Input, error) {
 	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
-		return accepttransactionalsend.Input{}, domain.ErrRequestBodyInvalid
+		return send.Input{}, domain.ErrRequestBodyInvalid
 	}
 
-	var input accepttransactionalsend.Input
+	var input send.Input
 	input.Mode = r.FormValue("mode")
 	if input.Mode == "" {
 		input.Mode = domain.MessageModeTemplate
@@ -224,7 +202,7 @@ func (h *transactionalHTTP) parseMultipartSend(r *http.Request) (accepttransacti
 	if v := r.FormValue("to"); v != "" {
 		var to []recipientInput
 		if err := json.Unmarshal([]byte(v), &to); err != nil {
-			return accepttransactionalsend.Input{}, domain.ErrRequestBodyInvalid
+			return send.Input{}, domain.ErrRequestBodyInvalid
 		}
 		for _, r := range to {
 			input.To = append(input.To, domain.RecipientTarget{Email: r.Email, Name: r.Name})
@@ -233,7 +211,7 @@ func (h *transactionalHTTP) parseMultipartSend(r *http.Request) (accepttransacti
 	if v := r.FormValue("cc"); v != "" {
 		var cc []recipientInput
 		if err := json.Unmarshal([]byte(v), &cc); err != nil {
-			return accepttransactionalsend.Input{}, domain.ErrRequestBodyInvalid
+			return send.Input{}, domain.ErrRequestBodyInvalid
 		}
 		for _, r := range cc {
 			input.CC = append(input.CC, domain.RecipientTarget{Email: r.Email, Name: r.Name})
@@ -242,7 +220,7 @@ func (h *transactionalHTTP) parseMultipartSend(r *http.Request) (accepttransacti
 	if v := r.FormValue("bcc"); v != "" {
 		var bcc []recipientInput
 		if err := json.Unmarshal([]byte(v), &bcc); err != nil {
-			return accepttransactionalsend.Input{}, domain.ErrRequestBodyInvalid
+			return send.Input{}, domain.ErrRequestBodyInvalid
 		}
 		for _, r := range bcc {
 			input.BCC = append(input.BCC, domain.RecipientTarget{Email: r.Email, Name: r.Name})
@@ -251,28 +229,28 @@ func (h *transactionalHTTP) parseMultipartSend(r *http.Request) (accepttransacti
 	if v := r.FormValue("headers"); v != "" {
 		var headers map[string]string
 		if err := json.Unmarshal([]byte(v), &headers); err != nil {
-			return accepttransactionalsend.Input{}, domain.ErrRequestBodyInvalid
+			return send.Input{}, domain.ErrRequestBodyInvalid
 		}
 		input.Headers = headers
 	}
 	if v := r.FormValue("metadata"); v != "" {
 		var metadata map[string]any
 		if err := json.Unmarshal([]byte(v), &metadata); err != nil {
-			return accepttransactionalsend.Input{}, domain.ErrRequestBodyInvalid
+			return send.Input{}, domain.ErrRequestBodyInvalid
 		}
 		input.Metadata = metadata
 	}
 	if v := r.FormValue("tags"); v != "" {
 		var tags []string
 		if err := json.Unmarshal([]byte(v), &tags); err != nil {
-			return accepttransactionalsend.Input{}, domain.ErrRequestBodyInvalid
+			return send.Input{}, domain.ErrRequestBodyInvalid
 		}
 		input.Tags = tags
 	}
 	if v := r.FormValue("template_data"); v != "" {
 		var data map[string]any
 		if err := json.Unmarshal([]byte(v), &data); err != nil {
-			return accepttransactionalsend.Input{}, domain.ErrRequestBodyInvalid
+			return send.Input{}, domain.ErrRequestBodyInvalid
 		}
 		input.TemplateData = data
 	}
@@ -282,7 +260,7 @@ func (h *transactionalHTTP) parseMultipartSend(r *http.Request) (accepttransacti
 	for _, fh := range fileHeaders {
 		att, err := parseAttachmentPart(fh)
 		if err != nil {
-			return accepttransactionalsend.Input{}, err
+			return send.Input{}, err
 		}
 		input.Attachments = append(input.Attachments, att)
 	}
@@ -290,14 +268,14 @@ func (h *transactionalHTTP) parseMultipartSend(r *http.Request) (accepttransacti
 	return input, nil
 }
 
-func parseAttachmentPart(fh *multipart.FileHeader) (accepttransactionalsend.AttachmentStream, error) {
+func parseAttachmentPart(fh *multipart.FileHeader) (send.AttachmentStream, error) {
 	if fh.Size > maxAttachmentSize {
-		return accepttransactionalsend.AttachmentStream{}, domain.ErrAttachmentTooLarge
+		return send.AttachmentStream{}, domain.ErrAttachmentTooLarge
 	}
 
 	file, err := fh.Open()
 	if err != nil {
-		return accepttransactionalsend.AttachmentStream{}, domain.ErrRequestBodyInvalid
+		return send.AttachmentStream{}, domain.ErrRequestBodyInvalid
 	}
 	defer file.Close()
 
@@ -306,10 +284,10 @@ func parseAttachmentPart(fh *multipart.FileHeader) (accepttransactionalsend.Atta
 	teeReader := io.TeeReader(file, hash)
 	content, err := io.ReadAll(io.LimitReader(teeReader, maxAttachmentSize+1))
 	if err != nil {
-		return accepttransactionalsend.AttachmentStream{}, domain.ErrRequestBodyInvalid
+		return send.AttachmentStream{}, domain.ErrRequestBodyInvalid
 	}
 
-	return accepttransactionalsend.AttachmentStream{
+	return send.AttachmentStream{
 		Filename:    fh.Filename,
 		ContentType: fh.Header.Get("Content-Type"),
 		Data:        bytes.NewReader(content),

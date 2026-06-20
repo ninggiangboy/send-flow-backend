@@ -3,17 +3,11 @@ package app
 import (
 	"context"
 	"log/slog"
-	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/accepttransactionalsend"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/getmessage"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/gettransactionalmessage"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/handlecampaignscheduled"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/handleproviderevent"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/listmessages"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/processduemessages"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/queuecampaignmessages"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/usecase"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/campaign"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/message"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/process"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/send"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	deliveryredis "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
@@ -69,7 +63,14 @@ func NewService(opts Options) *Service {
 	if opts.MessagesRead == nil {
 		opts.MessagesRead = opts.MessagesWrite
 	}
-	acceptTransactionalH := accepttransactionalsend.New(
+
+	recipientSuppressor := opts.RecipientSuppressor
+	if recipientSuppressor == nil {
+		// If not provided, create a no-op suppressor for backward compat
+		recipientSuppressor = opts.RecipientSuppressor
+	}
+
+	acceptTransactionalH := send.New(
 		opts.TxRequestsWrite,
 		opts.MessagesWrite,
 		opts.SenderChecker,
@@ -87,7 +88,7 @@ func NewService(opts Options) *Service {
 		opts.QuotaEnforcer,
 	)
 
-	queueCampaignH := queuecampaignmessages.New(
+	queueCampaignH := campaign.NewQueueCampaignMessagesHandler(
 		opts.CampaignReader,
 		opts.MessagesWrite,
 		opts.OutboxWriter,
@@ -96,12 +97,12 @@ func NewService(opts Options) *Service {
 		opts.Logger,
 	)
 
-	handleCampaignH := handlecampaignscheduled.New(queueCampaignH, opts.Logger)
+	handleCampaignH := campaign.NewCampaignScheduledHandler(queueCampaignH, opts.Logger)
 
-	handleProviderH := handleproviderevent.New(
+	handleProviderH := process.NewProviderEventHandler(
 		opts.MessagesWrite,
 		opts.TxRequestsWrite,
-		opts.RecipientSuppressor,
+		recipientSuppressor,
 		opts.OutboxWriter,
 		opts.TxManager,
 		opts.IDGen,
@@ -109,7 +110,7 @@ func NewService(opts Options) *Service {
 		opts.EventRepo,
 	)
 
-	processDueMsgsH := processduemessages.New(
+	processDueMsgsH := process.NewProcessDueMessagesHandler(
 		opts.MessagesWrite,
 		opts.AttemptsWrite,
 		opts.RetryStatesWrite,
@@ -128,9 +129,11 @@ func NewService(opts Options) *Service {
 		opts.ObjectStorage,
 	)
 
-	listMessagesH := listmessages.New(opts.MessagesRead, opts.AccessChecker, opts.Logger)
-	getMessageH := getmessage.New(opts.MessagesRead, opts.AccessChecker, opts.Logger)
-	getTransactionalH := gettransactionalmessage.New(opts.MessagesRead, opts.Logger)
+	querySvc := message.NewQueryService(
+		opts.MessagesRead,
+		opts.AccessChecker,
+		opts.Logger,
+	)
 
 	return &Service{
 		commands: newCommandBus(opts.Logger,
@@ -141,9 +144,7 @@ func NewService(opts Options) *Service {
 			processDueMsgsH,
 		),
 		queries: newQueryBus(opts.Logger,
-			listMessagesH,
-			getMessageH,
-			getTransactionalH,
+			querySvc,
 		),
 		log:          opts.Logger.With("module", "delivery"),
 		eventRepo:    opts.EventRepo,
@@ -151,187 +152,6 @@ func NewService(opts Options) *Service {
 		attemptsRead: opts.AttemptsRead,
 	}
 }
-
-// Shared types used by external callers
-
-type QueueCampaignMessagesInput struct {
-	WorkspaceID       string
-	CampaignID        string
-	TemplateID        string
-	TemplateVersionID string
-	SenderDomainID    string
-	MessageType       string
-	ScheduledAt       time.Time
-	Now               time.Time
-}
-
-type QueueCampaignMessagesResult struct {
-	QueuedCount    int
-	CandidateCount int
-}
-
-type ListMessagesInput struct {
-	UserID                   string
-	WorkspaceID              string
-	CampaignID               string
-	TransactionalRequestID   string
-	Status                   string
-	MessageType              string
-	Mode                     string
-	Provider                 string
-	RecipientEmailNormalized string
-	ProviderMessageID        string
-	From                     *time.Time
-	To                       *time.Time
-	Limit                    int
-	Cursor                   string
-}
-
-type ListMessagesResult struct {
-	Messages   []domain.Message
-	NextCursor string
-}
-
-type GetMessageInput struct {
-	UserID      string
-	WorkspaceID string
-	MessageID   string
-}
-
-type AcceptTransactionalSendInput struct {
-	WorkspaceID       string
-	APIKeyID          string
-	IdempotencyKey    string
-	Mode              string
-	SenderDomainID    string
-	SenderName        string
-	Subject           string
-	TemplateID        string
-	TemplateVersionID string
-	TemplateData      map[string]any
-	TextBody          string
-	HTMLBody          string
-	ReplyTo           string
-	To                []domain.RecipientTarget
-	CC                []domain.RecipientTarget
-	BCC               []domain.RecipientTarget
-	Metadata          map[string]any
-	Tags              []string
-	Headers           map[string]string
-	Attachments       []accepttransactionalsend.AttachmentStream
-	Now               time.Time
-}
-
-type AcceptTransactionalSendResult struct {
-	RequestID  string
-	MessageIDs []string
-	Status     string
-	AcceptedAt time.Time
-}
-
-type GetTransactionalMessageInput struct {
-	WorkspaceID string
-	MessageID   string
-}
-
-type GetTransactionalMessageResult struct {
-	MessageID         string     `json:"message_id"`
-	Status            string     `json:"status"`
-	Provider          string     `json:"provider,omitempty"`
-	ProviderMessageID string     `json:"provider_message_id,omitempty"`
-	LastUpdatedAt     *time.Time `json:"last_updated_at"`
-}
-
-type HandleCampaignScheduledInput struct {
-	EventID   string
-	EventType string
-	Payload   []byte
-	Now       time.Time
-}
-
-type HandleProviderEventInput struct {
-	EventID           string
-	NormalizedEventID string
-	RawEventID        string
-	WorkspaceID       string
-	MessageID         string
-	Provider          string
-	ProviderEventID   string
-	ProviderMessageID string
-	EventType         string
-	OccurredAt        time.Time
-	ReceivedAt        time.Time
-}
-
-type HandleProviderEventResult struct {
-	Handled            bool
-	Ignored            bool
-	MessageID          string
-	WorkspaceID        string
-	PreviousStatus     string
-	NewStatus          string
-	SuppressionCreated bool
-	SuppressionEntryID string
-}
-
-type ListMessageEventsInput struct {
-	WorkspaceID string
-	MessageID   string
-	Limit       int
-	Cursor      string
-}
-
-type ListMessageEventsResult struct {
-	Events     []domain.MessageEvent
-	NextCursor string
-}
-
-type ListRequestMessagesInput struct {
-	WorkspaceID string
-	RequestID   string
-	Limit       int
-	Cursor      string
-}
-
-type ListRequestMessagesResult struct {
-	Messages []domain.Message
-}
-
-type ListAttemptsInput struct {
-	WorkspaceID string
-	MessageID   string
-}
-
-type ListAttemptsResult struct {
-	Attempts []domain.DeliveryAttempt
-}
-
-type ProcessDueMessagesAllInput struct {
-	MessageType string
-	Limit       int
-	Now         time.Time
-}
-
-type ProcessDueMessagesInput struct {
-	WorkspaceID string
-	MessageType string
-	Limit       int
-	Now         time.Time
-}
-
-type ProcessDueMessagesResult struct {
-	SelectedCount       int
-	AcceptedCount       int
-	FailedCount         int
-	RetryScheduledCount int
-}
-
-type (
-	NonRetryableError        = usecase.NonRetryableError
-	RecipientSuppressor      = handleproviderevent.RecipientSuppressor
-	SuppressFromSignalInput  = handleproviderevent.SuppressFromSignalInput
-	SuppressFromSignalResult = handleproviderevent.SuppressFromSignalResult
-)
 
 // Facade methods delegating to handlers via buses
 

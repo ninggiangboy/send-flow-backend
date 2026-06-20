@@ -5,25 +5,12 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/archivecontact"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/createcontact"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/createlist"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/createsegment"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/getaudienceexport"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/getaudienceimport"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/getcontact"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listaudienceexports"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listaudienceimports"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listcontacts"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listlists"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/listsegments"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/resolveaudiencerecipients"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/resolveaudienceselection"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/startaudienceexport"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/startaudienceimport"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatecontact"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatelistmemberships"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/updatesegment"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/contact"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/exportjob"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/importjob"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/list"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/resolve"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/app/segment"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/domain"
 	audienceredis "github.com/ninggiangboy/send-flow/backend/internal/modules/audience/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/audience/ports"
@@ -58,25 +45,25 @@ type Service struct {
 	log                        *slog.Logger
 	artifactSigner             ExportArtifactSigner
 	downloadURLTTL             time.Duration
-	createContactH             *createcontact.Handler
-	getContactH                *getcontact.Handler
-	listContactsH              *listcontacts.Handler
-	updateContactH             *updatecontact.Handler
-	archiveContactH            *archivecontact.Handler
-	createListH                *createlist.Handler
-	listListsH                 *listlists.Handler
-	updateListMembershipsH     *updatelistmemberships.Handler
-	createSegmentH             *createsegment.Handler
-	listSegmentsH              *listsegments.Handler
-	updateSegmentH             *updatesegment.Handler
-	startAudienceImportH       *startaudienceimport.Handler
-	listAudienceImportsH       *listaudienceimports.Handler
-	getAudienceImportH         *getaudienceimport.Handler
-	startAudienceExportH       *startaudienceexport.Handler
-	listAudienceExportsH       *listaudienceexports.Handler
-	getAudienceExportH         *getaudienceexport.Handler
-	resolveAudienceSelectionH  *resolveaudienceselection.Handler
-	resolveAudienceRecipientsH *resolveaudiencerecipients.Handler
+	createContactH             *contact.CreateHandler
+	getContactH                *contact.GetHandler
+	listContactsH              *contact.ListHandler
+	updateContactH             *contact.UpdateHandler
+	archiveContactH            *contact.ArchiveHandler
+	createListH                *list.CreateHandler
+	listListsH                 *list.ListHandler
+	updateListMembershipsH     *list.UpdateMembershipsHandler
+	createSegmentH             *segment.CreateHandler
+	listSegmentsH              *segment.ListHandler
+	updateSegmentH             *segment.UpdateHandler
+	startAudienceImportH       *importjob.StartHandler
+	listAudienceImportsH       *importjob.ListHandler
+	getAudienceImportH         *importjob.GetHandler
+	startAudienceExportH       *exportjob.StartHandler
+	listAudienceExportsH       *exportjob.ListHandler
+	getAudienceExportH         *exportjob.GetHandler
+	resolveAudienceSelectionH  *resolve.SelectionHandler
+	resolveAudienceRecipientsH *resolve.RecipientsHandler
 }
 
 func NewService(opts Options) *Service {
@@ -93,81 +80,81 @@ func NewService(opts Options) *Service {
 		log:            opts.Logger,
 		artifactSigner: opts.ArtifactSigner,
 		downloadURLTTL: opts.DownloadURLTTL,
-		createContactH: createcontact.New(createcontact.Options{
+		createContactH: contact.NewCreate(contact.CreateOptions{
 			ContactsWrite: opts.ContactsWrite,
 			AccessChecker: opts.AccessChecker,
 			IDGen:         opts.IDGen,
 			Logger:        opts.Logger,
 		}),
-		getContactH: getcontact.New(getcontact.Options{
+		getContactH: contact.NewGet(contact.GetOptions{
 			ContactsRead:  opts.ContactsRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		listContactsH: listcontacts.New(listcontacts.Options{
+		listContactsH: contact.NewList(contact.ListOptions{
 			ContactsRead:  opts.ContactsRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		updateContactH: updatecontact.New(updatecontact.Options{
+		updateContactH: contact.NewUpdate(contact.UpdateOptions{
 			ContactsWrite: opts.ContactsWrite,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		archiveContactH: archivecontact.New(archivecontact.Options{
+		archiveContactH: contact.NewArchive(contact.ArchiveOptions{
 			ContactsWrite: opts.ContactsWrite,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		createListH: createlist.New(createlist.Options{
+		createListH: list.NewCreate(list.CreateOptions{
 			ListsWrite:    opts.ListsWrite,
 			AccessChecker: opts.AccessChecker,
 			IDGen:         opts.IDGen,
 			Logger:        opts.Logger,
 		}),
-		listListsH: listlists.New(listlists.Options{
+		listListsH: list.NewList(list.ListOptions{
 			ListsRead:     opts.ListsRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		updateListMembershipsH: updatelistmemberships.New(updatelistmemberships.Options{
+		updateListMembershipsH: list.NewUpdateMemberships(list.UpdateMembershipsOptions{
 			ListsWrite:    opts.ListsWrite,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		createSegmentH: createsegment.New(createsegment.Options{
+		createSegmentH: segment.NewCreate(segment.CreateOptions{
 			SegmentsWrite: opts.SegmentsWrite,
 			AccessChecker: opts.AccessChecker,
 			IDGen:         opts.IDGen,
 			Logger:        opts.Logger,
 		}),
-		listSegmentsH: listsegments.New(listsegments.Options{
+		listSegmentsH: segment.NewList(segment.ListOptions{
 			SegmentsRead:  opts.SegmentsRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		updateSegmentH: updatesegment.New(updatesegment.Options{
+		updateSegmentH: segment.NewUpdate(segment.UpdateOptions{
 			SegmentsWrite: opts.SegmentsWrite,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		startAudienceImportH: startaudienceimport.New(startaudienceimport.Options{
+		startAudienceImportH: importjob.NewStart(importjob.StartOptions{
 			ImportJobsWrite: opts.ImportJobsWrite,
 			AccessChecker:   opts.AccessChecker,
 			IDGen:           opts.IDGen,
 			Logger:          opts.Logger,
 		}),
-		listAudienceImportsH: listaudienceimports.New(listaudienceimports.Options{
+		listAudienceImportsH: importjob.NewList(importjob.ListOptions{
 			ImportJobsRead: opts.ImportJobsRead,
 			AccessChecker:  opts.AccessChecker,
 			Logger:         opts.Logger,
 		}),
-		getAudienceImportH: getaudienceimport.New(getaudienceimport.Options{
+		getAudienceImportH: importjob.NewGet(importjob.GetOptions{
 			ImportJobsRead: opts.ImportJobsRead,
 			AccessChecker:  opts.AccessChecker,
 			Logger:         opts.Logger,
 		}),
-		startAudienceExportH: startaudienceexport.New(startaudienceexport.Options{
+		startAudienceExportH: exportjob.NewStart(exportjob.StartOptions{
 			ExportJobsWrite: opts.ExportJobsWrite,
 			ContactsWrite:   opts.ContactsWrite,
 			SegmentsWrite:   opts.SegmentsWrite,
@@ -176,24 +163,24 @@ func NewService(opts Options) *Service {
 			IDGen:           opts.IDGen,
 			Logger:          opts.Logger,
 		}),
-		listAudienceExportsH: listaudienceexports.New(listaudienceexports.Options{
+		listAudienceExportsH: exportjob.NewList(exportjob.ListOptions{
 			ExportJobsRead: opts.ExportJobsRead,
 			AccessChecker:  opts.AccessChecker,
 			Logger:         opts.Logger,
 		}),
-		getAudienceExportH: getaudienceexport.New(getaudienceexport.Options{
+		getAudienceExportH: exportjob.NewGet(exportjob.GetOptions{
 			ExportJobsRead: opts.ExportJobsRead,
 			AccessChecker:  opts.AccessChecker,
 			Logger:         opts.Logger,
 		}),
-		resolveAudienceSelectionH: resolveaudienceselection.New(resolveaudienceselection.Options{
+		resolveAudienceSelectionH: resolve.NewSelection(resolve.SelectionOptions{
 			ContactsRead:  opts.ContactsRead,
 			SegmentsRead:  opts.SegmentsRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 			Cache:         opts.RedisCache,
 		}),
-		resolveAudienceRecipientsH: resolveaudiencerecipients.New(resolveaudiencerecipients.Options{
+		resolveAudienceRecipientsH: resolve.NewRecipients(resolve.RecipientsOptions{
 			ContactsRead:  opts.ContactsRead,
 			ListsRead:     opts.ListsRead,
 			SegmentsRead:  opts.SegmentsRead,
@@ -207,7 +194,7 @@ func NewService(opts Options) *Service {
 // --- Contact facade methods ---
 
 func (s *Service) CreateContact(ctx context.Context, input CreateContactInput) (*ContactResult, error) {
-	contact, err := s.createContactH.Execute(ctx, createcontact.Command{
+	contactResult, err := s.createContactH.Execute(ctx, contact.CreateCommand{
 		WorkspaceID: input.WorkspaceID,
 		UserID:      input.UserID,
 		Email:       input.Email,
@@ -220,11 +207,11 @@ func (s *Service) CreateContact(ctx context.Context, input CreateContactInput) (
 	if err != nil {
 		return nil, err
 	}
-	return &ContactResult{Contact: contactToDTO(*contact)}, nil
+	return &ContactResult{Contact: contactToDTO(*contactResult)}, nil
 }
 
 func (s *Service) ListContacts(ctx context.Context, query ports.ContactListQuery, userID string) (*ContactListResult, error) {
-	contacts, cursor, err := s.listContactsH.Execute(ctx, listcontacts.Command{
+	contacts, cursor, err := s.listContactsH.Execute(ctx, contact.ListCommand{
 		Query:  query,
 		UserID: userID,
 	})
@@ -235,7 +222,7 @@ func (s *Service) ListContacts(ctx context.Context, query ports.ContactListQuery
 }
 
 func (s *Service) GetContact(ctx context.Context, workspaceID, contactID, userID string) (*ContactResult, error) {
-	contact, err := s.getContactH.Execute(ctx, getcontact.Command{
+	contactResult, err := s.getContactH.Execute(ctx, contact.GetCommand{
 		WorkspaceID: workspaceID,
 		ContactID:   contactID,
 		UserID:      userID,
@@ -243,11 +230,11 @@ func (s *Service) GetContact(ctx context.Context, workspaceID, contactID, userID
 	if err != nil {
 		return nil, err
 	}
-	return &ContactResult{Contact: contactToDTO(*contact)}, nil
+	return &ContactResult{Contact: contactToDTO(*contactResult)}, nil
 }
 
 func (s *Service) UpdateContact(ctx context.Context, input UpdateContactInput) (*ContactResult, error) {
-	contact, err := s.updateContactH.Execute(ctx, updatecontact.Command{
+	contactResult, err := s.updateContactH.Execute(ctx, contact.UpdateCommand{
 		WorkspaceID: input.WorkspaceID,
 		ContactID:   input.ContactID,
 		UserID:      input.UserID,
@@ -262,11 +249,11 @@ func (s *Service) UpdateContact(ctx context.Context, input UpdateContactInput) (
 	if err != nil {
 		return nil, err
 	}
-	return &ContactResult{Contact: contactToDTO(*contact)}, nil
+	return &ContactResult{Contact: contactToDTO(*contactResult)}, nil
 }
 
 func (s *Service) ArchiveContact(ctx context.Context, workspaceID, contactID, userID string, now time.Time) error {
-	return s.archiveContactH.Execute(ctx, archivecontact.Command{
+	return s.archiveContactH.Execute(ctx, contact.ArchiveCommand{
 		WorkspaceID: workspaceID,
 		ContactID:   contactID,
 		UserID:      userID,
@@ -277,7 +264,7 @@ func (s *Service) ArchiveContact(ctx context.Context, workspaceID, contactID, us
 // --- List facade methods ---
 
 func (s *Service) CreateList(ctx context.Context, workspaceID, userID, name, description string, metadata map[string]any, now time.Time) (*ListResult, error) {
-	list, err := s.createListH.Execute(ctx, createlist.Command{
+	listResult, err := s.createListH.Execute(ctx, list.CreateCommand{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
 		Name:        name,
@@ -288,11 +275,11 @@ func (s *Service) CreateList(ctx context.Context, workspaceID, userID, name, des
 	if err != nil {
 		return nil, err
 	}
-	return &ListResult{List: listToDTO(*list)}, nil
+	return &ListResult{List: listToDTO(*listResult)}, nil
 }
 
 func (s *Service) ListLists(ctx context.Context, workspaceID, userID string, limit int, cursor string) (*ListListResult, error) {
-	result, err := s.listListsH.Execute(ctx, listlists.Command{
+	result, err := s.listListsH.Execute(ctx, list.ListCommand{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
 		Limit:       limit,
@@ -309,7 +296,7 @@ func (s *Service) ListLists(ctx context.Context, workspaceID, userID string, lim
 }
 
 func (s *Service) UpdateListMemberships(ctx context.Context, workspaceID, listID, userID, mode string, contactIDs []string, now time.Time) (*MembershipUpdateResult, error) {
-	result, err := s.updateListMembershipsH.Execute(ctx, updatelistmemberships.Command{
+	result, err := s.updateListMembershipsH.Execute(ctx, list.UpdateMembershipsCommand{
 		WorkspaceID: workspaceID,
 		ListID:      listID,
 		UserID:      userID,
@@ -332,7 +319,7 @@ func (s *Service) UpdateListMemberships(ctx context.Context, workspaceID, listID
 // --- Segment facade methods ---
 
 func (s *Service) CreateSegment(ctx context.Context, workspaceID, userID, name string, definition map[string]any, now time.Time) (*SegmentResult, error) {
-	segment, err := s.createSegmentH.Execute(ctx, createsegment.Command{
+	segmentResult, err := s.createSegmentH.Execute(ctx, segment.CreateCommand{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
 		Name:        name,
@@ -342,11 +329,11 @@ func (s *Service) CreateSegment(ctx context.Context, workspaceID, userID, name s
 	if err != nil {
 		return nil, err
 	}
-	return &SegmentResult{Segment: segmentToDTO(*segment)}, nil
+	return &SegmentResult{Segment: segmentToDTO(*segmentResult)}, nil
 }
 
 func (s *Service) ListSegments(ctx context.Context, workspaceID, userID, status string, limit int, cursor string) (*SegmentListResult, error) {
-	segments, nextCursor, err := s.listSegmentsH.Execute(ctx, listsegments.Command{
+	segments, nextCursor, err := s.listSegmentsH.Execute(ctx, segment.ListCommand{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
 		Status:      status,
@@ -360,7 +347,7 @@ func (s *Service) ListSegments(ctx context.Context, workspaceID, userID, status 
 }
 
 func (s *Service) UpdateSegment(ctx context.Context, workspaceID, segmentID, userID, name string, definition map[string]any, status string, now time.Time) (*SegmentResult, error) {
-	segment, err := s.updateSegmentH.Execute(ctx, updatesegment.Command{
+	segmentResult, err := s.updateSegmentH.Execute(ctx, segment.UpdateCommand{
 		WorkspaceID: workspaceID,
 		SegmentID:   segmentID,
 		UserID:      userID,
@@ -372,13 +359,13 @@ func (s *Service) UpdateSegment(ctx context.Context, workspaceID, segmentID, use
 	if err != nil {
 		return nil, err
 	}
-	return &SegmentResult{Segment: segmentToDTO(*segment)}, nil
+	return &SegmentResult{Segment: segmentToDTO(*segmentResult)}, nil
 }
 
 // --- Import facade methods ---
 
 func (s *Service) StartAudienceImport(ctx context.Context, workspaceID, userID, sourceURI, dedupeMode string, metadata map[string]any, now time.Time) (*ImportJobResult, error) {
-	job, err := s.startAudienceImportH.Execute(ctx, startaudienceimport.Command{
+	job, err := s.startAudienceImportH.Execute(ctx, importjob.StartCommand{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
 		SourceURI:   sourceURI,
@@ -393,7 +380,7 @@ func (s *Service) StartAudienceImport(ctx context.Context, workspaceID, userID, 
 }
 
 func (s *Service) ListAudienceImports(ctx context.Context, workspaceID, userID, status string, limit int, cursor string) (*ImportJobListResult, error) {
-	jobs, nextCursor, err := s.listAudienceImportsH.Execute(ctx, listaudienceimports.Command{
+	jobs, nextCursor, err := s.listAudienceImportsH.Execute(ctx, importjob.ListCommand{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
 		Status:      status,
@@ -407,7 +394,7 @@ func (s *Service) ListAudienceImports(ctx context.Context, workspaceID, userID, 
 }
 
 func (s *Service) GetAudienceImport(ctx context.Context, workspaceID, jobID, userID string) (*ImportJobResult, error) {
-	job, err := s.getAudienceImportH.Execute(ctx, getaudienceimport.Command{
+	job, err := s.getAudienceImportH.Execute(ctx, importjob.GetCommand{
 		WorkspaceID: workspaceID,
 		JobID:       jobID,
 		UserID:      userID,
@@ -421,7 +408,7 @@ func (s *Service) GetAudienceImport(ctx context.Context, workspaceID, jobID, use
 // --- Export facade methods ---
 
 func (s *Service) StartAudienceExport(ctx context.Context, workspaceID, userID, format string, zipOutput bool, filters map[string]any, selectedFields []string, now time.Time) (*ExportJobResult, error) {
-	job, err := s.startAudienceExportH.Execute(ctx, startaudienceexport.Command{
+	job, err := s.startAudienceExportH.Execute(ctx, exportjob.StartCommand{
 		WorkspaceID:    workspaceID,
 		UserID:         userID,
 		Format:         format,
@@ -438,7 +425,7 @@ func (s *Service) StartAudienceExport(ctx context.Context, workspaceID, userID, 
 }
 
 func (s *Service) ListAudienceExports(ctx context.Context, workspaceID, userID, status string, limit int, cursor string) (*ExportJobListResult, error) {
-	jobs, nextCursor, err := s.listAudienceExportsH.Execute(ctx, listaudienceexports.Command{
+	jobs, nextCursor, err := s.listAudienceExportsH.Execute(ctx, exportjob.ListCommand{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
 		Status:      status,
@@ -458,7 +445,7 @@ func (s *Service) ListAudienceExports(ctx context.Context, workspaceID, userID, 
 }
 
 func (s *Service) GetAudienceExport(ctx context.Context, workspaceID, jobID, userID string) (*ExportJobResult, error) {
-	job, err := s.getAudienceExportH.Execute(ctx, getaudienceexport.Command{
+	job, err := s.getAudienceExportH.Execute(ctx, exportjob.GetCommand{
 		WorkspaceID: workspaceID,
 		JobID:       jobID,
 		UserID:      userID,
@@ -474,7 +461,7 @@ func (s *Service) GetAudienceExport(ctx context.Context, workspaceID, jobID, use
 // --- Audience resolution facade methods ---
 
 func (s *Service) ResolveAudienceSelection(ctx context.Context, workspaceID, userID string, ref AudienceSelectionRef) ([]string, error) {
-	return s.resolveAudienceSelectionH.Execute(ctx, resolveaudienceselection.Command{
+	return s.resolveAudienceSelectionH.Execute(ctx, resolve.SelectionCommand{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
 		ListID:      ref.ListID,
@@ -500,7 +487,7 @@ func (s *Service) enrichExportJob(ctx context.Context, job *ExportJobDTO) {
 }
 
 func (s *Service) EstimateAudienceSize(ctx context.Context, workspaceID, userID string, ref AudienceSelectionRef) (int, error) {
-	ids, err := s.resolveAudienceSelectionH.Execute(ctx, resolveaudienceselection.Command{
+	ids, err := s.resolveAudienceSelectionH.Execute(ctx, resolve.SelectionCommand{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
 		ListID:      ref.ListID,
@@ -514,7 +501,7 @@ func (s *Service) EstimateAudienceSize(ctx context.Context, workspaceID, userID 
 }
 
 func (s *Service) ResolveAudienceRecipients(ctx context.Context, workspaceID, userID string, ref AudienceSelectionRef) ([]AudienceRecipient, error) {
-	recipients, err := s.resolveAudienceRecipientsH.Execute(ctx, resolveaudiencerecipients.Command{
+	recipients, err := s.resolveAudienceRecipientsH.Execute(ctx, resolve.RecipientsCommand{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
 		ListID:      ref.ListID,

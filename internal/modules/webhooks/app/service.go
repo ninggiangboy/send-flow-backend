@@ -5,20 +5,25 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/createwebhookconfig"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/deliverwebhook"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/disablewebhookconfig"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/getdelivery"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/handlesourceevent"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/listdeliveries"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/listwebhookconfigs"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/processduedelivery"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/retrywebhookdelivery"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/rotatesecret"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/updatewebhookconfig"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/config"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/delivery"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/app/source"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/webhooks/ports"
+	"github.com/ninggiangboy/send-flow/backend/internal/platform/events"
 )
+
+// Re-exported from source package for worker compatibility.
+var (
+	ErrUnsupportedEventType = source.ErrUnsupportedEventType
+	ErrMalformedPayload     = source.ErrMalformedPayload
+)
+
+type MappedSourceEvent = source.MappedSourceEvent
+
+func MapEnvelopeToSourceEvent(envelope events.Envelope) (*MappedSourceEvent, error) {
+	return source.MapEnvelopeToSourceEvent(envelope)
+}
 
 type Options struct {
 	ConfigRead    ports.ConfigReadRepository
@@ -37,17 +42,17 @@ type Options struct {
 }
 
 type Service struct {
-	listWebhookConfigsH   *listwebhookconfigs.Handler
-	createWebhookConfigH  *createwebhookconfig.Handler
-	updateWebhookConfigH  *updatewebhookconfig.Handler
-	disableWebhookConfigH *disablewebhookconfig.Handler
-	rotateSecretH         *rotatesecret.Handler
-	deliverWebhookH       *deliverwebhook.Handler
-	processDueDeliveryH   *processduedelivery.Handler
-	retryWebhookDeliveryH *retrywebhookdelivery.Handler
-	listDeliveriesH       *listdeliveries.Handler
-	getDeliveryH          *getdelivery.Handler
-	handleSourceEventH    *handlesourceevent.Handler
+	listWebhookConfigsH   *config.ListHandler
+	createWebhookConfigH  *config.CreateHandler
+	updateWebhookConfigH  *config.UpdateHandler
+	disableWebhookConfigH *config.DisableHandler
+	rotateSecretH         *config.RotateHandler
+	deliverWebhookH       *delivery.DeliverHandler
+	processDueDeliveryH   *delivery.ProcessHandler
+	retryWebhookDeliveryH *delivery.RetryHandler
+	listDeliveriesH       *delivery.ListHandler
+	getDeliveryH          *delivery.GetHandler
+	handleSourceEventH    *source.Handler
 	deliveryWrite         ports.DeliveryWriteRepository
 }
 
@@ -60,7 +65,7 @@ func NewService(opts Options) *Service {
 	}
 	logger := opts.Logger.With("module", "webhooks")
 
-	deliverWebhookH := deliverwebhook.New(deliverwebhook.Options{
+	deliverWebhookH := delivery.NewDeliver(delivery.DeliverOptions{
 		Deliverer: opts.Deliverer,
 		IDGen:     opts.IDGen,
 		Clock:     opts.Clock,
@@ -68,12 +73,12 @@ func NewService(opts Options) *Service {
 	})
 
 	return &Service{
-		listWebhookConfigsH: listwebhookconfigs.New(listwebhookconfigs.Options{
+		listWebhookConfigsH: config.NewList(config.ListOptions{
 			ConfigRead:    opts.ConfigRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        logger,
 		}),
-		createWebhookConfigH: createwebhookconfig.New(createwebhookconfig.Options{
+		createWebhookConfigH: config.NewCreate(config.CreateOptions{
 			ConfigWrite:   opts.ConfigWrite,
 			TxManager:     opts.TxManager,
 			OutboxWriter:  opts.OutboxWriter,
@@ -82,7 +87,7 @@ func NewService(opts Options) *Service {
 			Clock:         opts.Clock,
 			Logger:        logger,
 		}),
-		updateWebhookConfigH: updatewebhookconfig.New(updatewebhookconfig.Options{
+		updateWebhookConfigH: config.NewUpdate(config.UpdateOptions{
 			ConfigWrite:   opts.ConfigWrite,
 			TxManager:     opts.TxManager,
 			OutboxWriter:  opts.OutboxWriter,
@@ -91,7 +96,7 @@ func NewService(opts Options) *Service {
 			Clock:         opts.Clock,
 			Logger:        logger,
 		}),
-		disableWebhookConfigH: disablewebhookconfig.New(disablewebhookconfig.Options{
+		disableWebhookConfigH: config.NewDisable(config.DisableOptions{
 			ConfigWrite:   opts.ConfigWrite,
 			TxManager:     opts.TxManager,
 			OutboxWriter:  opts.OutboxWriter,
@@ -100,7 +105,7 @@ func NewService(opts Options) *Service {
 			Clock:         opts.Clock,
 			Logger:        logger,
 		}),
-		rotateSecretH: rotatesecret.New(rotatesecret.Options{
+		rotateSecretH: config.NewRotate(config.RotateOptions{
 			ConfigWrite:   opts.ConfigWrite,
 			TxManager:     opts.TxManager,
 			OutboxWriter:  opts.OutboxWriter,
@@ -110,7 +115,7 @@ func NewService(opts Options) *Service {
 			Logger:        logger,
 		}),
 		deliverWebhookH: deliverWebhookH,
-		processDueDeliveryH: processduedelivery.New(processduedelivery.Options{
+		processDueDeliveryH: delivery.NewProcess(delivery.ProcessOptions{
 			DeliveryWrite:   opts.DeliveryWrite,
 			AttemptWrite:    opts.AttemptWrite,
 			ConfigWrite:     opts.ConfigWrite,
@@ -121,7 +126,7 @@ func NewService(opts Options) *Service {
 			Clock:           opts.Clock,
 			Logger:          logger,
 		}),
-		retryWebhookDeliveryH: retrywebhookdelivery.New(retrywebhookdelivery.Options{
+		retryWebhookDeliveryH: delivery.NewRetry(delivery.RetryOptions{
 			DeliveryWrite:   opts.DeliveryWrite,
 			AttemptWrite:    opts.AttemptWrite,
 			ConfigWrite:     opts.ConfigWrite,
@@ -133,18 +138,18 @@ func NewService(opts Options) *Service {
 			Clock:           opts.Clock,
 			Logger:          logger,
 		}),
-		listDeliveriesH: listdeliveries.New(listdeliveries.Options{
+		listDeliveriesH: delivery.NewList(delivery.ListOptions{
 			DeliveryRead:  opts.DeliveryRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        logger,
 		}),
-		getDeliveryH: getdelivery.New(getdelivery.Options{
+		getDeliveryH: delivery.NewGet(delivery.GetOptions{
 			DeliveryRead:  opts.DeliveryRead,
 			AttemptRead:   opts.AttemptRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        logger,
 		}),
-		handleSourceEventH: handlesourceevent.New(handlesourceevent.Options{
+		handleSourceEventH: source.New(source.Options{
 			ConfigRead:    opts.ConfigRead,
 			DeliveryWrite: opts.DeliveryWrite,
 			IDGen:         opts.IDGen,
@@ -271,7 +276,7 @@ type HandleSourceEventInput struct {
 // Facade methods.
 
 func (s *Service) CreateWebhookConfig(ctx context.Context, input CreateConfigInput) (*ConfigResult, error) {
-	result, err := s.createWebhookConfigH.Execute(ctx, createwebhookconfig.Command{
+	result, err := s.createWebhookConfigH.Execute(ctx, config.CreateCommand{
 		WorkspaceID:   input.WorkspaceID,
 		UserID:        input.UserID,
 		Name:          input.Name,
@@ -287,7 +292,7 @@ func (s *Service) CreateWebhookConfig(ctx context.Context, input CreateConfigInp
 }
 
 func (s *Service) ListWebhookConfigs(ctx context.Context, input ListConfigsInput) ([]ConfigResult, error) {
-	configs, err := s.listWebhookConfigsH.Execute(ctx, listwebhookconfigs.Command{
+	configs, err := s.listWebhookConfigsH.Execute(ctx, config.ListCommand{
 		WorkspaceID: input.WorkspaceID,
 		UserID:      input.UserID,
 	})
@@ -303,7 +308,7 @@ func (s *Service) ListWebhookConfigs(ctx context.Context, input ListConfigsInput
 }
 
 func (s *Service) UpdateWebhookConfig(ctx context.Context, input UpdateConfigInput) (*ConfigResult, error) {
-	cfg, err := s.updateWebhookConfigH.Execute(ctx, updatewebhookconfig.Command{
+	cfg, err := s.updateWebhookConfigH.Execute(ctx, config.UpdateCommand{
 		WorkspaceID:   input.WorkspaceID,
 		UserID:        input.UserID,
 		WebhookID:     input.WebhookID,
@@ -321,7 +326,7 @@ func (s *Service) UpdateWebhookConfig(ctx context.Context, input UpdateConfigInp
 }
 
 func (s *Service) DisableWebhookConfig(ctx context.Context, input DisableConfigInput) error {
-	return s.disableWebhookConfigH.Execute(ctx, disablewebhookconfig.Command{
+	return s.disableWebhookConfigH.Execute(ctx, config.DisableCommand{
 		WorkspaceID: input.WorkspaceID,
 		UserID:      input.UserID,
 		WebhookID:   input.WebhookID,
@@ -329,7 +334,7 @@ func (s *Service) DisableWebhookConfig(ctx context.Context, input DisableConfigI
 }
 
 func (s *Service) RotateWebhookSecret(ctx context.Context, input RotateSecretInput) (*RotateSecretResult, error) {
-	result, err := s.rotateSecretH.Execute(ctx, rotatesecret.Command{
+	result, err := s.rotateSecretH.Execute(ctx, config.RotateCommand{
 		WorkspaceID: input.WorkspaceID,
 		UserID:      input.UserID,
 		WebhookID:   input.WebhookID,
@@ -346,7 +351,7 @@ func (s *Service) RotateWebhookSecret(ctx context.Context, input RotateSecretInp
 }
 
 func (s *Service) ListWebhookDeliveries(ctx context.Context, input ListDeliveriesInput) (*ListDeliveriesResult, error) {
-	deliveries, cursor, err := s.listDeliveriesH.Execute(ctx, listdeliveries.Command{
+	deliveries, cursor, err := s.listDeliveriesH.Execute(ctx, delivery.ListCommand{
 		WorkspaceID: input.WorkspaceID,
 		UserID:      input.UserID,
 		WebhookID:   input.WebhookID,
@@ -365,7 +370,7 @@ func (s *Service) ListWebhookDeliveries(ctx context.Context, input ListDeliverie
 }
 
 func (s *Service) GetWebhookDelivery(ctx context.Context, input GetDeliveryInput) (*domain.WebhookDelivery, error) {
-	return s.getDeliveryH.Execute(ctx, getdelivery.Command{
+	return s.getDeliveryH.Execute(ctx, delivery.GetCommand{
 		WorkspaceID: input.WorkspaceID,
 		UserID:      input.UserID,
 		DeliveryID:  input.DeliveryID,
@@ -373,7 +378,7 @@ func (s *Service) GetWebhookDelivery(ctx context.Context, input GetDeliveryInput
 }
 
 func (s *Service) RetryWebhookDelivery(ctx context.Context, input RetryDeliveryInput) error {
-	return s.retryWebhookDeliveryH.Execute(ctx, retrywebhookdelivery.Command{
+	return s.retryWebhookDeliveryH.Execute(ctx, delivery.RetryCommand{
 		WorkspaceID: input.WorkspaceID,
 		UserID:      input.UserID,
 		DeliveryID:  input.DeliveryID,
@@ -385,14 +390,14 @@ func (s *Service) ClaimDueDeliveries(ctx context.Context, limit int, now time.Ti
 }
 
 func (s *Service) ProcessDueDelivery(ctx context.Context, workspaceID, deliveryID string) (string, error) {
-	return s.processDueDeliveryH.Execute(ctx, processduedelivery.Command{
+	return s.processDueDeliveryH.Execute(ctx, delivery.ProcessCommand{
 		WorkspaceID: workspaceID,
 		DeliveryID:  deliveryID,
 	})
 }
 
 func (s *Service) HandleSourceEvent(ctx context.Context, input HandleSourceEventInput) error {
-	return s.handleSourceEventH.Execute(ctx, handlesourceevent.Command{
+	return s.handleSourceEventH.Execute(ctx, source.Command{
 		RawPayload: input.RawPayload,
 	})
 }
@@ -400,5 +405,5 @@ func (s *Service) HandleSourceEvent(ctx context.Context, input HandleSourceEvent
 // SignPayloadRaw signs a webhook payload using HMAC-SHA256.
 // It is used by the HTTP deliverer in the infrastructure layer.
 func SignPayloadRaw(payload []byte, timestamp, signingKey string) string {
-	return deliverwebhook.SignPayloadRaw(payload, timestamp, signingKey)
+	return delivery.SignPayloadRaw(payload, timestamp, signingKey)
 }

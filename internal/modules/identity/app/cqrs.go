@@ -5,64 +5,42 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/acceptworkspaceinvitation"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/authenticate"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/createworkspace"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/forgotpassword"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/getme"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/getworkspace"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/getworkspaceaccess"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/inviteworkspacemember"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/listproviders"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/listsessions"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/listworkspaceinvitations"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/listworkspacemembers"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/listworkspaces"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/login"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/mfalogin"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/mfaregenerate"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/mfatotpdisable"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/mfatotpenable"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/mfatotpsetup"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/oauthexchange"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/oauthstart"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/refresh"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/removeworkspacemember"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/requestemailverification"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/resetpassword"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/revokesession"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/signup"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/updateworkspacememberrole"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/usecase"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/verifyemail"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/auth"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/membership"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/mfa"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/oauth"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/session"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/shared"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/verification"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/app/workspace"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/domain"
 )
 
 type CommandBus interface {
-	Signup(ctx context.Context, cmd signup.Command) (*usecase.SessionContext, error)
-	Login(ctx context.Context, cmd login.Command) (*usecase.LoginResult, error)
-	OAuthStart(ctx context.Context, cmd oauthstart.Command) (*usecase.OAuthStartResult, error)
-	OAuthExchange(ctx context.Context, cmd oauthexchange.Command) (*usecase.SessionContext, *domain.OAuthIdentity, error)
+	Signup(ctx context.Context, cmd auth.SignupCommand) (*shared.SessionContext, error)
+	Login(ctx context.Context, cmd auth.LoginCommand) (*shared.LoginResult, error)
+	OAuthStart(ctx context.Context, cmd oauth.StartCommand) (*shared.OAuthStartResult, error)
+	OAuthExchange(ctx context.Context, cmd oauth.ExchangeCommand) (*shared.SessionContext, *domain.OAuthIdentity, error)
 	RevokeSession(ctx context.Context, sessionID, userID string, now time.Time) error
-	Refresh(ctx context.Context, cmd refresh.Command) (*usecase.SessionContext, error)
+	Refresh(ctx context.Context, cmd auth.RefreshCommand) (*shared.SessionContext, error)
 	RequestEmailVerification(ctx context.Context, userID string, now time.Time) error
 	VerifyEmail(ctx context.Context, token string, now time.Time) error
 	ForgotPassword(ctx context.Context, email string, now time.Time) error
-	ResetPassword(ctx context.Context, cmd resetpassword.Command) error
-	MFALogin(ctx context.Context, cmd mfalogin.Command) (*usecase.SessionContext, error)
-	MFATOTPSetup(ctx context.Context, userID string, now time.Time) (*mfatotpsetup.Result, error)
-	MFATOTPEnable(ctx context.Context, userID, code string, now time.Time) (*mfatotpenable.Result, error)
-	MFATOTPDisable(ctx context.Context, cmd mfatotpdisable.Command) error
-	MFARegenerate(ctx context.Context, userID, code string, now time.Time) (*mfatotpenable.Result, error)
-	CreateWorkspace(ctx context.Context, cmd createworkspace.Command) (*domain.Workspace, error)
-	InviteWorkspaceMember(ctx context.Context, cmd inviteworkspacemember.Command) (*inviteworkspacemember.Result, error)
-	AcceptWorkspaceInvitation(ctx context.Context, cmd acceptworkspaceinvitation.Command) (*domain.Membership, error)
-	RemoveWorkspaceMember(ctx context.Context, cmd removeworkspacemember.Command) error
-	UpdateWorkspaceMemberRole(ctx context.Context, cmd updateworkspacememberrole.Command) error
+	ResetPassword(ctx context.Context, cmd verification.ResetPasswordCommand) error
+	MFALogin(ctx context.Context, cmd mfa.MFALoginCommand) (*shared.SessionContext, error)
+	MFATOTPSetup(ctx context.Context, userID string, now time.Time) (*mfa.TOTPSetupResult, error)
+	MFATOTPEnable(ctx context.Context, userID, code string, now time.Time) (*mfa.TOTPEnableResult, error)
+	MFATOTPDisable(ctx context.Context, cmd mfa.TOTPDisableCommand) error
+	MFARegenerate(ctx context.Context, userID, code string, now time.Time) (*mfa.TOTPEnableResult, error)
+	CreateWorkspace(ctx context.Context, cmd workspace.CreateCommand) (*domain.Workspace, error)
+	InviteWorkspaceMember(ctx context.Context, cmd membership.InviteCommand) (*membership.InviteResult, error)
+	AcceptWorkspaceInvitation(ctx context.Context, cmd membership.AcceptInvitationCommand) (*domain.Membership, error)
+	RemoveWorkspaceMember(ctx context.Context, cmd membership.RemoveCommand) error
+	UpdateWorkspaceMemberRole(ctx context.Context, cmd membership.UpdateRoleCommand) error
 }
 
 type QueryBus interface {
-	ListProviders() []usecase.Provider
+	ListProviders() []shared.Provider
 	GetMe(ctx context.Context, userID string) (*domain.User, error)
 	ListSessions(ctx context.Context, userID string, now time.Time) ([]domain.Session, error)
 	AuthenticateAccessToken(ctx context.Context, token string, now time.Time) (*domain.Session, *domain.User, error)
@@ -75,50 +53,50 @@ type QueryBus interface {
 
 type commandBus struct {
 	logger       *slog.Logger
-	signup       *signup.Handler
-	login        *login.Handler
-	oauthStart   *oauthstart.Handler
-	oauthEx      *oauthexchange.Handler
-	revoke       *revokesession.Handler
-	refresh      *refresh.Handler
-	reqVerify    *requestemailverification.Handler
-	verify       *verifyemail.Handler
-	forgot       *forgotpassword.Handler
-	reset        *resetpassword.Handler
-	mfaLogin     *mfalogin.Handler
-	mfaSetup     *mfatotpsetup.Handler
-	mfaEnable    *mfatotpenable.Handler
-	mfaDisable   *mfatotpdisable.Handler
-	mfaRegen     *mfaregenerate.Handler
-	createWS     *createworkspace.Handler
-	inviteMember *inviteworkspacemember.Handler
-	acceptInvite *acceptworkspaceinvitation.Handler
-	removeMember *removeworkspacemember.Handler
-	updateRole   *updateworkspacememberrole.Handler
+	signup       *auth.SignupHandler
+	login        *auth.LoginHandler
+	oauthStart   *oauth.StartHandler
+	oauthEx      *oauth.ExchangeHandler
+	revoke       *session.RevokeSessionHandler
+	refresh      *auth.RefreshHandler
+	reqVerify    *verification.RequestEmailHandler
+	verify       *verification.VerifyEmailHandler
+	forgot       *verification.ForgotPasswordHandler
+	reset        *verification.ResetPasswordHandler
+	mfaLogin     *mfa.MFALoginHandler
+	mfaSetup     *mfa.TOTPSetupHandler
+	mfaEnable    *mfa.TOTPEnableHandler
+	mfaDisable   *mfa.TOTPDisableHandler
+	mfaRegen     *mfa.RegenerateHandler
+	createWS     *workspace.CreateHandler
+	inviteMember *membership.InviteHandler
+	acceptInvite *membership.AcceptInvitationHandler
+	removeMember *membership.RemoveHandler
+	updateRole   *membership.UpdateRoleHandler
 }
 
 func newCommandBus(
 	logger *slog.Logger,
-	signupH *signup.Handler,
-	loginH *login.Handler,
-	oauthStartH *oauthstart.Handler,
-	oauthExchangeH *oauthexchange.Handler,
-	revokeH *revokesession.Handler,
-	refreshH *refresh.Handler,
-	reqVerifyH *requestemailverification.Handler,
-	verifyH *verifyemail.Handler,
-	forgotH *forgotpassword.Handler,
-	resetH *resetpassword.Handler,
-	mfaLoginH *mfalogin.Handler,
-	mfaSetupH *mfatotpsetup.Handler,
-	mfaEnableH *mfatotpenable.Handler,
-	mfaDisableH *mfatotpdisable.Handler,
-	mfaRegenH *mfaregenerate.Handler,
-	createWSH *createworkspace.Handler,
-	inviteMemberH *inviteworkspacemember.Handler,
-	acceptInviteH *acceptworkspaceinvitation.Handler,
-	removeMemberH *removeworkspacemember.Handler,
-	updateRoleH *updateworkspacememberrole.Handler,
+	signupH *auth.SignupHandler,
+	loginH *auth.LoginHandler,
+	oauthStartH *oauth.StartHandler,
+	oauthExchangeH *oauth.ExchangeHandler,
+	revokeH *session.RevokeSessionHandler,
+	refreshH *auth.RefreshHandler,
+	reqVerifyH *verification.RequestEmailHandler,
+	verifyH *verification.VerifyEmailHandler,
+	forgotH *verification.ForgotPasswordHandler,
+	resetH *verification.ResetPasswordHandler,
+	mfaLoginH *mfa.MFALoginHandler,
+	mfaSetupH *mfa.TOTPSetupHandler,
+	mfaEnableH *mfa.TOTPEnableHandler,
+	mfaDisableH *mfa.TOTPDisableHandler,
+	mfaRegenH *mfa.RegenerateHandler,
+	createWSH *workspace.CreateHandler,
+	inviteMemberH *membership.InviteHandler,
+	acceptInviteH *membership.AcceptInvitationHandler,
+	removeMemberH *membership.RemoveHandler,
+	updateRoleH *membership.UpdateRoleHandler,
 ) CommandBus {
 	return &commandBus{
 		logger:       logger,
@@ -145,7 +123,7 @@ func newCommandBus(
 	}
 }
 
-func (b *commandBus) Signup(ctx context.Context, cmd signup.Command) (*usecase.SessionContext, error) {
+func (b *commandBus) Signup(ctx context.Context, cmd auth.SignupCommand) (*shared.SessionContext, error) {
 	b.logger.Info("dispatching command", "command", "signup")
 	result, err := b.signup.Execute(ctx, cmd)
 	if err != nil {
@@ -153,7 +131,8 @@ func (b *commandBus) Signup(ctx context.Context, cmd signup.Command) (*usecase.S
 	}
 	return result, err
 }
-func (b *commandBus) Login(ctx context.Context, cmd login.Command) (*usecase.LoginResult, error) {
+
+func (b *commandBus) Login(ctx context.Context, cmd auth.LoginCommand) (*shared.LoginResult, error) {
 	b.logger.Info("dispatching command", "command", "login")
 	result, err := b.login.Execute(ctx, cmd)
 	if err != nil {
@@ -161,7 +140,8 @@ func (b *commandBus) Login(ctx context.Context, cmd login.Command) (*usecase.Log
 	}
 	return result, err
 }
-func (b *commandBus) OAuthStart(ctx context.Context, cmd oauthstart.Command) (*usecase.OAuthStartResult, error) {
+
+func (b *commandBus) OAuthStart(ctx context.Context, cmd oauth.StartCommand) (*shared.OAuthStartResult, error) {
 	b.logger.Info("dispatching command", "command", "oauth_start")
 	result, err := b.oauthStart.Execute(ctx, cmd)
 	if err != nil {
@@ -169,7 +149,8 @@ func (b *commandBus) OAuthStart(ctx context.Context, cmd oauthstart.Command) (*u
 	}
 	return result, err
 }
-func (b *commandBus) OAuthExchange(ctx context.Context, cmd oauthexchange.Command) (*usecase.SessionContext, *domain.OAuthIdentity, error) {
+
+func (b *commandBus) OAuthExchange(ctx context.Context, cmd oauth.ExchangeCommand) (*shared.SessionContext, *domain.OAuthIdentity, error) {
 	b.logger.Info("dispatching command", "command", "oauth_exchange")
 	session, identity, err := b.oauthEx.Execute(ctx, cmd)
 	if err != nil {
@@ -177,6 +158,7 @@ func (b *commandBus) OAuthExchange(ctx context.Context, cmd oauthexchange.Comman
 	}
 	return session, identity, err
 }
+
 func (b *commandBus) RevokeSession(ctx context.Context, sessionID, userID string, now time.Time) error {
 	b.logger.Info("dispatching command", "command", "revoke_session")
 	err := b.revoke.Execute(ctx, sessionID, userID, now)
@@ -185,7 +167,8 @@ func (b *commandBus) RevokeSession(ctx context.Context, sessionID, userID string
 	}
 	return err
 }
-func (b *commandBus) Refresh(ctx context.Context, cmd refresh.Command) (*usecase.SessionContext, error) {
+
+func (b *commandBus) Refresh(ctx context.Context, cmd auth.RefreshCommand) (*shared.SessionContext, error) {
 	b.logger.Info("dispatching command", "command", "refresh")
 	result, err := b.refresh.Execute(ctx, cmd)
 	if err != nil {
@@ -193,6 +176,7 @@ func (b *commandBus) Refresh(ctx context.Context, cmd refresh.Command) (*usecase
 	}
 	return result, err
 }
+
 func (b *commandBus) RequestEmailVerification(ctx context.Context, userID string, now time.Time) error {
 	b.logger.Info("dispatching command", "command", "request_email_verification")
 	err := b.reqVerify.Execute(ctx, userID, now)
@@ -201,6 +185,7 @@ func (b *commandBus) RequestEmailVerification(ctx context.Context, userID string
 	}
 	return err
 }
+
 func (b *commandBus) VerifyEmail(ctx context.Context, token string, now time.Time) error {
 	b.logger.Info("dispatching command", "command", "verify_email")
 	err := b.verify.Execute(ctx, token, now)
@@ -209,6 +194,7 @@ func (b *commandBus) VerifyEmail(ctx context.Context, token string, now time.Tim
 	}
 	return err
 }
+
 func (b *commandBus) ForgotPassword(ctx context.Context, email string, now time.Time) error {
 	b.logger.Info("dispatching command", "command", "forgot_password")
 	err := b.forgot.Execute(ctx, email, now)
@@ -217,7 +203,8 @@ func (b *commandBus) ForgotPassword(ctx context.Context, email string, now time.
 	}
 	return err
 }
-func (b *commandBus) ResetPassword(ctx context.Context, cmd resetpassword.Command) error {
+
+func (b *commandBus) ResetPassword(ctx context.Context, cmd verification.ResetPasswordCommand) error {
 	b.logger.Info("dispatching command", "command", "reset_password")
 	err := b.reset.Execute(ctx, cmd)
 	if err != nil {
@@ -225,7 +212,8 @@ func (b *commandBus) ResetPassword(ctx context.Context, cmd resetpassword.Comman
 	}
 	return err
 }
-func (b *commandBus) MFALogin(ctx context.Context, cmd mfalogin.Command) (*usecase.SessionContext, error) {
+
+func (b *commandBus) MFALogin(ctx context.Context, cmd mfa.MFALoginCommand) (*shared.SessionContext, error) {
 	b.logger.Info("dispatching command", "command", "mfa_login")
 	result, err := b.mfaLogin.Execute(ctx, cmd)
 	if err != nil {
@@ -233,7 +221,8 @@ func (b *commandBus) MFALogin(ctx context.Context, cmd mfalogin.Command) (*useca
 	}
 	return result, err
 }
-func (b *commandBus) MFATOTPSetup(ctx context.Context, userID string, now time.Time) (*mfatotpsetup.Result, error) {
+
+func (b *commandBus) MFATOTPSetup(ctx context.Context, userID string, now time.Time) (*mfa.TOTPSetupResult, error) {
 	b.logger.Info("dispatching command", "command", "mfa_totp_setup")
 	result, err := b.mfaSetup.Execute(ctx, userID, now)
 	if err != nil {
@@ -241,7 +230,8 @@ func (b *commandBus) MFATOTPSetup(ctx context.Context, userID string, now time.T
 	}
 	return result, err
 }
-func (b *commandBus) MFATOTPEnable(ctx context.Context, userID, code string, now time.Time) (*mfatotpenable.Result, error) {
+
+func (b *commandBus) MFATOTPEnable(ctx context.Context, userID, code string, now time.Time) (*mfa.TOTPEnableResult, error) {
 	b.logger.Info("dispatching command", "command", "mfa_totp_enable")
 	result, err := b.mfaEnable.Execute(ctx, userID, code, now)
 	if err != nil {
@@ -249,7 +239,8 @@ func (b *commandBus) MFATOTPEnable(ctx context.Context, userID, code string, now
 	}
 	return result, err
 }
-func (b *commandBus) MFATOTPDisable(ctx context.Context, cmd mfatotpdisable.Command) error {
+
+func (b *commandBus) MFATOTPDisable(ctx context.Context, cmd mfa.TOTPDisableCommand) error {
 	b.logger.Info("dispatching command", "command", "mfa_totp_disable")
 	err := b.mfaDisable.Execute(ctx, cmd)
 	if err != nil {
@@ -257,7 +248,8 @@ func (b *commandBus) MFATOTPDisable(ctx context.Context, cmd mfatotpdisable.Comm
 	}
 	return err
 }
-func (b *commandBus) MFARegenerate(ctx context.Context, userID, code string, now time.Time) (*mfatotpenable.Result, error) {
+
+func (b *commandBus) MFARegenerate(ctx context.Context, userID, code string, now time.Time) (*mfa.TOTPEnableResult, error) {
 	b.logger.Info("dispatching command", "command", "mfa_regenerate")
 	result, err := b.mfaRegen.Execute(ctx, userID, code, now)
 	if err != nil {
@@ -265,7 +257,8 @@ func (b *commandBus) MFARegenerate(ctx context.Context, userID, code string, now
 	}
 	return result, err
 }
-func (b *commandBus) CreateWorkspace(ctx context.Context, cmd createworkspace.Command) (*domain.Workspace, error) {
+
+func (b *commandBus) CreateWorkspace(ctx context.Context, cmd workspace.CreateCommand) (*domain.Workspace, error) {
 	b.logger.Info("dispatching command", "command", "create_workspace")
 	result, err := b.createWS.Execute(ctx, cmd)
 	if err != nil {
@@ -273,7 +266,8 @@ func (b *commandBus) CreateWorkspace(ctx context.Context, cmd createworkspace.Co
 	}
 	return result, err
 }
-func (b *commandBus) InviteWorkspaceMember(ctx context.Context, cmd inviteworkspacemember.Command) (*inviteworkspacemember.Result, error) {
+
+func (b *commandBus) InviteWorkspaceMember(ctx context.Context, cmd membership.InviteCommand) (*membership.InviteResult, error) {
 	b.logger.Info("dispatching command", "command", "invite_workspace_member")
 	result, err := b.inviteMember.Execute(ctx, cmd)
 	if err != nil {
@@ -281,7 +275,8 @@ func (b *commandBus) InviteWorkspaceMember(ctx context.Context, cmd inviteworksp
 	}
 	return result, err
 }
-func (b *commandBus) AcceptWorkspaceInvitation(ctx context.Context, cmd acceptworkspaceinvitation.Command) (*domain.Membership, error) {
+
+func (b *commandBus) AcceptWorkspaceInvitation(ctx context.Context, cmd membership.AcceptInvitationCommand) (*domain.Membership, error) {
 	b.logger.Info("dispatching command", "command", "accept_workspace_invitation")
 	result, err := b.acceptInvite.Execute(ctx, cmd)
 	if err != nil {
@@ -289,7 +284,8 @@ func (b *commandBus) AcceptWorkspaceInvitation(ctx context.Context, cmd acceptwo
 	}
 	return result, err
 }
-func (b *commandBus) RemoveWorkspaceMember(ctx context.Context, cmd removeworkspacemember.Command) error {
+
+func (b *commandBus) RemoveWorkspaceMember(ctx context.Context, cmd membership.RemoveCommand) error {
 	b.logger.Info("dispatching command", "command", "remove_workspace_member")
 	err := b.removeMember.Execute(ctx, cmd)
 	if err != nil {
@@ -297,7 +293,8 @@ func (b *commandBus) RemoveWorkspaceMember(ctx context.Context, cmd removeworksp
 	}
 	return err
 }
-func (b *commandBus) UpdateWorkspaceMemberRole(ctx context.Context, cmd updateworkspacememberrole.Command) error {
+
+func (b *commandBus) UpdateWorkspaceMemberRole(ctx context.Context, cmd membership.UpdateRoleCommand) error {
 	b.logger.Info("dispatching command", "command", "update_workspace_member_role")
 	err := b.updateRole.Execute(ctx, cmd)
 	if err != nil {
@@ -307,48 +304,49 @@ func (b *commandBus) UpdateWorkspaceMemberRole(ctx context.Context, cmd updatewo
 }
 
 type queryBus struct {
-	logger        *slog.Logger
-	listProvider  *listproviders.Handler
-	getMe         *getme.Handler
-	listSessions  *listsessions.Handler
-	authn         *authenticate.Handler
-	listWS        *listworkspaces.Handler
-	getWS         *getworkspace.Handler
-	listWSMembers *listworkspacemembers.Handler
-	getWSAccess   *getworkspaceaccess.Handler
-	listWSInvites *listworkspaceinvitations.Handler
+	logger         *slog.Logger
+	listProviders  *auth.ListProvidersHandler
+	getMe          *auth.GetMeHandler
+	listSessions   *session.ListSessionsHandler
+	authenticate   *auth.AuthenticateHandler
+	listWorkspaces *workspace.ListHandler
+	getWorkspace   *workspace.GetHandler
+	listMembers    *membership.ListMembersHandler
+	getAccess      *membership.GetAccessHandler
+	listInvites    *membership.ListInvitationsHandler
 }
 
 func newQueryBus(
 	logger *slog.Logger,
-	listProviderH *listproviders.Handler,
-	getMeH *getme.Handler,
-	listSessionsH *listsessions.Handler,
-	authnH *authenticate.Handler,
-	listWSH *listworkspaces.Handler,
-	getWSH *getworkspace.Handler,
-	listWSMembersH *listworkspacemembers.Handler,
-	getWSAccessH *getworkspaceaccess.Handler,
-	listWSInvitesH *listworkspaceinvitations.Handler,
+	listProviderH *auth.ListProvidersHandler,
+	getMeH *auth.GetMeHandler,
+	listSessionsH *session.ListSessionsHandler,
+	authnH *auth.AuthenticateHandler,
+	listWSH *workspace.ListHandler,
+	getWSH *workspace.GetHandler,
+	listWSMembersH *membership.ListMembersHandler,
+	getWSAccessH *membership.GetAccessHandler,
+	listWSInvitesH *membership.ListInvitationsHandler,
 ) QueryBus {
 	return &queryBus{
-		logger:        logger,
-		listProvider:  listProviderH,
-		getMe:         getMeH,
-		listSessions:  listSessionsH,
-		authn:         authnH,
-		listWS:        listWSH,
-		getWS:         getWSH,
-		listWSMembers: listWSMembersH,
-		getWSAccess:   getWSAccessH,
-		listWSInvites: listWSInvitesH,
+		logger:         logger,
+		listProviders:  listProviderH,
+		getMe:          getMeH,
+		listSessions:   listSessionsH,
+		authenticate:   authnH,
+		listWorkspaces: listWSH,
+		getWorkspace:   getWSH,
+		listMembers:    listWSMembersH,
+		getAccess:      getWSAccessH,
+		listInvites:    listWSInvitesH,
 	}
 }
 
-func (b *queryBus) ListProviders() []usecase.Provider {
+func (b *queryBus) ListProviders() []shared.Provider {
 	b.logger.Info("dispatching query", "query", "list_providers")
-	return b.listProvider.Execute()
+	return b.listProviders.Execute()
 }
+
 func (b *queryBus) GetMe(ctx context.Context, userID string) (*domain.User, error) {
 	b.logger.Info("dispatching query", "query", "get_me")
 	user, err := b.getMe.Execute(ctx, userID)
@@ -357,6 +355,7 @@ func (b *queryBus) GetMe(ctx context.Context, userID string) (*domain.User, erro
 	}
 	return user, err
 }
+
 func (b *queryBus) ListSessions(ctx context.Context, userID string, now time.Time) ([]domain.Session, error) {
 	b.logger.Info("dispatching query", "query", "list_sessions")
 	sessions, err := b.listSessions.Execute(ctx, userID, now)
@@ -365,49 +364,55 @@ func (b *queryBus) ListSessions(ctx context.Context, userID string, now time.Tim
 	}
 	return sessions, err
 }
+
 func (b *queryBus) AuthenticateAccessToken(ctx context.Context, token string, now time.Time) (*domain.Session, *domain.User, error) {
 	b.logger.Info("dispatching query", "query", "authenticate_access_token")
-	session, user, err := b.authn.Execute(ctx, token, now)
+	session, user, err := b.authenticate.Execute(ctx, token, now)
 	if err != nil {
 		b.logger.Warn("query failed", "query", "authenticate_access_token", "error", err)
 	}
 	return session, user, err
 }
+
 func (b *queryBus) ListWorkspaces(ctx context.Context, userID string) ([]domain.Workspace, error) {
 	b.logger.Info("dispatching query", "query", "list_workspaces")
-	workspaces, err := b.listWS.Execute(ctx, userID)
+	workspaces, err := b.listWorkspaces.Execute(ctx, userID)
 	if err != nil {
 		b.logger.Warn("query failed", "query", "list_workspaces", "error", err)
 	}
 	return workspaces, err
 }
+
 func (b *queryBus) GetWorkspace(ctx context.Context, workspaceID, userID string) (*domain.Workspace, error) {
 	b.logger.Info("dispatching query", "query", "get_workspace")
-	workspace, err := b.getWS.Execute(ctx, workspaceID, userID)
+	workspace, err := b.getWorkspace.Execute(ctx, workspaceID, userID)
 	if err != nil {
 		b.logger.Warn("query failed", "query", "get_workspace", "error", err)
 	}
 	return workspace, err
 }
+
 func (b *queryBus) ListWorkspaceMembers(ctx context.Context, workspaceID, userID string) ([]domain.Membership, error) {
 	b.logger.Info("dispatching query", "query", "list_workspace_members")
-	members, err := b.listWSMembers.Execute(ctx, workspaceID, userID)
+	members, err := b.listMembers.Execute(ctx, workspaceID, userID)
 	if err != nil {
 		b.logger.Warn("query failed", "query", "list_workspace_members", "error", err)
 	}
 	return members, err
 }
+
 func (b *queryBus) GetWorkspaceAccess(ctx context.Context, workspaceID, userID string) (*domain.Membership, error) {
 	b.logger.Info("dispatching query", "query", "get_workspace_access")
-	access, err := b.getWSAccess.Execute(ctx, workspaceID, userID)
+	access, err := b.getAccess.Execute(ctx, workspaceID, userID)
 	if err != nil {
 		b.logger.Warn("query failed", "query", "get_workspace_access", "error", err)
 	}
 	return access, err
 }
+
 func (b *queryBus) ListWorkspaceInvitations(ctx context.Context, workspaceID, userID string) ([]domain.Invitation, error) {
 	b.logger.Info("dispatching query", "query", "list_workspace_invitations")
-	invitations, err := b.listWSInvites.Execute(ctx, workspaceID, userID)
+	invitations, err := b.listInvites.Execute(ctx, workspaceID, userID)
 	if err != nil {
 		b.logger.Warn("query failed", "query", "list_workspace_invitations", "error", err)
 	}

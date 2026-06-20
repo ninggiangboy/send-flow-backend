@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/accepttransactionalsend"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/app/send"
 	deliverydomain "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/domain"
 	deliverypostgres "github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/infrastructure/postgres"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/delivery/ports"
@@ -113,7 +113,7 @@ func TestRawSendWithoutAttachments_Success(t *testing.T) {
 	eventRepo := deliverypostgres.NewMessageEventRepository(pool)
 	txMgr := transaction.NewManager(pool)
 
-	handler := accepttransactionalsend.New(
+	handler := send.New(
 		txReqRead,
 		txReqWrite,
 		msgReadRepo,
@@ -132,7 +132,7 @@ func TestRawSendWithoutAttachments_Success(t *testing.T) {
 		nil, // attachmentMetrics
 	)
 
-	input := accepttransactionalsend.Input{
+	input := send.Input{
 		WorkspaceID:    "ws_int_1",
 		Mode:           deliverydomain.MessageModeRaw,
 		SenderDomainID: "sd_int_1",

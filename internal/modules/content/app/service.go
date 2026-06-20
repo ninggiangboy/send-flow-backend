@@ -5,17 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/createtemplate"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/getpublishedtemplateversion"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/gettemplate"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/listtemplates"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/listtemplateversions"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/previewtemplate"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/publishtemplate"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/render"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/renderversion"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/updatetemplate"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/validatetemplaterenderable"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/app/template"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/domain"
 	contentredis "github.com/ninggiangboy/send-flow/backend/internal/modules/content/infrastructure/redis"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/content/ports"
@@ -31,33 +22,18 @@ type Options struct {
 }
 
 type Service struct {
-	createTemplateH              *createtemplate.Handler
-	listTemplatesH               *listtemplates.Handler
-	getTemplateH                 *gettemplate.Handler
-	updateTemplateH              *updatetemplate.Handler
-	publishTemplateH             *publishtemplate.Handler
-	listTemplateVersionsH        *listtemplateversions.Handler
-	previewTemplateH             *previewtemplate.Handler
+	createTemplateH              *template.CreateHandler
+	listTemplatesH               *template.ListHandler
+	getTemplateH                 *template.GetHandler
+	updateTemplateH              *template.UpdateHandler
+	publishTemplateH             *template.PublishHandler
+	listTemplateVersionsH        *template.ListVersionsHandler
+	previewTemplateH             *render.PreviewHandler
 	renderH                      *render.Handler
-	renderVersionH               *renderversion.Handler
-	getPublishedTemplateVersionH *getpublishedtemplateversion.Handler
-	validateTemplateRenderableH  *validatetemplaterenderable.Handler
+	renderVersionH               *render.VersionHandler
+	getPublishedTemplateVersionH *template.GetPublishedHandler
+	validateTemplateRenderableH  *render.ValidateHandler
 }
-
-// Input types exposed to external callers.
-type (
-	CreateTemplateInput = createtemplate.Input
-	UpdateTemplateInput = updatetemplate.Input
-)
-
-// Result types exposed to external callers.
-type (
-	TemplateResult     = createtemplate.Result
-	TemplateListResult = listtemplates.Result
-	VersionResult      = publishtemplate.Result
-	VersionListResult  = listtemplateversions.Result
-	RenderResult       = render.Result
-)
 
 func NewService(opts Options) *Service {
 	if opts.Logger == nil {
@@ -68,59 +44,104 @@ func NewService(opts Options) *Service {
 	}
 
 	return &Service{
-		createTemplateH: createtemplate.New(createtemplate.Options{
+		createTemplateH: template.NewCreateHandler(struct {
+			TemplatesWrite ports.TemplateWriteRepository
+			AccessChecker  ports.WorkspaceAccessChecker
+			IDGen          func() (string, error)
+			Logger         *slog.Logger
+		}{
 			TemplatesWrite: opts.TemplatesWrite,
 			AccessChecker:  opts.AccessChecker,
 			IDGen:          opts.IDGen,
 			Logger:         opts.Logger,
 		}),
-		listTemplatesH: listtemplates.New(listtemplates.Options{
+		listTemplatesH: template.NewListHandler(struct {
+			TemplatesRead ports.TemplateReadRepository
+			AccessChecker ports.WorkspaceAccessChecker
+			Logger        *slog.Logger
+		}{
 			TemplatesRead: opts.TemplatesRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		getTemplateH: gettemplate.New(gettemplate.Options{
+		getTemplateH: template.NewGetHandler(struct {
+			TemplatesRead ports.TemplateReadRepository
+			AccessChecker ports.WorkspaceAccessChecker
+			Logger        *slog.Logger
+		}{
 			TemplatesRead: opts.TemplatesRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		updateTemplateH: updatetemplate.New(updatetemplate.Options{
+		updateTemplateH: template.NewUpdateHandler(struct {
+			TemplatesWrite ports.TemplateWriteRepository
+			AccessChecker  ports.WorkspaceAccessChecker
+			Logger         *slog.Logger
+		}{
 			TemplatesWrite: opts.TemplatesWrite,
 			AccessChecker:  opts.AccessChecker,
 			Logger:         opts.Logger,
 		}),
-		publishTemplateH: publishtemplate.New(publishtemplate.Options{
+		publishTemplateH: template.NewPublishHandler(struct {
+			TemplatesWrite ports.TemplateWriteRepository
+			AccessChecker  ports.WorkspaceAccessChecker
+			IDGen          func() (string, error)
+			Logger         *slog.Logger
+		}{
 			TemplatesWrite: opts.TemplatesWrite,
 			AccessChecker:  opts.AccessChecker,
 			IDGen:          opts.IDGen,
 			Logger:         opts.Logger,
 		}),
-		listTemplateVersionsH: listtemplateversions.New(listtemplateversions.Options{
+		listTemplateVersionsH: template.NewListVersionsHandler(struct {
+			TemplatesRead ports.TemplateReadRepository
+			AccessChecker ports.WorkspaceAccessChecker
+			Logger        *slog.Logger
+		}{
 			TemplatesRead: opts.TemplatesRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 		}),
-		previewTemplateH: previewtemplate.New(previewtemplate.Options{
+		previewTemplateH: render.NewPreviewHandler(struct {
+			TemplatesRead ports.TemplateReadRepository
+			AccessChecker ports.WorkspaceAccessChecker
+			Logger        *slog.Logger
+			Cache         *contentredis.Cache
+		}{
 			TemplatesRead: opts.TemplatesRead,
 			AccessChecker: opts.AccessChecker,
 			Logger:        opts.Logger,
 			Cache:         opts.RedisCache,
 		}),
-		renderH: render.New(render.Options{
+		renderH: render.NewHandler(struct {
+			TemplatesWrite ports.TemplateWriteRepository
+			AccessChecker  ports.WorkspaceAccessChecker
+			IDGen          func() (string, error)
+			Logger         *slog.Logger
+		}{
 			TemplatesWrite: opts.TemplatesWrite,
 			AccessChecker:  opts.AccessChecker,
 			IDGen:          opts.IDGen,
 			Logger:         opts.Logger,
 		}),
-		renderVersionH: renderversion.New(renderversion.Options{
+		renderVersionH: render.NewVersionHandler(struct {
+			TemplatesRead ports.TemplateReadRepository
+			Logger        *slog.Logger
+		}{
 			TemplatesRead: opts.TemplatesRead,
 			Logger:        opts.Logger,
 		}),
-		getPublishedTemplateVersionH: getpublishedtemplateversion.New(getpublishedtemplateversion.Options{
+		getPublishedTemplateVersionH: template.NewGetPublishedHandler(struct {
+			TemplatesRead ports.TemplateReadRepository
+			Logger        *slog.Logger
+		}{
 			TemplatesRead: opts.TemplatesRead,
 			Logger:        opts.Logger,
 		}),
-		validateTemplateRenderableH: validatetemplaterenderable.New(validatetemplaterenderable.Options{
+		validateTemplateRenderableH: render.NewValidateHandler(struct {
+			TemplatesRead ports.TemplateReadRepository
+			Logger        *slog.Logger
+		}{
 			TemplatesRead: opts.TemplatesRead,
 			Logger:        opts.Logger,
 		}),
@@ -132,7 +153,7 @@ func (s *Service) CreateTemplate(ctx context.Context, input CreateTemplateInput)
 }
 
 func (s *Service) ListTemplates(ctx context.Context, workspaceID, status, q, cursor string, limit int, userID string) (*TemplateListResult, error) {
-	return s.listTemplatesH.Execute(ctx, listtemplates.Query{
+	return s.listTemplatesH.Execute(ctx, template.ListQuery{
 		WorkspaceID: workspaceID,
 		Status:      status,
 		Q:           q,
@@ -143,11 +164,15 @@ func (s *Service) ListTemplates(ctx context.Context, workspaceID, status, q, cur
 }
 
 func (s *Service) GetTemplate(ctx context.Context, workspaceID, templateID, userID string) (*TemplateResult, error) {
-	result, err := s.getTemplateH.Execute(ctx, workspaceID, templateID, userID)
+	tmpl, err := s.getTemplateH.Execute(ctx, template.GetQuery{
+		WorkspaceID: workspaceID,
+		TemplateID:  templateID,
+		UserID:      userID,
+	})
 	if err != nil {
 		return nil, err
 	}
-	return &TemplateResult{Template: result.Template}, nil
+	return &TemplateResult{Template: *tmpl}, nil
 }
 
 func (s *Service) UpdateTemplate(ctx context.Context, input UpdateTemplateInput) (*TemplateResult, error) {
@@ -159,11 +184,16 @@ func (s *Service) UpdateTemplate(ctx context.Context, input UpdateTemplateInput)
 }
 
 func (s *Service) PublishTemplate(ctx context.Context, workspaceID, templateID, userID string, now time.Time) (*VersionResult, error) {
-	return s.publishTemplateH.Execute(ctx, workspaceID, templateID, userID, now)
+	return s.publishTemplateH.Execute(ctx, template.PublishInput{
+		WorkspaceID: workspaceID,
+		TemplateID:  templateID,
+		UserID:      userID,
+		Now:         now,
+	})
 }
 
 func (s *Service) ListTemplateVersions(ctx context.Context, workspaceID, templateID, userID string, limit int, cursor string) (*VersionListResult, error) {
-	return s.listTemplateVersionsH.Execute(ctx, listtemplateversions.Query{
+	return s.listTemplateVersionsH.Execute(ctx, template.ListVersionsQuery{
 		WorkspaceID: workspaceID,
 		TemplateID:  templateID,
 		UserID:      userID,
@@ -173,7 +203,7 @@ func (s *Service) ListTemplateVersions(ctx context.Context, workspaceID, templat
 }
 
 func (s *Service) PreviewTemplate(ctx context.Context, workspaceID, templateID, userID string, templateData map[string]any, now time.Time) (*RenderResult, error) {
-	return s.previewTemplateH.Execute(ctx, previewtemplate.Query{
+	return s.previewTemplateH.Execute(ctx, render.PreviewQuery{
 		WorkspaceID:  workspaceID,
 		TemplateID:   templateID,
 		UserID:       userID,
@@ -195,7 +225,7 @@ func (s *Service) Render(ctx context.Context, workspaceID, userID, templateID, s
 }
 
 func (s *Service) RenderVersion(ctx context.Context, workspaceID, templateVersionID string, data map[string]any) (*RenderResult, error) {
-	result, err := s.renderVersionH.Execute(ctx, renderversion.Query{
+	rendered, err := s.renderVersionH.Execute(ctx, render.RenderVersionQuery{
 		WorkspaceID:       workspaceID,
 		TemplateVersionID: templateVersionID,
 		Data:              data,
@@ -203,15 +233,14 @@ func (s *Service) RenderVersion(ctx context.Context, workspaceID, templateVersio
 	if err != nil {
 		return nil, err
 	}
-	return &RenderResult{Result: result.Result}, nil
+	return &RenderResult{Result: *rendered}, nil
 }
 
 func (s *Service) GetPublishedTemplateVersion(ctx context.Context, workspaceID, templateID string) (*domain.TemplateVersion, error) {
-	result, err := s.getPublishedTemplateVersionH.Execute(ctx, workspaceID, templateID)
-	if err != nil {
-		return nil, err
-	}
-	return result.Version, nil
+	return s.getPublishedTemplateVersionH.Execute(ctx, template.GetPublishedQuery{
+		WorkspaceID: workspaceID,
+		TemplateID:  templateID,
+	})
 }
 
 func (s *Service) ValidateTemplateRenderable(ctx context.Context, workspaceID, templateID string) error {

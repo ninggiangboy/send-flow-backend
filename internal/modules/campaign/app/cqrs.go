@@ -4,15 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/cancelcampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/createcampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/getcampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/listcampaigncandidates"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/listcampaigns"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/pausecampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/resumecampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/schedulecampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/updatecampaigndraft"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/draft"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/read"
 )
 
 type CommandBus interface {
@@ -31,21 +24,21 @@ type QueryBus interface {
 }
 
 type commandBus struct {
-	create   *createcampaign.Handler
-	update   *updatecampaigndraft.Handler
-	schedule *schedulecampaign.Handler
-	cancel   *cancelcampaign.Handler
-	pause    *pausecampaign.Handler
-	resume   *resumecampaign.Handler
+	create   *draft.CreateHandler
+	update   *draft.UpdateHandler
+	schedule *draft.ScheduleHandler
+	cancel   *draft.CancelHandler
+	pause    *draft.PauseHandler
+	resume   *draft.ResumeHandler
 }
 
 func newCommandBus(
-	createH *createcampaign.Handler,
-	updateH *updatecampaigndraft.Handler,
-	scheduleH *schedulecampaign.Handler,
-	cancelH *cancelcampaign.Handler,
-	pauseH *pausecampaign.Handler,
-	resumeH *resumecampaign.Handler,
+	createH *draft.CreateHandler,
+	updateH *draft.UpdateHandler,
+	scheduleH *draft.ScheduleHandler,
+	cancelH *draft.CancelHandler,
+	pauseH *draft.PauseHandler,
+	resumeH *draft.ResumeHandler,
 ) CommandBus {
 	return &commandBus{
 		create:   createH,
@@ -58,16 +51,7 @@ func newCommandBus(
 }
 
 func (b *commandBus) CreateCampaign(ctx context.Context, input CreateCampaignInput) (*CampaignResult, error) {
-	result, err := b.create.Execute(ctx, createcampaign.Command{
-		WorkspaceID:    input.WorkspaceID,
-		UserID:         input.UserID,
-		Name:           input.Name,
-		AudienceRef:    input.AudienceRef,
-		TemplateID:     input.TemplateID,
-		SenderDomainID: input.SenderDomainID,
-		MessageType:    input.MessageType,
-		Now:            input.Now,
-	})
+	result, err := b.create.Execute(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -75,18 +59,7 @@ func (b *commandBus) CreateCampaign(ctx context.Context, input CreateCampaignInp
 }
 
 func (b *commandBus) UpdateCampaignDraft(ctx context.Context, input UpdateCampaignDraftInput) (*CampaignResult, error) {
-	cmd := updatecampaigndraft.Command{
-		WorkspaceID:    input.WorkspaceID,
-		CampaignID:     input.CampaignID,
-		UserID:         input.UserID,
-		Name:           input.Name,
-		AudienceRef:    input.AudienceRef,
-		TemplateID:     input.TemplateID,
-		SenderDomainID: input.SenderDomainID,
-		MessageType:    input.MessageType,
-		Now:            input.Now,
-	}
-	result, err := b.update.Execute(ctx, cmd)
+	result, err := b.update.Execute(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -94,13 +67,7 @@ func (b *commandBus) UpdateCampaignDraft(ctx context.Context, input UpdateCampai
 }
 
 func (b *commandBus) ScheduleCampaign(ctx context.Context, input ScheduleCampaignInput) (*CampaignResult, error) {
-	result, err := b.schedule.Execute(ctx, schedulecampaign.Command{
-		WorkspaceID: input.WorkspaceID,
-		CampaignID:  input.CampaignID,
-		UserID:      input.UserID,
-		ScheduledAt: input.ScheduledAt,
-		Now:         input.Now,
-	})
+	result, err := b.schedule.Execute(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +78,7 @@ func (b *commandBus) ScheduleCampaign(ctx context.Context, input ScheduleCampaig
 }
 
 func (b *commandBus) CancelCampaign(ctx context.Context, workspaceID, campaignID, userID string, now time.Time) (*CampaignResult, error) {
-	result, err := b.cancel.Execute(ctx, cancelcampaign.Command{
+	result, err := b.cancel.Execute(ctx, draft.CancelInput{
 		WorkspaceID: workspaceID,
 		CampaignID:  campaignID,
 		UserID:      userID,
@@ -124,7 +91,7 @@ func (b *commandBus) CancelCampaign(ctx context.Context, workspaceID, campaignID
 }
 
 func (b *commandBus) PauseCampaign(ctx context.Context, workspaceID, campaignID, userID string, now time.Time) (*CampaignResult, error) {
-	result, err := b.pause.Execute(ctx, pausecampaign.Command{
+	result, err := b.pause.Execute(ctx, draft.PauseInput{
 		WorkspaceID: workspaceID,
 		CampaignID:  campaignID,
 		UserID:      userID,
@@ -137,7 +104,7 @@ func (b *commandBus) PauseCampaign(ctx context.Context, workspaceID, campaignID,
 }
 
 func (b *commandBus) ResumeCampaign(ctx context.Context, workspaceID, campaignID, userID string, now time.Time) (*CampaignResult, error) {
-	result, err := b.resume.Execute(ctx, resumecampaign.Command{
+	result, err := b.resume.Execute(ctx, draft.ResumeInput{
 		WorkspaceID: workspaceID,
 		CampaignID:  campaignID,
 		UserID:      userID,
@@ -150,27 +117,16 @@ func (b *commandBus) ResumeCampaign(ctx context.Context, workspaceID, campaignID
 }
 
 type queryBus struct {
-	list           *listcampaigns.Handler
-	get            *getcampaign.Handler
-	listCandidates *listcampaigncandidates.Handler
+	queryService *read.QueryService
 }
 
-func newQueryBus(
-	listH *listcampaigns.Handler,
-	getH *getcampaign.Handler,
-	listCandidatesH *listcampaigncandidates.Handler,
-) QueryBus {
-	return &queryBus{
-		list:           listH,
-		get:            getH,
-		listCandidates: listCandidatesH,
-	}
+func newQueryBus(queryService *read.QueryService) QueryBus {
+	return &queryBus{queryService: queryService}
 }
 
 func (b *queryBus) ListCampaigns(ctx context.Context, input ListInput, userID string) (*CampaignListResult, error) {
-	result, cursor, err := b.list.Execute(ctx, listcampaigns.Command{
+	ri := read.ListInput{
 		WorkspaceID:    input.WorkspaceID,
-		UserID:         userID,
 		Status:         input.Status,
 		SenderDomainID: input.SenderDomainID,
 		TemplateID:     input.TemplateID,
@@ -178,15 +134,16 @@ func (b *queryBus) ListCampaigns(ctx context.Context, input ListInput, userID st
 		To:             input.To,
 		Limit:          input.Limit,
 		Cursor:         input.Cursor,
-	})
+	}
+	campaigns, cursor, err := b.queryService.ListCampaigns(ctx, ri, userID)
 	if err != nil {
 		return nil, err
 	}
-	return &CampaignListResult{Campaigns: result, NextCursor: cursor}, nil
+	return &CampaignListResult{Campaigns: campaigns, NextCursor: cursor}, nil
 }
 
 func (b *queryBus) GetCampaign(ctx context.Context, workspaceID, campaignID, userID string) (*CampaignResult, error) {
-	campaign, count, err := b.get.Execute(ctx, getcampaign.Command{
+	campaign, count, err := b.queryService.GetCampaign(ctx, read.GetInput{
 		WorkspaceID: workspaceID,
 		CampaignID:  campaignID,
 		UserID:      userID,
@@ -198,14 +155,14 @@ func (b *queryBus) GetCampaign(ctx context.Context, workspaceID, campaignID, use
 }
 
 func (b *queryBus) ListCampaignCandidates(ctx context.Context, input CandidateListInput, userID string) (*CandidateListResult, error) {
-	candidates, cursor, err := b.listCandidates.Execute(ctx, listcampaigncandidates.Command{
+	ri := read.CandidateListInput{
 		WorkspaceID: input.WorkspaceID,
 		CampaignID:  input.CampaignID,
-		UserID:      userID,
 		Status:      input.Status,
 		Limit:       input.Limit,
 		Cursor:      input.Cursor,
-	})
+	}
+	candidates, cursor, err := b.queryService.ListCampaignCandidates(ctx, ri, userID)
 	if err != nil {
 		return nil, err
 	}

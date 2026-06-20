@@ -5,16 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/cancelcampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/createcampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/getcampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/listcampaigncandidates"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/listcampaigns"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/pausecampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/resumecampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/schedulecampaign"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/updatecampaigndraft"
-	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/domain"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/draft"
+	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/app/read"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/campaign/ports"
 	"github.com/ninggiangboy/send-flow/backend/internal/platform/id"
 )
@@ -48,20 +40,20 @@ func NewService(opts Options) *Service {
 
 	log := opts.Logger.With("module", "campaign")
 
-	createH := createcampaign.New(createcampaign.Options{
+	createH := draft.NewCreateHandler(draft.CreateOptions{
 		CampaignsWrite: opts.CampaignsWrite,
 		AccessChecker:  opts.AccessChecker,
 		IDGen:          opts.IDGen,
 		Logger:         log,
 	})
 
-	updateH := updatecampaigndraft.New(updatecampaigndraft.Options{
+	updateH := draft.NewUpdateHandler(draft.UpdateOptions{
 		CampaignsWrite: opts.CampaignsWrite,
 		AccessChecker:  opts.AccessChecker,
 		Logger:         log,
 	})
 
-	scheduleH := schedulecampaign.New(schedulecampaign.Options{
+	scheduleH := draft.NewScheduleHandler(draft.ScheduleOptions{
 		CampaignsWrite:   opts.CampaignsWrite,
 		AudienceResolver: opts.AudienceResolver,
 		ContentService:   opts.ContentService,
@@ -73,37 +65,25 @@ func NewService(opts Options) *Service {
 		Logger:           log,
 	})
 
-	cancelH := cancelcampaign.New(cancelcampaign.Options{
+	cancelH := draft.NewCancelHandler(draft.CancelOptions{
 		CampaignsWrite: opts.CampaignsWrite,
 		AccessChecker:  opts.AccessChecker,
 		Logger:         log,
 	})
 
-	pauseH := pausecampaign.New(pausecampaign.Options{
+	pauseH := draft.NewPauseHandler(draft.PauseOptions{
 		CampaignsWrite: opts.CampaignsWrite,
 		AccessChecker:  opts.AccessChecker,
 		Logger:         log,
 	})
 
-	resumeH := resumecampaign.New(resumecampaign.Options{
+	resumeH := draft.NewResumeHandler(draft.ResumeOptions{
 		CampaignsWrite: opts.CampaignsWrite,
 		AccessChecker:  opts.AccessChecker,
 		Logger:         log,
 	})
 
-	listH := listcampaigns.New(listcampaigns.Options{
-		CampaignsRead: opts.CampaignsRead,
-		AccessChecker: opts.AccessChecker,
-		Logger:        log,
-	})
-
-	getH := getcampaign.New(getcampaign.Options{
-		CampaignsRead: opts.CampaignsRead,
-		AccessChecker: opts.AccessChecker,
-		Logger:        log,
-	})
-
-	listCandidatesH := listcampaigncandidates.New(listcampaigncandidates.Options{
+	querySvc := read.NewQueryService(read.Options{
 		CampaignsRead: opts.CampaignsRead,
 		AccessChecker: opts.AccessChecker,
 		Logger:        log,
@@ -111,78 +91,9 @@ func NewService(opts Options) *Service {
 
 	return &Service{
 		commands: newCommandBus(createH, updateH, scheduleH, cancelH, pauseH, resumeH),
-		queries:  newQueryBus(listH, getH, listCandidatesH),
+		queries:  newQueryBus(querySvc),
 		log:      log,
 	}
-}
-
-// Public input types
-
-type CreateCampaignInput struct {
-	WorkspaceID    string
-	UserID         string
-	Name           string
-	AudienceRef    domain.AudienceRef
-	TemplateID     string
-	SenderDomainID string
-	MessageType    domain.MessageType
-	Now            time.Time
-}
-
-type UpdateCampaignDraftInput struct {
-	WorkspaceID    string
-	CampaignID     string
-	UserID         string
-	Name           *string
-	AudienceRef    *domain.AudienceRef
-	TemplateID     *string
-	SenderDomainID *string
-	MessageType    *domain.MessageType
-	Now            time.Time
-}
-
-type ScheduleCampaignInput struct {
-	WorkspaceID string
-	CampaignID  string
-	UserID      string
-	ScheduledAt *time.Time
-	Now         time.Time
-}
-
-type ListInput struct {
-	WorkspaceID    string
-	Status         string
-	SenderDomainID string
-	TemplateID     string
-	From           string
-	To             string
-	Limit          int
-	Cursor         string
-}
-
-type CandidateListInput struct {
-	WorkspaceID string
-	CampaignID  string
-	Status      string
-	Limit       int
-	Cursor      string
-}
-
-// Public result types
-
-type CampaignResult struct {
-	Campaign       domain.Campaign
-	CandidateCount int64
-}
-
-type CampaignListResult struct {
-	Campaigns  []domain.Campaign
-	NextCursor string
-}
-
-type CandidateListResult struct {
-	Candidates []domain.CampaignMessageCandidate
-	NextCursor string
 }
 
 // Facade methods delegate to buses
