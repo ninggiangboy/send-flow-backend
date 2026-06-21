@@ -473,6 +473,7 @@ func Run(ctx context.Context) error {
 		AuthRateLimiter:      ratelimit.NewRedisService(redisClient),
 		SecureCookies:        cfg.SecureCookies(),
 		FrontendBaseURL:      cfg.FrontendBaseURL,
+		CORSAllowedOrigins:   cfg.CORSAllowedOrigins,
 		HTTPMetrics:          httpMetrics,
 		AuthMetrics:          authMetrics,
 		APIKeyMetrics:        apiKeyMetrics,
@@ -565,6 +566,7 @@ type RouterDeps struct {
 	AuthRateLimiter      ratelimit.Service
 	SecureCookies        bool
 	FrontendBaseURL      string
+	CORSAllowedOrigins   []string
 	HTTPMetrics          *observability.HTTPMetrics
 	AuthMetrics          *observability.AuthMetrics
 	APIKeyMetrics        *observability.APIKeyMetrics
@@ -576,7 +578,7 @@ type RouterDeps struct {
 func newRouter(deps *RouterDeps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware(corsOptions{
-		AllowedOrigins: []string{deps.FrontendBaseURL},
+		AllowedOrigins: deps.CORSAllowedOrigins,
 		AllowedMethods: []string{
 			http.MethodGet,
 			http.MethodPost,
@@ -626,12 +628,6 @@ func newRouter(deps *RouterDeps) http.Handler {
 	humaAPI := humachi.New(r, openAPIConfig())
 	registerOpenAPIRoutes(humaAPI, r, deps)
 
-	if deps.TrackingSvc != nil {
-		tracking := newTrackingHTTP(deps.TrackingSvc)
-		r.Get("/o/{tracking_id}", tracking.serveOpenPixel)
-		r.Get("/t/{tracking_id}", tracking.serveClickRedirect)
-		r.Get("/u/{token}", tracking.serveUnsubscribe)
-	}
 	return r
 }
 

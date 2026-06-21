@@ -1,4 +1,25 @@
 http:
+  routers:
+    sendflow-api-fallback:
+      entryPoints:
+        - web
+      rule: "PathPrefix(`/api/`) || Path(`/openapi.json`) || PathPrefix(`/o/`) || PathPrefix(`/t/`) || PathPrefix(`/u/`)"
+      priority: 1
+      middlewares:
+        - sendflow-security
+        - sendflow-ratelimit
+      service: sendflow-api-unavailable
+
+    sendflow-auth-fallback:
+      entryPoints:
+        - web
+      rule: "Path(`/api/v1/auth/signup`) || Path(`/api/v1/auth/login`) || Path(`/api/v1/auth/login/mfa`) || Path(`/api/v1/auth/password/forgot`) || Path(`/api/v1/auth/password/reset`) || PathPrefix(`/api/v1/auth/oauth/`)"
+      priority: 100
+      middlewares:
+        - sendflow-security
+        - sendflow-auth-ratelimit
+      service: sendflow-api-unavailable
+
   middlewares:
     sendflow-security:
       headers:
@@ -18,3 +39,9 @@ http:
       rateLimit:
         average: 10
         burst: 20
+
+  services:
+    sendflow-api-unavailable:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:9"

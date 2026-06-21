@@ -14,27 +14,28 @@ import (
 )
 
 type Config struct {
-	AppName          string
-	AppEnv           string
-	RuntimeIdentity  RuntimeIdentityConfig
-	HTTPAddr         string
-	LogLevel         string
-	AutoMigrate      bool
-	DatabaseURL      string
-	DatabaseReadURL  string
-	RedisAddr        string
-	RedisPassword    string
-	RedisDB          int
-	KafkaBrokers     string
-	ClickHouseDSN    string
-	EmailProvider    string
-	FrontendBaseURL  string
-	SMTP             SMTPConfig
-	SES              SESConfig
-	ObjectStorage    ObjectStorageConfig
-	ServiceDiscovery ServiceDiscoveryConfig
-	WorkerDiscovery  ServiceDiscoveryConfig
-	ShutdownTimeout  time.Duration
+	AppName            string
+	AppEnv             string
+	RuntimeIdentity    RuntimeIdentityConfig
+	HTTPAddr           string
+	LogLevel           string
+	AutoMigrate        bool
+	DatabaseURL        string
+	DatabaseReadURL    string
+	RedisAddr          string
+	RedisPassword      string
+	RedisDB            int
+	KafkaBrokers       string
+	ClickHouseDSN      string
+	EmailProvider      string
+	FrontendBaseURL    string
+	CORSAllowedOrigins []string
+	SMTP               SMTPConfig
+	SES                SESConfig
+	ObjectStorage      ObjectStorageConfig
+	ServiceDiscovery   ServiceDiscoveryConfig
+	WorkerDiscovery    ServiceDiscoveryConfig
+	ShutdownTimeout    time.Duration
 
 	WorkerHTTPAddr            string
 	WorkerEnabledConsumers    []string
@@ -199,6 +200,12 @@ func LoadFromEnv() (Config, error) {
 		FakeWebhookSecret:      os.Getenv("FAKE_WEBHOOK_SECRET"),
 		UnsubscribeTokenSecret: os.Getenv("UNSUBSCRIBE_TOKEN_SECRET"),
 	}
+
+	corsOrigins := parseCSV("CORS_ALLOWED_ORIGINS")
+	if len(corsOrigins) == 0 && cfg.FrontendBaseURL != "" {
+		corsOrigins = []string{cfg.FrontendBaseURL}
+	}
+	cfg.CORSAllowedOrigins = corsOrigins
 
 	var errs []error
 

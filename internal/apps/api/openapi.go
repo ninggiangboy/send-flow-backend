@@ -540,6 +540,10 @@ func exampleKey(code string) string {
 
 type emptyOutput struct{}
 
+type genericMapOutput struct {
+	Body successEnvelopeDoc[map[string]any]
+}
+
 type requestMetaDoc struct {
 	RequestID string `json:"request_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Request correlation ID."`
 }
@@ -1042,6 +1046,27 @@ type createSenderDomainInput struct {
 	} `required:"true" nameHint:"CreateSenderDomainRequest"`
 }
 
+type senderDomainDoc struct {
+	ID          string         `json:"id" doc:"Sender domain ID."`
+	WorkspaceID string         `json:"workspace_id" doc:"Workspace ID."`
+	Domain      string         `json:"domain" doc:"Sender domain."`
+	Provider    string         `json:"provider" doc:"Email provider."`
+	Status      string         `json:"status" doc:"Domain status."`
+	VerifiedAt  *time.Time     `json:"verified_at,omitempty" doc:"Verification timestamp."`
+	DisabledAt  *time.Time     `json:"disabled_at,omitempty" doc:"Disable timestamp."`
+	CreatedAt   time.Time      `json:"created_at" doc:"Creation timestamp."`
+	UpdatedAt   time.Time      `json:"updated_at" doc:"Update timestamp."`
+	Readiness   map[string]any `json:"readiness" doc:"Domain readiness."`
+}
+
+type senderDomainOutput struct {
+	Body successEnvelopeDoc[senderDomainDoc]
+}
+
+type senderDomainListOutput struct {
+	Body successEnvelopeDoc[[]senderDomainDoc]
+}
+
 func registerSenderOperations(api huma.API, sender *senderHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
 	huma.Register(api, protectedOperation(huma.Operation{
 		OperationID: "list-sender-domains",
@@ -1050,9 +1075,9 @@ func registerSenderOperations(api huma.API, sender *senderHTTP, authMiddleware f
 		Tags:        []string{"Sender Domains"},
 		Summary:     "List sender domains",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*senderDomainListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, sender.listSenderDomains)
+		return delegateHTTP[senderDomainListOutput](ctx, nil, sender.listSenderDomains)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1063,8 +1088,8 @@ func registerSenderOperations(api huma.API, sender *senderHTTP, authMiddleware f
 		Summary:       "Create sender domain",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *createSenderDomainInput) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), sender.createSenderDomain)
+	}, authMiddleware), func(ctx context.Context, input *createSenderDomainInput) (*senderDomainOutput, error) {
+		return delegateHTTP[senderDomainOutput](ctx, jsonBody(input.Body), sender.createSenderDomain)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1074,9 +1099,9 @@ func registerSenderOperations(api huma.API, sender *senderHTTP, authMiddleware f
 		Tags:        []string{"Sender Domains"},
 		Summary:     "Get sender domain",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*senderDomainOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, sender.getSenderDomain)
+		return delegateHTTP[senderDomainOutput](ctx, nil, sender.getSenderDomain)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1086,9 +1111,9 @@ func registerSenderOperations(api huma.API, sender *senderHTTP, authMiddleware f
 		Tags:        []string{"Sender Domains"},
 		Summary:     "Verify sender domain DNS records",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*senderDomainOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, sender.verifySenderDomain)
+		return delegateHTTP[senderDomainOutput](ctx, nil, sender.verifySenderDomain)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1098,9 +1123,9 @@ func registerSenderOperations(api huma.API, sender *senderHTTP, authMiddleware f
 		Tags:        []string{"Sender Domains"},
 		Summary:     "Disable sender domain",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *senderDomainPathInput) (*senderDomainOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, sender.disableSenderDomain)
+		return delegateHTTP[senderDomainOutput](ctx, nil, sender.disableSenderDomain)
 	})
 }
 
@@ -1171,16 +1196,6 @@ func registerWorkspaceOperations(api huma.API, workspace *workspaceHTTP, authMid
 type audienceContactPathInput struct {
 	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
 	ContactID   string `path:"contact_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Contact ID."`
-}
-
-type audienceListPathInput struct {
-	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
-	ListID      string `path:"list_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"List ID."`
-}
-
-type audienceSegmentPathInput struct {
-	WorkspaceID string `path:"workspace_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Workspace ID."`
-	SegmentID   string `path:"segment_id" example:"018ff2d5-f49c-77f1-a3c5-5137560c97c8" doc:"Segment ID."`
 }
 
 type audienceImportPathInput struct {
@@ -1343,6 +1358,40 @@ type previewTemplateInput struct {
 
 // --- Audience Operations ---
 
+type contactListOutput struct {
+	Body successEnvelopeDoc[[]audienceContactDoc]
+}
+type contactOutput struct {
+	Body successEnvelopeDoc[audienceContactDoc]
+}
+type audienceListListOutput struct {
+	Body successEnvelopeDoc[[]audienceListDoc]
+}
+type audienceListOutput struct {
+	Body successEnvelopeDoc[audienceListDoc]
+}
+type membershipUpdateOutput struct {
+	Body successEnvelopeDoc[listMembershipUpdateDoc]
+}
+type segmentListOutput struct {
+	Body successEnvelopeDoc[[]audienceSegmentDoc]
+}
+type segmentOutput struct {
+	Body successEnvelopeDoc[audienceSegmentDoc]
+}
+type importJobListOutput struct {
+	Body successEnvelopeDoc[[]audienceImportJobDoc]
+}
+type importJobOutput struct {
+	Body successEnvelopeDoc[audienceImportJobDoc]
+}
+type exportJobListOutput struct {
+	Body successEnvelopeDoc[[]audienceExportJobDoc]
+}
+type exportJobOutput struct {
+	Body successEnvelopeDoc[audienceExportJobDoc]
+}
+
 func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
 	huma.Register(api, protectedOperation(huma.Operation{
 		OperationID: "list-contacts",
@@ -1351,9 +1400,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Tags:        []string{"Audience"},
 		Summary:     "List contacts",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*contactListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, audience.listContacts)
+		return delegateHTTP[contactListOutput](ctx, nil, audience.listContacts)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1364,9 +1413,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Summary:       "Create contact",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *createContactInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *createContactInput) (*contactOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.createContact)
+		return delegateHTTP[contactOutput](ctx, jsonBody(input.Body), audience.createContact)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1376,9 +1425,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Tags:        []string{"Audience"},
 		Summary:     "Get contact",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *audienceContactPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *audienceContactPathInput) (*contactOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, audience.getContact)
+		return delegateHTTP[contactOutput](ctx, nil, audience.getContact)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1388,9 +1437,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Tags:        []string{"Audience"},
 		Summary:     "Update contact",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *updateContactInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *updateContactInput) (*contactOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.updateContact)
+		return delegateHTTP[contactOutput](ctx, jsonBody(input.Body), audience.updateContact)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1412,9 +1461,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Tags:        []string{"Audience"},
 		Summary:     "List audience lists",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*audienceListListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, audience.listAudienceLists)
+		return delegateHTTP[audienceListListOutput](ctx, nil, audience.listAudienceLists)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1425,9 +1474,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Summary:       "Create audience list",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *createAudienceListInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *createAudienceListInput) (*audienceListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.createAudienceList)
+		return delegateHTTP[audienceListOutput](ctx, jsonBody(input.Body), audience.createAudienceList)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1437,9 +1486,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Tags:        []string{"Audience"},
 		Summary:     "Update audience list contacts",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *updateAudienceListContactsInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *updateAudienceListContactsInput) (*membershipUpdateOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.updateAudienceListContacts)
+		return delegateHTTP[membershipUpdateOutput](ctx, jsonBody(input.Body), audience.updateAudienceListContacts)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1449,9 +1498,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Tags:        []string{"Audience"},
 		Summary:     "List segments",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*segmentListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, audience.listSegments)
+		return delegateHTTP[segmentListOutput](ctx, nil, audience.listSegments)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1462,9 +1511,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Summary:       "Create segment",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *createSegmentInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *createSegmentInput) (*segmentOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.createSegment)
+		return delegateHTTP[segmentOutput](ctx, jsonBody(input.Body), audience.createSegment)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1474,9 +1523,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Tags:        []string{"Audience"},
 		Summary:     "Update segment",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *updateSegmentInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *updateSegmentInput) (*segmentOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.updateSegment)
+		return delegateHTTP[segmentOutput](ctx, jsonBody(input.Body), audience.updateSegment)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1487,9 +1536,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Summary:       "Start audience import",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *startAudienceImportInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *startAudienceImportInput) (*importJobOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.startAudienceImport)
+		return delegateHTTP[importJobOutput](ctx, jsonBody(input.Body), audience.startAudienceImport)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1499,9 +1548,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Tags:        []string{"Audience"},
 		Summary:     "List audience imports",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*importJobListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, audience.listAudienceImports)
+		return delegateHTTP[importJobListOutput](ctx, nil, audience.listAudienceImports)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1511,9 +1560,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Tags:        []string{"Audience"},
 		Summary:     "Get audience import",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *audienceImportPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *audienceImportPathInput) (*importJobOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, audience.getAudienceImport)
+		return delegateHTTP[importJobOutput](ctx, nil, audience.getAudienceImport)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1524,9 +1573,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Summary:       "Start audience export",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *startAudienceExportInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *startAudienceExportInput) (*exportJobOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), audience.startAudienceExport)
+		return delegateHTTP[exportJobOutput](ctx, jsonBody(input.Body), audience.startAudienceExport)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1536,9 +1585,9 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Tags:        []string{"Audience"},
 		Summary:     "List audience exports",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *listAudienceExportsInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *listAudienceExportsInput) (*exportJobListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, audience.listAudienceExports)
+		return delegateHTTP[exportJobListOutput](ctx, nil, audience.listAudienceExports)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1548,13 +1597,64 @@ func registerAudienceOperations(api huma.API, audience *audienceHTTP, authMiddle
 		Tags:        []string{"Audience"},
 		Summary:     "Get audience export",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *audienceExportPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *audienceExportPathInput) (*exportJobOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, audience.getAudienceExport)
+		return delegateHTTP[exportJobOutput](ctx, nil, audience.getAudienceExport)
 	})
 }
 
 // --- Content Operations ---
+
+type templateDoc struct {
+	ID               string    `json:"id" doc:"Template ID."`
+	WorkspaceID      string    `json:"workspace_id" doc:"Workspace ID."`
+	Name             string    `json:"name" doc:"Template name."`
+	Status           string    `json:"status" doc:"Template status."`
+	Subject          string    `json:"subject,omitempty" doc:"Email subject."`
+	SourceHTML       string    `json:"source_html,omitempty" doc:"Template source HTML."`
+	SourceText       string    `json:"source_text,omitempty" doc:"Template source text."`
+	CurrentVersionID string    `json:"current_version_id,omitempty" doc:"Current version ID."`
+	CreatedAt        time.Time `json:"created_at" doc:"Creation timestamp."`
+	UpdatedAt        time.Time `json:"updated_at" doc:"Update timestamp."`
+}
+type templateListDoc struct {
+	ID               string    `json:"id" doc:"Template ID."`
+	WorkspaceID      string    `json:"workspace_id" doc:"Workspace ID."`
+	Name             string    `json:"name" doc:"Template name."`
+	Status           string    `json:"status" doc:"Template status."`
+	CurrentVersionID string    `json:"current_version_id,omitempty" doc:"Current version ID."`
+	CreatedAt        time.Time `json:"created_at" doc:"Creation timestamp."`
+	UpdatedAt        time.Time `json:"updated_at" doc:"Update timestamp."`
+}
+type templateOutput struct {
+	Body successEnvelopeDoc[templateDoc]
+}
+type templateListOutput struct {
+	Body successEnvelopeDoc[[]templateListDoc]
+}
+type templateVersionDoc struct {
+	ID            string     `json:"id" doc:"Version ID."`
+	WorkspaceID   string     `json:"workspace_id" doc:"Workspace ID."`
+	TemplateID    string     `json:"template_id" doc:"Template ID."`
+	VersionNumber int        `json:"version_number" doc:"Version number."`
+	Subject       string     `json:"subject,omitempty" doc:"Email subject."`
+	SourceHTML    string     `json:"source_html,omitempty" doc:"Template source HTML."`
+	SourceText    string     `json:"source_text,omitempty" doc:"Template source text."`
+	PublishedAt   *time.Time `json:"published_at,omitempty" doc:"Published timestamp."`
+	CreatedAt     time.Time  `json:"created_at" doc:"Creation timestamp."`
+}
+type templateVersionListOutput struct {
+	Body successEnvelopeDoc[[]templateVersionDoc]
+}
+type renderResultDoc struct {
+	Subject  string   `json:"subject" doc:"Rendered subject."`
+	HTML     string   `json:"html" doc:"Rendered HTML."`
+	Text     string   `json:"text" doc:"Rendered text."`
+	Warnings []string `json:"warnings,omitempty" doc:"Render warnings."`
+}
+type renderResultOutput struct {
+	Body successEnvelopeDoc[renderResultDoc]
+}
 
 func registerContentOperations(api huma.API, content *contentHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1564,9 +1664,9 @@ func registerContentOperations(api huma.API, content *contentHTTP, authMiddlewar
 		Tags:        []string{"Templates"},
 		Summary:     "List templates",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*templateListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, content.listTemplates)
+		return delegateHTTP[templateListOutput](ctx, nil, content.listTemplates)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1577,9 +1677,9 @@ func registerContentOperations(api huma.API, content *contentHTTP, authMiddlewar
 		Summary:       "Create template",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *createTemplateInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *createTemplateInput) (*templateOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), content.createTemplate)
+		return delegateHTTP[templateOutput](ctx, jsonBody(input.Body), content.createTemplate)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1589,9 +1689,9 @@ func registerContentOperations(api huma.API, content *contentHTTP, authMiddlewar
 		Tags:        []string{"Templates"},
 		Summary:     "Get template",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *contentTemplatePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *contentTemplatePathInput) (*templateOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, content.getTemplate)
+		return delegateHTTP[templateOutput](ctx, nil, content.getTemplate)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1601,9 +1701,9 @@ func registerContentOperations(api huma.API, content *contentHTTP, authMiddlewar
 		Tags:        []string{"Templates"},
 		Summary:     "Update template",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *updateTemplateInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *updateTemplateInput) (*templateOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), content.updateTemplate)
+		return delegateHTTP[templateOutput](ctx, jsonBody(input.Body), content.updateTemplate)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1613,9 +1713,9 @@ func registerContentOperations(api huma.API, content *contentHTTP, authMiddlewar
 		Tags:        []string{"Templates"},
 		Summary:     "Publish template version",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *contentTemplatePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *contentTemplatePathInput) (*templateOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, content.publishTemplate)
+		return delegateHTTP[templateOutput](ctx, nil, content.publishTemplate)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1625,9 +1725,9 @@ func registerContentOperations(api huma.API, content *contentHTTP, authMiddlewar
 		Tags:        []string{"Templates"},
 		Summary:     "List template versions",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *contentTemplatePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *contentTemplatePathInput) (*templateVersionListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, content.listTemplateVersions)
+		return delegateHTTP[templateVersionListOutput](ctx, nil, content.listTemplateVersions)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1637,9 +1737,9 @@ func registerContentOperations(api huma.API, content *contentHTTP, authMiddlewar
 		Tags:        []string{"Template Render"},
 		Summary:     "Preview template",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *previewTemplateInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *previewTemplateInput) (*templateOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), content.previewTemplate)
+		return delegateHTTP[templateOutput](ctx, jsonBody(input.Body), content.previewTemplate)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1649,13 +1749,32 @@ func registerContentOperations(api huma.API, content *contentHTTP, authMiddlewar
 		Tags:        []string{"Template Render"},
 		Summary:     "Render template",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *renderTemplateInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *renderTemplateInput) (*renderResultOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), content.render)
+		return delegateHTTP[renderResultOutput](ctx, jsonBody(input.Body), content.render)
 	})
 }
 
 // --- Suppression Operations ---
+
+type suppressionDoc struct {
+	ID          string     `json:"id" doc:"Suppression entry ID."`
+	WorkspaceID string     `json:"workspace_id" doc:"Workspace ID."`
+	Email       string     `json:"email" doc:"Suppressed email."`
+	Scope       string     `json:"scope" doc:"Suppression scope."`
+	Reason      string     `json:"reason" doc:"Suppression reason."`
+	Status      string     `json:"status" doc:"Suppression status."`
+	Note        string     `json:"note,omitempty" doc:"Suppression note."`
+	CreatedAt   time.Time  `json:"created_at" doc:"Creation timestamp."`
+	UpdatedAt   time.Time  `json:"updated_at" doc:"Update timestamp."`
+	RemovedAt   *time.Time `json:"removed_at,omitempty" doc:"Removal timestamp."`
+}
+type suppressionListOutput struct {
+	Body successEnvelopeDoc[[]suppressionDoc]
+}
+type suppressionOutput struct {
+	Body successEnvelopeDoc[suppressionDoc]
+}
 
 func registerSuppressionOperations(api huma.API, suppression *suppressionHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1665,9 +1784,9 @@ func registerSuppressionOperations(api huma.API, suppression *suppressionHTTP, a
 		Tags:        []string{"Suppression"},
 		Summary:     "List suppression entries",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*suppressionListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, suppression.listSuppressionEntries)
+		return delegateHTTP[suppressionListOutput](ctx, nil, suppression.listSuppressionEntries)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1678,9 +1797,9 @@ func registerSuppressionOperations(api huma.API, suppression *suppressionHTTP, a
 		Summary:       "Create suppression entry",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *createSuppressionEntryInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *createSuppressionEntryInput) (*suppressionOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), suppression.createSuppressionEntry)
+		return delegateHTTP[suppressionOutput](ctx, jsonBody(input.Body), suppression.createSuppressionEntry)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1915,9 +2034,9 @@ func registerCampaignOperations(api huma.API, campaign *campaignHTTP, authMiddle
 		Tags:        []string{"Campaigns"},
 		Summary:     "List campaigns",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*campaignListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, campaign.listCampaigns)
+		return delegateHTTP[campaignListOutput](ctx, nil, campaign.listCampaigns)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1928,8 +2047,8 @@ func registerCampaignOperations(api huma.API, campaign *campaignHTTP, authMiddle
 		Summary:       "Create campaign",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *createCampaignInput) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), campaign.createCampaign)
+	}, authMiddleware), func(ctx context.Context, input *createCampaignInput) (*campaignOutput, error) {
+		return delegateHTTP[campaignOutput](ctx, jsonBody(input.Body), campaign.createCampaign)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1939,9 +2058,9 @@ func registerCampaignOperations(api huma.API, campaign *campaignHTTP, authMiddle
 		Tags:        []string{"Campaigns"},
 		Summary:     "Get campaign",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*campaignOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, campaign.getCampaign)
+		return delegateHTTP[campaignOutput](ctx, nil, campaign.getCampaign)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1951,8 +2070,8 @@ func registerCampaignOperations(api huma.API, campaign *campaignHTTP, authMiddle
 		Tags:        []string{"Campaigns"},
 		Summary:     "Update campaign draft",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *updateCampaignInput) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), campaign.updateCampaign)
+	}, authMiddleware), func(ctx context.Context, input *updateCampaignInput) (*campaignOutput, error) {
+		return delegateHTTP[campaignOutput](ctx, jsonBody(input.Body), campaign.updateCampaign)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1962,8 +2081,8 @@ func registerCampaignOperations(api huma.API, campaign *campaignHTTP, authMiddle
 		Tags:        []string{"Campaigns"},
 		Summary:     "Schedule campaign",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *scheduleCampaignInput) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, jsonBody(input.Body), campaign.scheduleCampaign)
+	}, authMiddleware), func(ctx context.Context, input *scheduleCampaignInput) (*campaignOutput, error) {
+		return delegateHTTP[campaignOutput](ctx, jsonBody(input.Body), campaign.scheduleCampaign)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1973,9 +2092,9 @@ func registerCampaignOperations(api huma.API, campaign *campaignHTTP, authMiddle
 		Tags:        []string{"Campaigns"},
 		Summary:     "Cancel campaign",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*campaignOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, campaign.cancelCampaign)
+		return delegateHTTP[campaignOutput](ctx, nil, campaign.cancelCampaign)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1985,9 +2104,9 @@ func registerCampaignOperations(api huma.API, campaign *campaignHTTP, authMiddle
 		Tags:        []string{"Campaigns"},
 		Summary:     "Pause campaign",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*campaignOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, campaign.pauseCampaign)
+		return delegateHTTP[campaignOutput](ctx, nil, campaign.pauseCampaign)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -1997,9 +2116,9 @@ func registerCampaignOperations(api huma.API, campaign *campaignHTTP, authMiddle
 		Tags:        []string{"Campaigns"},
 		Summary:     "Resume campaign",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*campaignOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, campaign.resumeCampaign)
+		return delegateHTTP[campaignOutput](ctx, nil, campaign.resumeCampaign)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2009,9 +2128,9 @@ func registerCampaignOperations(api huma.API, campaign *campaignHTTP, authMiddle
 		Tags:        []string{"Campaigns"},
 		Summary:     "List campaign candidates",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *campaignPathInput) (*candidateListOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, campaign.listCampaignCandidates)
+		return delegateHTTP[candidateListOutput](ctx, nil, campaign.listCampaignCandidates)
 	})
 }
 
@@ -2061,9 +2180,9 @@ func registerDeliveryOperations(api huma.API, delivery *deliveryHTTP, authMiddle
 		Tags:        []string{"Delivery"},
 		Summary:     "List messages",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, delivery.listMessages)
+		return delegateHTTP[genericMapOutput](ctx, nil, delivery.listMessages)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2073,9 +2192,9 @@ func registerDeliveryOperations(api huma.API, delivery *deliveryHTTP, authMiddle
 		Tags:        []string{"Delivery"},
 		Summary:     "Get message",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *messagePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *messagePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, delivery.getMessage)
+		return delegateHTTP[genericMapOutput](ctx, nil, delivery.getMessage)
 	})
 }
 
@@ -2178,8 +2297,8 @@ func registerTransactionalOperations(api huma.API, transactional *transactionalH
 		Description:   "Accepts a transactional email send request. Supports two modes: template (JSON with template_id and template_data) and raw (multipart/form-data with subject, text_body/html_body, and optional attachments). Recipients are exploded into one message per recipient email. Returns 202 Accepted with request_id and message_ids. Requires API key with transactional.send scope. Limits: max 50 recipients, 25 MB per attachment, 32 MB total body.",
 		DefaultStatus: http.StatusAccepted,
 		Errors:        documentedErrorStatuses(),
-	}, accessSvc, "transactional.send", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, nil, transactional.send)
+	}, accessSvc, "transactional.send", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, _ *struct{}) (*genericMapOutput, error) {
+		return delegateHTTP[genericMapOutput](ctx, nil, transactional.send)
 	})
 
 	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
@@ -2190,9 +2309,9 @@ func registerTransactionalOperations(api huma.API, transactional *transactionalH
 		Summary:     "Get transactional message status",
 		Description: "Returns the current status and provider metadata for a transactional message by message ID. Requires API key with transactional.read scope.",
 		Errors:      documentedErrorStatuses(),
-	}, accessSvc, "transactional.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *transactionalMessagePathInput) (*emptyOutput, error) {
+	}, accessSvc, "transactional.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *transactionalMessagePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, transactional.getMessage)
+		return delegateHTTP[genericMapOutput](ctx, nil, transactional.getMessage)
 	})
 }
 
@@ -2205,9 +2324,9 @@ func registerTransactionalMailLogsOperations(api huma.API, transactional *transa
 		Summary:     "List events for a transactional message (mail log timeline)",
 		Description: "Returns the immutable timeline of events for a transactional message, including queued, processing_started, provider_accepted, delivered, bounced, complained, failed, retry_scheduled, and suppressed events. Requires API key with mail_logs.read scope.",
 		Errors:      documentedErrorStatuses(),
-	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *transactionalMessagePathInput) (*emptyOutput, error) {
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *transactionalMessagePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, transactional.listMessageEvents)
+		return delegateHTTP[genericMapOutput](ctx, nil, transactional.listMessageEvents)
 	})
 
 	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
@@ -2218,9 +2337,9 @@ func registerTransactionalMailLogsOperations(api huma.API, transactional *transa
 		Summary:     "List messages for a transactional request",
 		Description: "Returns all per-recipient messages created for a transactional send request. Requires API key with mail_logs.read scope.",
 		Errors:      documentedErrorStatuses(),
-	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *transactionalRequestPathInput) (*emptyOutput, error) {
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *transactionalRequestPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, transactional.listRequestMessages)
+		return delegateHTTP[genericMapOutput](ctx, nil, transactional.listRequestMessages)
 	})
 }
 
@@ -2238,9 +2357,9 @@ func registerMailLogsOperations(api huma.API, mailLogs *mailLogsHTTP, authMiddle
 		Summary:     "List workspace mail logs",
 		Description: "Returns a paginated, filterable list of workspace mail-log entries (all tracked email messages including campaign and transactional). Supports filters: status, message_type, mode, recipient_email, provider, provider_message_id, campaign_id, transactional_request_id, date range (from/to), and cursor-based pagination. Supports session-auth (workspace operators) and API-key auth with mail_logs.read scope.",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogs)
+		return delegateHTTP[genericMapOutput](ctx, nil, mailLogs.listMailLogs)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2251,9 +2370,9 @@ func registerMailLogsOperations(api huma.API, mailLogs *mailLogsHTTP, authMiddle
 		Summary:     "Get mail log detail",
 		Description: "Returns full detail for a single mail-log entry, including recipient snapshot, sender domain, template info, timestamps, and last error details. Does not return raw attachment bytes.",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *mailLogPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.getMailLog)
+		return delegateHTTP[genericMapOutput](ctx, nil, mailLogs.getMailLog)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2264,9 +2383,9 @@ func registerMailLogsOperations(api huma.API, mailLogs *mailLogsHTTP, authMiddle
 		Summary:     "List delivery attempts for a mail log entry",
 		Description: "Returns all delivery attempts for a single message, ordered by attempt number descending. Each attempt includes provider, status, error details, and request/response snapshots.",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *mailLogPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogAttempts)
+		return delegateHTTP[genericMapOutput](ctx, nil, mailLogs.listMailLogAttempts)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2277,9 +2396,9 @@ func registerMailLogsOperations(api huma.API, mailLogs *mailLogsHTTP, authMiddle
 		Summary:     "List timeline events for a mail log entry",
 		Description: "Returns the immutable timeline of events for a message, including queued, processing_started, provider_accepted, delivered, bounced, complained, failed, retry_scheduled, and suppressed events. Events are ordered by occurred_at descending with cursor-based pagination.",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *mailLogPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogEvents)
+		return delegateHTTP[genericMapOutput](ctx, nil, mailLogs.listMailLogEvents)
 	})
 
 	// API-key auth routes (same paths, scope: mail_logs.read)
@@ -2291,9 +2410,9 @@ func registerMailLogsOperations(api huma.API, mailLogs *mailLogsHTTP, authMiddle
 		Summary:     "List workspace mail logs (API key)",
 		Description: "Returns a paginated, filterable list of workspace mail-log entries using API-key auth. Supports the same filters as the session-auth variant. Requires API key with mail_logs.read scope.",
 		Errors:      documentedErrorStatuses(),
-	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *workspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogs)
+		return delegateHTTP[genericMapOutput](ctx, nil, mailLogs.listMailLogs)
 	})
 
 	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
@@ -2304,9 +2423,9 @@ func registerMailLogsOperations(api huma.API, mailLogs *mailLogsHTTP, authMiddle
 		Summary:     "Get mail log detail (API key)",
 		Description: "Returns full detail for a single mail-log entry using API-key auth. Same response as the session-auth variant. Requires API key with mail_logs.read scope.",
 		Errors:      documentedErrorStatuses(),
-	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *mailLogPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.getMailLog)
+		return delegateHTTP[genericMapOutput](ctx, nil, mailLogs.getMailLog)
 	})
 
 	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
@@ -2317,9 +2436,9 @@ func registerMailLogsOperations(api huma.API, mailLogs *mailLogsHTTP, authMiddle
 		Summary:     "List delivery attempts for a mail log entry (API key)",
 		Description: "Returns all delivery attempts for a single message using API-key auth. Same response as the session-auth variant. Requires API key with mail_logs.read scope.",
 		Errors:      documentedErrorStatuses(),
-	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *mailLogPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogAttempts)
+		return delegateHTTP[genericMapOutput](ctx, nil, mailLogs.listMailLogAttempts)
 	})
 
 	huma.Register(api, apiKeyProtectedOperation(huma.Operation{
@@ -2330,9 +2449,9 @@ func registerMailLogsOperations(api huma.API, mailLogs *mailLogsHTTP, authMiddle
 		Summary:     "List timeline events for a mail log entry (API key)",
 		Description: "Returns the immutable timeline of events for a message using API-key auth. Same response as the session-auth variant. Requires API key with mail_logs.read scope.",
 		Errors:      documentedErrorStatuses(),
-	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *mailLogPathInput) (*emptyOutput, error) {
+	}, accessSvc, "mail_logs.read", apiKeyMetrics, apiKeyRateLimiter), func(ctx context.Context, input *mailLogPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, mailLogs.listMailLogEvents)
+		return delegateHTTP[genericMapOutput](ctx, nil, mailLogs.listMailLogEvents)
 	})
 }
 
@@ -2404,9 +2523,9 @@ func registerAPIKeyOperations(api huma.API, apiKey *apiKeyHTTP, authMiddleware f
 		Summary:     "List API keys",
 		Description: "Lists API keys for the workspace. Session-auth only. Supports cursor-based pagination and status filtering.",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, apiKey.listAPIKeys)
+		return delegateHTTP[genericMapOutput](ctx, nil, apiKey.listAPIKeys)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2418,9 +2537,9 @@ func registerAPIKeyOperations(api huma.API, apiKey *apiKeyHTTP, authMiddleware f
 		Description:   "Creates a new API key for the workspace. Supported scopes: transactional.send, transactional.read, mail_logs.read. The secret is returned only at creation time. Recording an audit entry.",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *workspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, apiKey.createAPIKey)
+		return delegateHTTP[genericMapOutput](ctx, nil, apiKey.createAPIKey)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2431,9 +2550,9 @@ func registerAPIKeyOperations(api huma.API, apiKey *apiKeyHTTP, authMiddleware f
 		Summary:     "Update or rotate API key",
 		Description: "Updates API key name, scopes, or expiration. Set rotate=true to generate a new secret. Recording an audit entry.",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *apiKeyPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *apiKeyPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, apiKey.updateAPIKey)
+		return delegateHTTP[genericMapOutput](ctx, nil, apiKey.updateAPIKey)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2464,9 +2583,9 @@ func registerIngestionWebhookOperations(api huma.API, ingestion *ingestionHTTP) 
 		Tags:        []string{"Webhooks"},
 		Summary:     "Ingest a provider webhook",
 		Errors:      documentedErrorStatuses(),
-	}, func(ctx context.Context, input *providerWebhookInput) (*emptyOutput, error) {
+	}, func(ctx context.Context, input *providerWebhookInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, ingestion.ingestProviderWebhook)
+		return delegateHTTP[genericMapOutput](ctx, nil, ingestion.ingestProviderWebhook)
 	})
 }
 
@@ -2557,9 +2676,9 @@ func registerWebhookConfigOperations(api huma.API, handler *webhookConfigHTTP, a
 		Tags:        []string{"Webhooks"},
 		Summary:     "Rotate webhook signing secret",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *webhookConfigPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *webhookConfigPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, handler.rotateWebhookSecret)
+		return delegateHTTP[genericMapOutput](ctx, nil, handler.rotateWebhookSecret)
 	})
 }
 
@@ -2595,9 +2714,9 @@ func registerWebhookDeliveryOperations(api huma.API, handler *webhookDeliveryHTT
 		Tags:        []string{"Webhooks"},
 		Summary:     "Retry a failed webhook delivery",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *webhookDeliveryPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *webhookDeliveryPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, handler.retryWebhookDelivery)
+		return delegateHTTP[genericMapOutput](ctx, nil, handler.retryWebhookDelivery)
 	})
 }
 
@@ -2760,9 +2879,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get workspace analytics overview (Postgres projection-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDashboardOverview)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getDashboardOverview)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2772,9 +2891,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get campaign analytics summary (Postgres projection-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignAnalytics)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getCampaignAnalytics)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2784,9 +2903,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get campaign analytics funnel (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignFunnel)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getCampaignFunnel)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2796,9 +2915,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get campaign analytics time series (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignTimeSeries)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getCampaignTimeSeries)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2808,9 +2927,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get campaign analytics breakdown (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignBreakdown)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getCampaignBreakdown)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2820,9 +2939,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "List campaign analytics events (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignEvents)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getCampaignEvents)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2832,9 +2951,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get deliverability analytics (Postgres projection-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverability)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getDeliverability)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2844,9 +2963,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get deliverability time series (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverabilityTimeSeries)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getDeliverabilityTimeSeries)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2856,9 +2975,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get deliverability breakdown (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverabilityBreakdown)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getDeliverabilityBreakdown)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2868,9 +2987,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get deliverability latency percentiles (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverabilityLatency)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getDeliverabilityLatency)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2880,9 +2999,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get deliverability incident windows (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDeliverabilityIncidents)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getDeliverabilityIncidents)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2892,9 +3011,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Search analytics events across the workspace (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.searchEvents)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.searchEvents)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2904,9 +3023,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get message event timeline (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsMessagePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsMessagePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getMessageTimeline)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getMessageTimeline)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2916,9 +3035,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get provider event trace (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsProviderEventPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsProviderEventPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getProviderEventTrace)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getProviderEventTrace)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2928,9 +3047,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get campaign incident timeline (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsCampaignPathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getCampaignIncidentTimeline)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getCampaignIncidentTimeline)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2940,9 +3059,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get outbox lag analytics (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getOutboxLag)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getOutboxLag)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2952,9 +3071,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get consumer failure analytics (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getConsumerFailures)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getConsumerFailures)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2964,9 +3083,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get dead letter queue volume analytics (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getDLQVolume)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getDLQVolume)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2976,9 +3095,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get webhook delivery time series (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getWebhookDeliveryTimeSeries)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getWebhookDeliveryTimeSeries)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -2988,9 +3107,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get webhook delivery reliability (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getWebhookReliability)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getWebhookReliability)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3000,9 +3119,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get workspace usage time series (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getUsageTimeSeries)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getUsageTimeSeries)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3012,9 +3131,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get workspace feature adoption metrics (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getUsageFeatures)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getUsageFeatures)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3024,9 +3143,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get workspace risk signals (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getRiskSignals)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getRiskSignals)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3036,9 +3155,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get send volume forecast (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getSendVolumeForecast)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getSendVolumeForecast)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3048,9 +3167,9 @@ func registerAnalyticsOperations(api huma.API, analytics *analyticsHTTP, authMid
 		Tags:        []string{"Analytics"},
 		Summary:     "Get workspace anomaly detections (ClickHouse-backed).",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*emptyOutput, error) {
+	}, authMiddleware), func(ctx context.Context, input *analyticsWorkspacePathInput) (*genericMapOutput, error) {
 		_ = input
-		return delegateHTTP[emptyOutput](ctx, nil, analytics.getAnomalies)
+		return delegateHTTP[genericMapOutput](ctx, nil, analytics.getAnomalies)
 	})
 
 }
@@ -3249,6 +3368,31 @@ func auditErrorCodes() map[int][]string {
 	}
 }
 
+type outboxSummaryOutput struct {
+	Body successEnvelopeDoc[outboxSummaryResponseDoc]
+}
+type outboxRecordListOutput struct {
+	Body successEnvelopeDoc[outboxRecordListResponse]
+}
+type outboxRecordDetailOutput struct {
+	Body successEnvelopeDoc[outboxRecordDetailResponse]
+}
+type deadLetterListOutput struct {
+	Body successEnvelopeDoc[deadLetterRecordListResponse]
+}
+type deadLetterDetailOutput struct {
+	Body successEnvelopeDoc[deadLetterRecordDetailResponse]
+}
+type replayJobDetailOutput struct {
+	Body successEnvelopeDoc[replayJobDetailDoc]
+}
+type replayJobListOutput struct {
+	Body successEnvelopeDoc[replayJobListResponse]
+}
+type replayJobGetOutput struct {
+	Body successEnvelopeDoc[replayJobDetailResponse]
+}
+
 func registerOperationsRoutes(api huma.API, ops *operationsHTTP, authMiddleware func(huma.Context, func(huma.Context))) {
 	tag := []string{"Operations"}
 
@@ -3259,8 +3403,8 @@ func registerOperationsRoutes(api huma.API, ops *operationsHTTP, authMiddleware 
 		Tags:        tag,
 		Summary:     "Get outbox summary for a workspace",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, nil, ops.getOutboxSummary)
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*outboxSummaryOutput, error) {
+		return delegateHTTP[outboxSummaryOutput](ctx, nil, ops.getOutboxSummary)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3270,8 +3414,8 @@ func registerOperationsRoutes(api huma.API, ops *operationsHTTP, authMiddleware 
 		Tags:        tag,
 		Summary:     "List outbox events for a workspace",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, nil, ops.listOutboxRecords)
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*outboxRecordListOutput, error) {
+		return delegateHTTP[outboxRecordListOutput](ctx, nil, ops.listOutboxRecords)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3281,8 +3425,8 @@ func registerOperationsRoutes(api huma.API, ops *operationsHTTP, authMiddleware 
 		Tags:        tag,
 		Summary:     "Get outbox event details",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, nil, ops.getOutboxRecord)
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*outboxRecordDetailOutput, error) {
+		return delegateHTTP[outboxRecordDetailOutput](ctx, nil, ops.getOutboxRecord)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3292,8 +3436,8 @@ func registerOperationsRoutes(api huma.API, ops *operationsHTTP, authMiddleware 
 		Tags:        tag,
 		Summary:     "List dead letter records for a workspace",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, nil, ops.listDeadLetterRecords)
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*deadLetterListOutput, error) {
+		return delegateHTTP[deadLetterListOutput](ctx, nil, ops.listDeadLetterRecords)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3303,8 +3447,8 @@ func registerOperationsRoutes(api huma.API, ops *operationsHTTP, authMiddleware 
 		Tags:        tag,
 		Summary:     "Get dead letter record details",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, nil, ops.getDeadLetterRecord)
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*deadLetterDetailOutput, error) {
+		return delegateHTTP[deadLetterDetailOutput](ctx, nil, ops.getDeadLetterRecord)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3315,8 +3459,8 @@ func registerOperationsRoutes(api huma.API, ops *operationsHTTP, authMiddleware 
 		Summary:       "Create a replay job",
 		DefaultStatus: http.StatusCreated,
 		Errors:        documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, nil, ops.createReplayJob)
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*replayJobDetailOutput, error) {
+		return delegateHTTP[replayJobDetailOutput](ctx, nil, ops.createReplayJob)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3326,8 +3470,8 @@ func registerOperationsRoutes(api huma.API, ops *operationsHTTP, authMiddleware 
 		Tags:        tag,
 		Summary:     "List replay jobs for a workspace",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, nil, ops.listReplayJobs)
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*replayJobListOutput, error) {
+		return delegateHTTP[replayJobListOutput](ctx, nil, ops.listReplayJobs)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
@@ -3337,8 +3481,8 @@ func registerOperationsRoutes(api huma.API, ops *operationsHTTP, authMiddleware 
 		Tags:        tag,
 		Summary:     "Get replay job details",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*emptyOutput, error) {
-		return delegateHTTP[emptyOutput](ctx, nil, ops.getReplayJob)
+	}, authMiddleware), func(ctx context.Context, _ *struct{}) (*replayJobGetOutput, error) {
+		return delegateHTTP[replayJobGetOutput](ctx, nil, ops.getReplayJob)
 	})
 }
 
@@ -3445,9 +3589,9 @@ func registerNotificationOperations(api huma.API, notification *notificationHTTP
 		Tags:        []string{"Notifications"},
 		Summary:     "Get notification message with attempts",
 		Errors:      documentedErrorStatuses(),
-	}, authMiddleware), func(ctx context.Context, input *notificationPathInput) (*notificationDetailDoc, error) {
+	}, authMiddleware), func(ctx context.Context, input *notificationPathInput) (*notificationAlertOutput, error) {
 		_ = input
-		return delegateHTTP[notificationDetailDoc](ctx, nil, notification.getNotificationStatus)
+		return delegateHTTP[notificationAlertOutput](ctx, nil, notification.getNotificationStatus)
 	})
 
 	huma.Register(api, protectedOperation(huma.Operation{
