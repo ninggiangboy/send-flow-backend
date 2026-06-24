@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	emailtemplates "github.com/ninggiangboy/send-flow/backend/internal/templates/email"
+
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app/shared"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/ports"
@@ -65,9 +67,10 @@ func (h *WelcomeHandler) Execute(ctx context.Context, input domain.SendWelcomeEm
 	now := time.Now().UTC()
 	msgID := shared.MustID(h.idGen)
 
-	subject := WelcomeEmailSubject()
-	textBody := WelcomeEmailTextBody(input.FrontendBaseURL)
-	htmlBody := WelcomeEmailHTMLBody(input.FrontendBaseURL)
+	subject, textBody, htmlBody, err := emailtemplates.RenderWelcomeEmail(input.FrontendBaseURL)
+	if err != nil {
+		return nil, err
+	}
 
 	msg := domain.NotificationMessage{
 		ID:              msgID,

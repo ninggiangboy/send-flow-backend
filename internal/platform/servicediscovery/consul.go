@@ -90,11 +90,11 @@ func consulServiceTags(cfg config.ServiceDiscoveryConfig) []string {
 		"traefik.enable=true",
 		"traefik.http.routers.sendflow-api.entrypoints=web",
 		"traefik.http.routers.sendflow-api.rule=PathPrefix(`/api/`) || Path(`/openapi.json`) || PathPrefix(`/o/`) || PathPrefix(`/t/`) || PathPrefix(`/u/`)",
-		"traefik.http.routers.sendflow-api.middlewares=sendflow-security@file,sendflow-ratelimit@file",
+		"traefik.http.routers.sendflow-api.middlewares=sendflow-security@file,sendflow-cors@file,sendflow-ratelimit@file",
 		"traefik.http.routers.sendflow-auth.entrypoints=web",
 		"traefik.http.routers.sendflow-auth.rule=Path(`/api/v1/auth/signup`) || Path(`/api/v1/auth/login`) || Path(`/api/v1/auth/login/mfa`) || Path(`/api/v1/auth/password/forgot`) || Path(`/api/v1/auth/password/reset`) || PathPrefix(`/api/v1/auth/oauth/`)",
 		"traefik.http.routers.sendflow-auth.priority=100",
-		"traefik.http.routers.sendflow-auth.middlewares=sendflow-security@file,sendflow-auth-ratelimit@file",
+		"traefik.http.routers.sendflow-auth.middlewares=sendflow-security@file,sendflow-cors@file,sendflow-auth-ratelimit@file",
 	)
 }
 

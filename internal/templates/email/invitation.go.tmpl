@@ -1,0 +1,24 @@
+{{define "invitation_subject"}}You've been invited to join a workspace on SendFlow{{end}}
+
+{{define "invitation_textBody"}}You've been invited to join a workspace on SendFlow!
+
+{{.InviterEmail}} has invited you to join the workspace "{{.WorkspaceName}}" with the role of "{{.Role}}".
+
+Click the link below to accept the invitation and get started:
+{{.InvitationsURL}}
+
+If you don't have an account yet, you'll be prompted to create one.
+
+Best,
+The SendFlow Team{{end}}
+
+{{define "invitation_htmlBody"}}<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; padding: 20px;">
+<h2>You've been invited to join a workspace!</h2>
+<p>{{.InviterEmail}} has invited you to join the workspace <strong>"{{.WorkspaceName}}"</strong> with the role of <strong>"{{.Role}}"</strong>.</p>
+<p><a href="{{.InvitationsURL}}" style="display: inline-block; padding: 12px 24px; background-color: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 6px;">Accept invitation</a></p>
+<p>If you don't have an account yet, you'll be prompted to create one.</p>
+<p>Best,<br>The SendFlow Team</p>
+</body>
+</html>{{end}}

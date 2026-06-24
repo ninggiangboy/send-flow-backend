@@ -2,9 +2,10 @@ package shared
 
 import (
 	"context"
-	"fmt"
 	"net/url"
 	"strings"
+
+	emailtemplates "github.com/ninggiangboy/send-flow/backend/internal/templates/email"
 
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/identity/ports"
 )
@@ -36,11 +37,11 @@ func (s *NotificationService) BuildURL(path, token string) string {
 	return u.String()
 }
 
-func (s *NotificationService) SendEmail(ctx context.Context, to, subject, body string) error {
+func (s *NotificationService) SendEmail(ctx context.Context, to, subject, text, html string) error {
 	if s.mailSender == nil {
 		return nil
 	}
-	return s.mailSender.Send(ctx, []string{to}, subject, body, body)
+	return s.mailSender.Send(ctx, []string{to}, subject, text, html)
 }
 
 func (s *NotificationService) BuildEmailVerificationLink(token string) string {
@@ -48,7 +49,11 @@ func (s *NotificationService) BuildEmailVerificationLink(token string) string {
 }
 
 func (s *NotificationService) SendVerificationEmail(ctx context.Context, to, link string) error {
-	return s.SendEmail(ctx, to, "Verify your email", VerificationEmailBody(link))
+	subject, text, html, err := emailtemplates.RenderVerificationEmail(link)
+	if err != nil {
+		return err
+	}
+	return s.SendEmail(ctx, to, subject, text, html)
 }
 
 func (s *NotificationService) BuildPasswordResetLink(token string) string {
@@ -56,13 +61,9 @@ func (s *NotificationService) BuildPasswordResetLink(token string) string {
 }
 
 func (s *NotificationService) SendPasswordResetEmail(ctx context.Context, to, link string) error {
-	return s.SendEmail(ctx, to, "Reset your password", PasswordResetEmailBody(link))
-}
-
-func VerificationEmailBody(link string) string {
-	return fmt.Sprintf("Verify your email by opening this link: %s", link)
-}
-
-func PasswordResetEmailBody(link string) string {
-	return fmt.Sprintf("Reset your password by opening this link: %s", link)
+	subject, text, html, err := emailtemplates.RenderPasswordResetEmail(link)
+	if err != nil {
+		return err
+	}
+	return s.SendEmail(ctx, to, subject, text, html)
 }

@@ -1,33 +1,23 @@
-package send
+{{define "welcome_subject"}}Welcome to SendFlow!{{end}}
 
-import "fmt"
-
-func WelcomeEmailSubject() string {
-	return "Welcome to SendFlow!"
-}
-
-func WelcomeEmailTextBody(frontendBaseURL string) string {
-	return fmt.Sprintf(`Welcome to SendFlow!
+{{define "welcome_textBody"}}Welcome to SendFlow!
 
 We're excited to have you on board. SendFlow helps you create, send, and track email campaigns with ease.
 
-Get started by visiting your dashboard: %s
+Get started by visiting your dashboard: {{.DashboardURL}}
 
 If you have any questions, feel free to reach out to our support team.
 
 Best,
-The SendFlow Team`, frontendBaseURL+"/dashboard")
-}
+The SendFlow Team{{end}}
 
-func WelcomeEmailHTMLBody(frontendBaseURL string) string {
-	return fmt.Sprintf(`<!DOCTYPE html>
+{{define "welcome_htmlBody"}}<!DOCTYPE html>
 <html>
 <body style="font-family: Arial, sans-serif; padding: 20px;">
 <h2>Welcome to SendFlow!</h2>
 <p>We're excited to have you on board. SendFlow helps you create, send, and track email campaigns with ease.</p>
-<p><a href="%s/dashboard">Visit your dashboard</a> to get started.</p>
+<p><a href="{{.DashboardURL}}" style="display: inline-block; padding: 12px 24px; background-color: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 6px;">Visit your dashboard</a></p>
 <p>If you have any questions, feel free to reach out to our support team.</p>
 <p>Best,<br>The SendFlow Team</p>
 </body>
-</html>`, frontendBaseURL)
-}
+</html>{{end}}

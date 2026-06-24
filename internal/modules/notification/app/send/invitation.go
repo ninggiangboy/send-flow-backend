@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	emailtemplates "github.com/ninggiangboy/send-flow/backend/internal/templates/email"
+
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/app/shared"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/domain"
 	"github.com/ninggiangboy/send-flow/backend/internal/modules/notification/ports"
@@ -67,9 +69,10 @@ func (h *InvitationHandler) Execute(ctx context.Context, input domain.SendInvita
 
 	workspaceName := input.WorkspaceID
 
-	subject := InvitationEmailSubject()
-	textBody := InvitationEmailTextBody(input.InvitedByEmail, workspaceName, input.Role, input.FrontendBaseURL)
-	htmlBody := InvitationEmailHTMLBody(input.InvitedByEmail, workspaceName, input.Role, input.FrontendBaseURL)
+	subject, textBody, htmlBody, err := emailtemplates.RenderInvitationEmail(input.InvitedByEmail, workspaceName, input.Role, input.FrontendBaseURL)
+	if err != nil {
+		return nil, err
+	}
 
 	msg := domain.NotificationMessage{
 		ID:             msgID,

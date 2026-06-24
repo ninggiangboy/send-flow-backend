@@ -49,13 +49,13 @@ api:
 	sh -c 'mkdir -p $(LOG_DIR); if [ -f $(ENV_FILE) ]; then set -a; . $(ENV_FILE); set +a; fi; SERVICE_NAME=api INSTANCE_ID="$${INSTANCE_ID:-$${CONSUL_SERVICE_ID:-sendflow-api-local}}" INSTANCE_ADDR="$${INSTANCE_ADDR:-$${HTTP_ADDR:-:8081}}" go run ./cmd/api 2>&1 | tee -a $(LOG_DIR)/api.log'
 
 api-instance:
-	sh -c 'mkdir -p $(LOG_DIR); if [ -f $(ENV_FILE) ]; then set -a; . $(ENV_FILE); set +a; fi; SERVICE_NAME=api INSTANCE_ID="$${INSTANCE_ID:-sendflow-api-local-$(INSTANCE)}" INSTANCE_ADDR="$${INSTANCE_ADDR:-$(HTTP_ADDR)}" HTTP_ADDR="$(HTTP_ADDR)" CONSUL_SERVICE_ID="$(CONSUL_SERVICE_ID)" CONSUL_SERVICE_PORT="$(CONSUL_SERVICE_PORT)" go run ./cmd/api 2>&1 | tee -a $(LOG_DIR)/api-$(INSTANCE).log'
+	sh -c 'mkdir -p $(LOG_DIR); if [ -f $(ENV_FILE) ]; then set -a; . $(ENV_FILE); set +a; fi; LOG_LABEL="api[$(INSTANCE)]"; LOG_COLOR="\033[1;36m"; LOG_USE_COLOR=0; if [ -t 1 ]; then LOG_USE_COLOR=1; fi; SERVICE_NAME=api INSTANCE_ID="$${INSTANCE_ID:-sendflow-api-local-$(INSTANCE)}" INSTANCE_ADDR="$${INSTANCE_ADDR:-$(HTTP_ADDR)}" HTTP_ADDR="$(HTTP_ADDR)" CONSUL_SERVICE_ID="$(CONSUL_SERVICE_ID)" CONSUL_SERVICE_PORT="$(CONSUL_SERVICE_PORT)" go run ./cmd/api 2>&1 | tee -a $(LOG_DIR)/api-$(INSTANCE).log | sh ./scripts/format-local-log.sh "$$LOG_LABEL" "$$LOG_COLOR" "$$LOG_USE_COLOR"'
 
 worker:
 	sh -c 'mkdir -p $(LOG_DIR); if [ -f $(ENV_FILE) ]; then set -a; . $(ENV_FILE); set +a; fi; SERVICE_NAME=worker INSTANCE_ID="$${INSTANCE_ID:-$${CONSUL_WORKER_SERVICE_ID:-sendflow-worker-local}}" INSTANCE_ADDR="$${INSTANCE_ADDR:-$${WORKER_HTTP_ADDR:-:8082}}" CONSUL_WORKER_SERVICE_ID="$${CONSUL_WORKER_SERVICE_ID:-sendflow-worker-local}" go run ./cmd/worker 2>&1 | tee -a $(LOG_DIR)/worker.log'
 
 worker-instance:
-	sh -c 'mkdir -p $(LOG_DIR); if [ -f $(ENV_FILE) ]; then set -a; . $(ENV_FILE); set +a; fi; SERVICE_NAME=worker INSTANCE_ID="$${INSTANCE_ID:-sendflow-worker-local-$(INSTANCE)}" INSTANCE_ADDR="$${INSTANCE_ADDR:-$(WORKER_HTTP_ADDR)}" WORKER_HTTP_ADDR="$(WORKER_HTTP_ADDR)" CONSUL_WORKER_SERVICE_ID="$(CONSUL_WORKER_SERVICE_ID)" CONSUL_WORKER_SERVICE_PORT="$(CONSUL_WORKER_SERVICE_PORT)" go run ./cmd/worker 2>&1 | tee -a $(LOG_DIR)/worker-$(INSTANCE).log'
+	sh -c 'mkdir -p $(LOG_DIR); if [ -f $(ENV_FILE) ]; then set -a; . $(ENV_FILE); set +a; fi; LOG_LABEL="worker[$(INSTANCE)]"; LOG_COLOR="\033[1;33m"; LOG_USE_COLOR=0; if [ -t 1 ]; then LOG_USE_COLOR=1; fi; SERVICE_NAME=worker INSTANCE_ID="$${INSTANCE_ID:-sendflow-worker-local-$(INSTANCE)}" INSTANCE_ADDR="$${INSTANCE_ADDR:-$(WORKER_HTTP_ADDR)}" WORKER_HTTP_ADDR="$(WORKER_HTTP_ADDR)" CONSUL_WORKER_SERVICE_ID="$(CONSUL_WORKER_SERVICE_ID)" CONSUL_WORKER_SERVICE_PORT="$(CONSUL_WORKER_SERVICE_PORT)" go run ./cmd/worker 2>&1 | tee -a $(LOG_DIR)/worker-$(INSTANCE).log | sh ./scripts/format-local-log.sh "$$LOG_LABEL" "$$LOG_COLOR" "$$LOG_USE_COLOR"'
 
 build:
 	mkdir -p ./bin
